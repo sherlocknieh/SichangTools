@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1950
+// @version      2026.11.25.2129
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -230,6 +230,19 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
+/* 单段「重生成」放在整条播放键旁边：标出目标段号，未选中时不可点 */
+.itemHead .itemRegen {
+    height: 18px;
+    max-width: 64px;
+    padding: 0 5px;
+    border-radius: 5px;
+    color: #8a8a94;
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
 .menu {
     position: fixed;
     top: 0;
@@ -706,8 +719,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				for (const part of item.segments) {
 					const chosen = Boolean(segment && part === segment);
 					part.row.classList.toggle("selected", chosen);
-					part.regenButton.title = chosen ? "按输入框里的文本重生成" : "重生成这一段";
 				}
+				syncRegenSegmentButton(item);
 			}
 			updateComposeMeta();
 		}
@@ -1065,6 +1078,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			playButton.title = "播放整条";
 			playButton.setAttribute("aria-label", "播放整条");
 			playButton.disabled = true;
+			const regenSegmentButton = document.createElement("button");
+			regenSegmentButton.className = "itemRegen";
+			regenSegmentButton.textContent = "重生成";
+			regenSegmentButton.title = "先选中或展开一个分段";
+			regenSegmentButton.setAttribute("aria-label", "重生成选中分段");
+			regenSegmentButton.disabled = true;
 			const moreButton = document.createElement("button");
 			moreButton.className = "more";
 			moreButton.textContent = "⋯";
@@ -1087,7 +1106,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			deleteButton.className = "danger";
 			deleteButton.textContent = "删除";
 			menu.append(menuInfo, copyButton, regenButton, downloadButton, deleteButton);
-			head.append(meta, duration, spacer, segCount, playButton, moreButton);
+			head.append(meta, duration, spacer, segCount, playButton, regenSegmentButton, moreButton);
 			ui.panel.getRootNode().appendChild(menu);
 			const txt = document.createElement("div");
 			txt.className = "txt";
@@ -1104,6 +1123,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				duration,
 				segCount,
 				playButton,
+				regenSegmentButton,
 				moreButton,
 				menu,
 				downloadButton,
@@ -1112,6 +1132,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			playButton.addEventListener("click", (event) => {
 				event.stopPropagation();
 				toggleRecordPlayback(record);
+			});
+			regenSegmentButton.addEventListener("click", (event) => {
+				event.stopPropagation();
+				const segment = regenTargetSegment(record);
+				if (segment) regenerateSegment(record, segment);
 			});
 			moreButton.addEventListener("click", (event) => {
 				event.stopPropagation();
@@ -1164,6 +1189,44 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		function segmentIndex(record, segment) {
 			return record.segments.indexOf(segment);
 		}
+		function regenTargetSegment(record) {
+			const candidates = [
+				selection.record === record ? selection.segment : null,
+				record.expandedSegment,
+				record.chain?.segment,
+				record.chain?.waitingFor,
+				record.autoSegment
+			];
+			for (const segment of candidates) if (segment && record.segments.includes(segment)) return segment;
+			return null;
+		}
+		function syncRegenSegmentButton(record) {
+			const button = record.regenSegmentButton;
+			if (!button) return;
+			const segment = regenTargetSegment(record);
+			const index = segment ? segmentIndex(record, segment) + 1 : 0;
+			const allowed = record.state === "ready" || record.state === "playing" || record.state === "paused";
+			const busy = Boolean(segment?.busy);
+			button.disabled = !segment || !allowed || record.regenerating || busy || !segment.complete || !segment.bytes;
+			if (record.regenerating && busy) {
+				button.textContent = "重生成中";
+				button.title = `正在重生成第 ${index} 段`;
+				return;
+			}
+			button.textContent = segment ? `重生成 ${index}` : "重生成";
+			if (!segment) button.title = "先选中或展开一个分段";
+			else if (selection.record === record && selection.segment === segment) button.title = `按输入框里的文本重生成第 ${index} 段`;
+			else button.title = `重生成第 ${index} 段`;
+		}
+		function flashRegenSegmentButton(record, message) {
+			const button = record.regenSegmentButton;
+			if (!button) return;
+			button.textContent = message;
+			clearTimeout(button.flashTimer);
+			button.flashTimer = setTimeout(() => {
+				if (button.textContent === message) refreshSegmentControls(record);
+			}, 1500);
+		}
 		function segmentSpans(record) {
 			const starts = [];
 			let total = 0;
@@ -1211,12 +1274,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			const playable = record.state !== "failed";
 			for (const segment of record.segments) {
 				segment.playButton.disabled = !playable || segment.busy || !segment.complete || !segment.bytes;
-				segment.regenButton.disabled = record.state !== "ready" || record.regenerating || segment.busy;
 				segment.copyButton.disabled = !segment.text;
 				segment.downloadButton.disabled = !segment.bytes || segment.busy;
 				if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
 			}
 			syncRecordPlayButton(record);
+			syncRegenSegmentButton(record);
 		}
 		function setSegmentLabel(segment, text) {
 			segment.text = text;
@@ -1267,6 +1330,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (segment.mode !== "live" && segment.audio && Number.isFinite(segment.audio.duration) && segment.audio.duration) updateSegmentTime(record, segment, segment.audio.currentTime, segment.audio.duration);
 			if (switching) keepSegmentVisible(segment);
 			syncSegmentPanel(record, segment);
+			syncRegenSegmentButton(record);
 		}
 		function closeSegmentPanel(record, segment) {
 			if (!segment) return;
@@ -1275,6 +1339,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			segment.row.setAttribute("aria-expanded", "false");
 			updateSegmentTime(record, segment, 0, segment.bytes / 2 / sampleRateOf(record));
 			if (record.expandedSegment === segment) record.expandedSegment = null;
+			syncRegenSegmentButton(record);
 		}
 		function keepSegmentVisible(segment) {
 			const body = ui.body;
@@ -1326,7 +1391,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				segment.replayButton.hidden = false;
 				segment.replayButton.disabled = !enabled;
 			}
-			segment.regenButton.disabled = record.state !== "ready" || record.regenerating || segment.busy;
 			segment.copyButton.disabled = !segment.text;
 			segment.downloadButton.disabled = !segment.bytes || segment.busy;
 		}
@@ -1391,11 +1455,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			const replayButton = document.createElement("button");
 			replayButton.className = "segAction";
 			replayButton.textContent = "重播";
-			const regenButton = document.createElement("button");
-			regenButton.className = "segAction";
-			regenButton.textContent = "重生成";
-			regenButton.title = "重生成这一段";
-			regenButton.disabled = true;
 			const copyButton = document.createElement("button");
 			copyButton.className = "segAction";
 			copyButton.textContent = "复制";
@@ -1403,7 +1462,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			downloadButton.className = "segAction";
 			downloadButton.textContent = "下载";
 			downloadButton.disabled = true;
-			controls.append(timeEl, toggleButton, stopButton, synthButton, replayButton, regenButton, copyButton, downloadButton);
+			controls.append(timeEl, toggleButton, stopButton, synthButton, replayButton, copyButton, downloadButton);
 			panel.append(bar, controls);
 			row.append(idx, label, segDuration, playButton, caret);
 			box.append(row, panel);
@@ -1425,7 +1484,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				stopButton,
 				synthButton,
 				replayButton,
-				regenButton,
 				copyButton,
 				downloadButton
 			});
@@ -1481,7 +1539,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				}
 				playChainSegment(record, segment);
 			});
-			regenButton.addEventListener("click", () => regenerateSegment(record, segment));
 			copyButton.addEventListener("click", () => copyRecordText(segment.text, copyButton, "复制"));
 			downloadButton.addEventListener("click", () => downloadSegment(record, segment));
 			bar.addEventListener("click", (event) => {
@@ -1683,13 +1740,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.downloadButton.disabled = false;
 		}
 		async function regenerateSegment(record, segment) {
-			if (segment.busy || record.regenerating) return;
+			if (!segment || !records.includes(record) || segment.busy || record.regenerating) return;
 			const text = (selection.record === record && selection.segment === segment ? ui.input.value : segment.text).trim();
 			if (!text) {
-				segment.regenButton.textContent = "文本为空";
-				setTimeout(() => {
-					if (segment.regenButton.textContent === "文本为空") segment.regenButton.textContent = "重生成";
-				}, 1500);
+				flashRegenSegmentButton(record, "文本为空");
 				return;
 			}
 			if (record.state === "playing" || record.state === "paused") stopTimeline(record);
@@ -1699,10 +1753,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				openSegmentPanel(record, segment, "segment");
 			}
 			segment.busy = true;
-			segment.regenButton.textContent = "重生成中";
 			record.regenerating = true;
 			refreshSegmentControls(record);
-			let ok = false;
+			let failed = false;
 			try {
 				const response = await window.fetch(TTS_PATH, {
 					method: "POST",
@@ -1745,17 +1798,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				}
 				setSegmentState(record, segment, "done");
 				rebuildRecord(record);
-				ok = true;
 			} catch (error) {
-				segment.regenButton.textContent = "失败";
-				setTimeout(() => {
-					if (segment.regenButton.textContent === "失败") segment.regenButton.textContent = "重生成";
-				}, 1500);
+				failed = true;
 			} finally {
 				segment.busy = false;
 				record.regenerating = false;
-				if (ok) segment.regenButton.textContent = "重生成";
 				refreshSegmentControls(record);
+				if (failed) flashRegenSegmentButton(record, "失败");
 			}
 		}
 		function updateProgress(record, done, total) {

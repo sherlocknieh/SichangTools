@@ -340,8 +340,8 @@ export default function initSichangHandler() {
             for (const part of item.segments) {
                 const chosen = Boolean(segment && part === segment);
                 part.row.classList.toggle('selected', chosen);
-                part.regenButton.title = chosen ? '按输入框里的文本重生成' : '重生成这一段';
             }
+            syncRegenSegmentButton(item);
         }
         updateComposeMeta();
     }
@@ -703,8 +703,8 @@ export default function initSichangHandler() {
         updateCount();
     }
 
-    // 记录头只做收纳：时间、时长/合成进度、段数和「更多」菜单。
-    // 播放与控制都挂在分段子条目上，整条不再有自己的播放按钮
+    // 记录头只做收纳：时间、时长/合成进度、段数、整条播放和单段重生成入口。
+    // 每段播放与控制挂在分段子条目上
     function beginRecord(text, tts) {
         const record = {
             text,
@@ -744,6 +744,13 @@ export default function initSichangHandler() {
         playButton.title = '播放整条';
         playButton.setAttribute('aria-label', '播放整条');
         playButton.disabled = true;
+        // 单段重生成紧挨播放键：目标是选中、展开或正在播放的那一段
+        const regenSegmentButton = document.createElement('button');
+        regenSegmentButton.className = 'itemRegen';
+        regenSegmentButton.textContent = '重生成';
+        regenSegmentButton.title = '先选中或展开一个分段';
+        regenSegmentButton.setAttribute('aria-label', '重生成选中分段');
+        regenSegmentButton.disabled = true;
         const moreButton = document.createElement('button');
         moreButton.className = 'more';
         moreButton.textContent = '⋯';
@@ -768,7 +775,7 @@ export default function initSichangHandler() {
         deleteButton.className = 'danger';
         deleteButton.textContent = '删除';
         menu.append(menuInfo, copyButton, regenButton, downloadButton, deleteButton);
-        head.append(meta, duration, spacer, segCount, playButton, moreButton);
+        head.append(meta, duration, spacer, segCount, playButton, regenSegmentButton, moreButton);
         // 挂到 shadow root 而不是面板内，菜单才能盖出滚动区
         ui.panel.getRootNode().appendChild(menu);
 
@@ -784,11 +791,19 @@ export default function initSichangHandler() {
         row.append(head, txt, segList);
         ui.list.insertBefore(row, ui.list.firstChild);
 
-        Object.assign(record, { row, head, txt, duration, segCount, playButton, moreButton, menu, downloadButton, segList });
+        Object.assign(record, {
+            row, head, txt, duration, segCount, playButton, regenSegmentButton,
+            moreButton, menu, downloadButton, segList,
+        });
 
         playButton.addEventListener('click', event => {
             event.stopPropagation();
             toggleRecordPlayback(record);
+        });
+        regenSegmentButton.addEventListener('click', event => {
+            event.stopPropagation();
+            const segment = regenTargetSegment(record);
+            if (segment) regenerateSegment(record, segment);
         });
         moreButton.addEventListener('click', event => {
             event.stopPropagation();
@@ -847,6 +862,56 @@ export default function initSichangHandler() {
         return record.segments.indexOf(segment);
     }
 
+    // 记录头「重生成」要作用在哪一段：优先用户选中的段，其次是展开/正在播放的段
+    function regenTargetSegment(record) {
+        const candidates = [
+            selection.record === record ? selection.segment : null,
+            record.expandedSegment,
+            record.chain?.segment,
+            record.chain?.waitingFor,
+            record.autoSegment,
+        ];
+        for (const segment of candidates) {
+            if (segment && record.segments.includes(segment)) return segment;
+        }
+        return null;
+    }
+
+    function syncRegenSegmentButton(record) {
+        const button = record.regenSegmentButton;
+        if (!button) return;
+        const segment = regenTargetSegment(record);
+        const index = segment ? segmentIndex(record, segment) + 1 : 0;
+        // 播放/暂停时也允许重生成：点击后会先停掉时间线或目标段的播放
+        const allowed = record.state === 'ready' || record.state === 'playing' || record.state === 'paused';
+        const busy = Boolean(segment?.busy);
+        button.disabled = !segment || !allowed || record.regenerating || busy
+            || !segment.complete || !segment.bytes;
+        if (record.regenerating && busy) {
+            button.textContent = '重生成中';
+            button.title = `正在重生成第 ${index} 段`;
+            return;
+        }
+        button.textContent = segment ? `重生成 ${index}` : '重生成';
+        if (!segment) {
+            button.title = '先选中或展开一个分段';
+        } else if (selection.record === record && selection.segment === segment) {
+            button.title = `按输入框里的文本重生成第 ${index} 段`;
+        } else {
+            button.title = `重生成第 ${index} 段`;
+        }
+    }
+
+    function flashRegenSegmentButton(record, message) {
+        const button = record.regenSegmentButton;
+        if (!button) return;
+        button.textContent = message;
+        clearTimeout(button.flashTimer);
+        button.flashTimer = setTimeout(() => {
+            if (button.textContent === message) refreshSegmentControls(record);
+        }, 1500);
+    }
+
     // 分段顺序就是播放顺序；把累计字节约成秒数，用来判断当前播到哪一段
     function segmentSpans(record) {
         const starts = [];
@@ -894,17 +959,17 @@ export default function initSichangHandler() {
     }
 
     // 分段按钮的可用性只看这一段自己的状态：一完成就能点，不必等整条合成结束。
-    // 重生成只锁目标段（busy）和所有「重生成」按钮；其他段 PCM 独立，仍可照常播放
+    // 重生成只锁目标段（busy）；其他段 PCM 独立，仍可照常播放
     function refreshSegmentControls(record) {
         const playable = record.state !== 'failed';
         for (const segment of record.segments) {
             segment.playButton.disabled = !playable || segment.busy || !segment.complete || !segment.bytes;
-            segment.regenButton.disabled = record.state !== 'ready' || record.regenerating || segment.busy;
             segment.copyButton.disabled = !segment.text;
             segment.downloadButton.disabled = !segment.bytes || segment.busy;
             if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
         }
         syncRecordPlayButton(record);
+        syncRegenSegmentButton(record);
     }
 
     function setSegmentLabel(segment, text) {
@@ -971,6 +1036,7 @@ export default function initSichangHandler() {
         }
         if (switching) keepSegmentVisible(segment);
         syncSegmentPanel(record, segment);
+        syncRegenSegmentButton(record);
     }
 
     function closeSegmentPanel(record, segment) {
@@ -980,6 +1046,7 @@ export default function initSichangHandler() {
         segment.row.setAttribute('aria-expanded', 'false');
         updateSegmentTime(record, segment, 0, segment.bytes / 2 / sampleRateOf(record));
         if (record.expandedSegment === segment) record.expandedSegment = null;
+        syncRegenSegmentButton(record);
     }
 
     // 让正在播放的分段留在列表可视区里，但不打断用户自己滚动
@@ -1035,7 +1102,6 @@ export default function initSichangHandler() {
             segment.replayButton.hidden = false;
             segment.replayButton.disabled = !enabled;
         }
-        segment.regenButton.disabled = record.state !== 'ready' || record.regenerating || segment.busy;
         segment.copyButton.disabled = !segment.text;
         segment.downloadButton.disabled = !segment.bytes || segment.busy;
     }
@@ -1105,11 +1171,6 @@ export default function initSichangHandler() {
         const replayButton = document.createElement('button');
         replayButton.className = 'segAction';
         replayButton.textContent = '重播';
-        const regenButton = document.createElement('button');
-        regenButton.className = 'segAction';
-        regenButton.textContent = '重生成';
-        regenButton.title = '重生成这一段';
-        regenButton.disabled = true;
         const copyButton = document.createElement('button');
         copyButton.className = 'segAction';
         copyButton.textContent = '复制';
@@ -1117,7 +1178,7 @@ export default function initSichangHandler() {
         downloadButton.className = 'segAction';
         downloadButton.textContent = '下载';
         downloadButton.disabled = true;
-        controls.append(timeEl, toggleButton, stopButton, synthButton, replayButton, regenButton, copyButton, downloadButton);
+        controls.append(timeEl, toggleButton, stopButton, synthButton, replayButton, copyButton, downloadButton);
         panel.append(bar, controls);
 
         row.append(idx, label, segDuration, playButton, caret);
@@ -1127,7 +1188,7 @@ export default function initSichangHandler() {
         Object.assign(segment, {
             box, row, idx, label, durationEl: segDuration, playButton, caret,
             panel, bar, fill, timeEl, toggleButton, stopButton, synthButton, replayButton,
-            regenButton, copyButton, downloadButton,
+            copyButton, downloadButton,
         });
         setSegmentLabel(segment, text);
         renumberSegments(record);
@@ -1183,7 +1244,6 @@ export default function initSichangHandler() {
             }
             playChainSegment(record, segment);
         });
-        regenButton.addEventListener('click', () => regenerateSegment(record, segment));
         copyButton.addEventListener('click', () => copyRecordText(segment.text, copyButton, '复制'));
         downloadButton.addEventListener('click', () => downloadSegment(record, segment));
         // 分段进度条自己跳转；还没播过时按需建 audio，停在目标位置
@@ -1406,18 +1466,15 @@ export default function initSichangHandler() {
         record.downloadButton.disabled = false;
     }
 
-    // 单独重生成一段：替换它的 PCM，再重建整条 WAV。只在 ready 状态可用，
-    // 避免和正在进行的合成/时间线播放互相踩数据
+    // 单独重生成一段：替换它的 PCM，再重建整条 WAV。合成进行中不可用；
+    // 播放/暂停时会先停掉时间线或目标段，避免和替换数据互相踩
     async function regenerateSegment(record, segment) {
-        if (segment.busy || record.regenerating) return;
+        if (!segment || !records.includes(record) || segment.busy || record.regenerating) return;
         // 选中这一段时以输入框里的文本为准；否则仍用这一段保存的原文
         const editing = selection.record === record && selection.segment === segment;
         const text = (editing ? ui.input.value : segment.text).trim();
         if (!text) {
-            segment.regenButton.textContent = '文本为空';
-            setTimeout(() => {
-                if (segment.regenButton.textContent === '文本为空') segment.regenButton.textContent = '重生成';
-            }, 1500);
+            flashRegenSegmentButton(record, '文本为空');
             return;
         }
         // 时间线还在播（或暂停）时直接重生成：先停下播放再替换，不留下旧声音
@@ -1429,13 +1486,12 @@ export default function initSichangHandler() {
             stopChain(record);
             openSegmentPanel(record, segment, 'segment');
         }
-        // 先标目标段 busy 再刷新，保证它自己的播放/重生成按钮立即锁上，
+        // 先标目标段 busy 再刷新，保证它自己的播放键和记录头「重生成」立即锁上，
         // 其他段仍保持可播
         segment.busy = true;
-        segment.regenButton.textContent = '重生成中';
         record.regenerating = true;
         refreshSegmentControls(record);
-        let ok = false;
+        let failed = false;
         try {
             const response = await window.fetch(TTS_PATH, {
                 method: 'POST',
@@ -1480,17 +1536,13 @@ export default function initSichangHandler() {
             // 被跳过或失败的段重生成成功后也要恢复成可播状态
             setSegmentState(record, segment, 'done');
             rebuildRecord(record);
-            ok = true;
         } catch (error) {
-            segment.regenButton.textContent = '失败';
-            setTimeout(() => {
-                if (segment.regenButton.textContent === '失败') segment.regenButton.textContent = '重生成';
-            }, 1500);
+            failed = true;
         } finally {
             segment.busy = false;
             record.regenerating = false;
-            if (ok) segment.regenButton.textContent = '重生成';
             refreshSegmentControls(record);
+            if (failed) flashRegenSegmentButton(record, '失败');
         }
     }
 

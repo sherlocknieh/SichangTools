@@ -153,6 +153,19 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
+/* 单段「重生成」放在整条播放键旁边：标出目标段号，未选中时不可点 */
+.itemHead .itemRegen {
+    height: 18px;
+    max-width: 64px;
+    padding: 0 5px;
+    border-radius: 5px;
+    color: #8a8a94;
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
 .menu {
     position: fixed;
     top: 0;
