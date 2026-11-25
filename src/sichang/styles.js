@@ -153,6 +153,18 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
+/* 整条重生成：原地逐段重合成，和逐段图标同一套旋转反馈 */
+.itemHead .itemRegen {
+    width: 20px;
+    height: 18px;
+    padding: 0;
+    border-radius: 5px;
+    color: #a9a9b3;
+    font-size: 13px;
+    line-height: 18px;
+}
+.itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemRegen.busy { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
 .menu {
     position: fixed;

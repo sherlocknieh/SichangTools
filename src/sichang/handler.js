@@ -9,7 +9,6 @@ import {
     PANEL_ID,
     DEFAULT_SAMPLE_RATE,
     MAX_RECORDS,
-    MAX_SEGMENT_CHARS,
     MAX_ATTEMPTS,
     MAX_PCM_BYTES,
     SEGMENT_HEADER,
@@ -26,6 +25,15 @@ import {
 import { VOICE_GROUPS, VOICE_LABELS, DEFAULT_VOICE } from './voices.js';
 import { PANEL_CSS } from './styles.js';
 import { pcmToWav, pcmToSamples, joinedPcm } from './audio.js';
+import {
+    formatDuration,
+    formatRate,
+    formatSegmentDuration,
+    previewText,
+    splitText,
+    splitInHalf,
+} from './text.js';
+import { createRegenerator } from './regenerate.js';
 
 function createPanel() {
     const host = document.createElement('div');
@@ -103,17 +111,6 @@ function createPanel() {
 
 
 
-function formatDuration(seconds) {
-    const total = Math.max(0, Math.round(seconds));
-    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
-}
-
-function formatRate(rate) {
-    const value = Number(rate);
-    if (!Number.isFinite(value) || value <= 0) return '1×';
-    return `${Math.round(value * 10) / 10}×`;
-}
-
 // 剪贴板 API 在非安全上下文或权限被拒时不可用，退回临时 textarea
 function copyRecordText(text, button, idle = '复制') {
     const done = () => {
@@ -141,44 +138,6 @@ function copyRecordText(text, button, idle = '复制') {
     } else {
         fallback();
     }
-}
-
-function previewText(text) {
-    return text.replace(/\[[^\]]{1,10}\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
-}
-
-
-// 先按句末标点和换行切开，再把短句攒到接近上限，避免一句话被硬生生截断
-function splitText(text) {
-    const normalized = String(text || '').replace(/\r/g, '').trim();
-    if (!normalized) return [];
-    const parts = normalized.split(/(?<=[。！？!?；;…\n])/).filter(part => part.trim());
-    const chunks = [];
-    let current = '';
-    const flush = () => {
-        if (current.trim()) chunks.push(current.trim());
-        current = '';
-    };
-    for (let part of parts) {
-        while (part.length > MAX_SEGMENT_CHARS) {
-            flush();
-            chunks.push(part.slice(0, MAX_SEGMENT_CHARS));
-            part = part.slice(MAX_SEGMENT_CHARS);
-        }
-        if (current.length + part.length > MAX_SEGMENT_CHARS) flush();
-        current += part;
-    }
-    flush();
-    return chunks;
-}
-
-function splitInHalf(text) {
-    if (text.length < 40) return null;
-    const middle = Math.floor(text.length / 2);
-    // 尽量在标点处断开，找不到就硬切
-    const before = text.lastIndexOf('，', middle);
-    const cut = before > text.length * 0.3 ? before + 1 : middle;
-    return [text.slice(0, cut), text.slice(cut)];
 }
 
 export default function initSichangHandler() {
@@ -451,6 +410,18 @@ export default function initSichangHandler() {
         button.title = playing ? '暂停整条' : '播放整条';
         button.setAttribute('aria-label', button.title);
         button.setAttribute('aria-pressed', playing ? 'true' : 'false');
+    }
+
+    // 记录头「整条重生成」：只做原地重合成，不允许和逐段重生成同时跑
+    function syncRecordRegenButton(record) {
+        const button = record.regenAllButton;
+        if (!button) return;
+        const allowed = record.state === 'ready' || record.state === 'playing' || record.state === 'paused';
+        const hasText = record.segments.some(segment => String(segment.text || '').trim());
+        button.disabled = !allowed || record.regenerating || !hasText;
+        button.classList.toggle('busy', Boolean(record.regeneratingAll));
+        button.title = record.regeneratingAll ? '正在重生成整条' : '重生成整条（逐段复用）';
+        button.setAttribute('aria-label', button.title);
     }
 
     function toggleRecordPlayback(record) {
@@ -743,6 +714,13 @@ export default function initSichangHandler() {
         playButton.title = '播放整条';
         playButton.setAttribute('aria-label', '播放整条');
         playButton.disabled = true;
+        // 整条重生成：复用逐段重生成，原地替换所有分段，不再新建记录
+        const regenAllButton = document.createElement('button');
+        regenAllButton.className = 'itemRegen';
+        regenAllButton.textContent = '↻';
+        regenAllButton.title = '重生成整条（逐段复用）';
+        regenAllButton.setAttribute('aria-label', '重生成整条');
+        regenAllButton.disabled = true;
         const moreButton = document.createElement('button');
         moreButton.className = 'more';
         moreButton.textContent = '⋯';
@@ -757,17 +735,14 @@ export default function initSichangHandler() {
         menuInfo.textContent = `${VOICE_LABELS.get(tts.voice) || tts.voice || '默认音色'} · ${formatRate(tts.rate)}`;
         const copyButton = document.createElement('button');
         copyButton.textContent = '复制原文';
-        const regenButton = document.createElement('button');
-        regenButton.textContent = '重新合成';
-        regenButton.setAttribute('aria-label', '用面板当前音色重新合成');
         const downloadButton = document.createElement('button');
         downloadButton.textContent = '下载 WAV';
         downloadButton.disabled = true;
         const deleteButton = document.createElement('button');
         deleteButton.className = 'danger';
         deleteButton.textContent = '删除';
-        menu.append(menuInfo, copyButton, regenButton, downloadButton, deleteButton);
-        head.append(meta, duration, spacer, segCount, playButton, moreButton);
+        menu.append(menuInfo, copyButton, downloadButton, deleteButton);
+        head.append(meta, duration, spacer, segCount, playButton, regenAllButton, moreButton);
         // 挂到 shadow root 而不是面板内，菜单才能盖出滚动区
         ui.panel.getRootNode().appendChild(menu);
 
@@ -784,7 +759,7 @@ export default function initSichangHandler() {
         ui.list.insertBefore(row, ui.list.firstChild);
 
         Object.assign(record, {
-            row, head, txt, duration, segCount, playButton,
+            row, head, txt, duration, segCount, playButton, regenAllButton,
             moreButton, menu, downloadButton, segList,
         });
 
@@ -792,15 +767,18 @@ export default function initSichangHandler() {
             event.stopPropagation();
             toggleRecordPlayback(record);
         });
+        regenAllButton.addEventListener('click', event => {
+            event.stopPropagation();
+            regenerateRecord(record);
+        });
         moreButton.addEventListener('click', event => {
             event.stopPropagation();
             toggleMenu(record);
         });
-        for (const button of [copyButton, regenButton, downloadButton, deleteButton]) {
+        for (const button of [copyButton, downloadButton, deleteButton]) {
             button.addEventListener('click', () => hideMenu(record));
         }
         copyButton.addEventListener('click', () => copyRecordText(record.text, copyButton, '复制原文'));
-        regenButton.addEventListener('click', () => resynthesizeRecord(record));
         downloadButton.addEventListener('click', () => downloadRecord(record));
         deleteButton.addEventListener('click', () => removeRecord(record));
         // 点记录头或摘要都算选中整条；分段区域有自己的选中逻辑
@@ -834,11 +812,6 @@ export default function initSichangHandler() {
         document.body.appendChild(link);
         link.click();
         link.remove();
-    }
-
-    function formatSegmentDuration(seconds) {
-        if (seconds < 10) return `${seconds.toFixed(1)}s`;
-        return formatDuration(seconds);
     }
 
     function sampleRateOf(record) {
@@ -944,7 +917,10 @@ export default function initSichangHandler() {
             segment.downloadButton.disabled = !segment.bytes || segment.busy;
             if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
         }
+        // 整条 WAV 在重生成期间还是旧的，下载先锁住，避免拿到过期文件
+        record.downloadButton.disabled = Boolean(record.regenerating) || !record.url;
         syncRecordPlayButton(record);
+        syncRecordRegenButton(record);
     }
 
     function setSegmentLabel(segment, text) {
@@ -1450,123 +1426,28 @@ export default function initSichangHandler() {
         record.downloadButton.disabled = false;
     }
 
-    // 单独重生成一段：替换它的 PCM，再重建整条 WAV。合成中也可以替换已完成的段，
-    // 但要把实时时间线的字节偏移一起换算；播放/暂停时会先停掉时间线或目标段
-    async function regenerateSegment(record, segment) {
-        if (!segment || !records.includes(record) || segment.busy || record.regenerating) return;
-        if (!segment.complete || !segment.bytes) return;
-        // 选中这一段时以输入框里的文本为准；否则仍用这一段保存的原文
-        const editing = selection.record === record && selection.segment === segment;
-        const text = (editing ? ui.input.value : segment.text).trim();
-        if (!text) {
-            flashSegmentRegenButton(segment, '文本为空');
-            return;
-        }
-        // 时间线还在播（或暂停）时直接重生成：先停下播放再替换，不留下旧声音
-        if (record.state === 'playing' || record.state === 'paused') stopTimeline(record);
-        // 合成中可以只替换目标段，不动正在进行的请求
-        if (record.state !== 'ready' && record.state !== 'capturing') return;
-        // 顺序播放正播到或正等待这一段时，先停下队列；其他段可以继续播。
-        // 停下队列会收起面板，这里重新展开目标段，让「重生成中」保持可见
-        if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) {
-            stopChain(record);
-            openSegmentPanel(record, segment, 'segment');
-        }
-        // 先标目标段 busy 再刷新，保证它自己的播放键和记录头「重生成」立即锁上，
-        // 其他段仍保持可播
-        segment.busy = true;
-        record.regenerating = true;
-        refreshSegmentControls(record);
-        let failed = false;
-        let autoPlay = false;
-        try {
-            const response = await window.fetch(TTS_PATH, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', [SEGMENT_HEADER]: '1' },
-                body: JSON.stringify({
-                    text,
-                    voice: record.tts.voice,
-                    rate: record.tts.rate,
-                    format: record.tts.format,
-                }),
-            });
-            if (!response.ok) throw new Error(`tts ${response.status}`);
-            const sampleRate = Number(response.headers.get('X-Sample-Rate')) || DEFAULT_SAMPLE_RATE;
-            // 采样率变了就没法直接拼进同一条 WAV
-            if (sampleRate !== record.sampleRate) throw new Error('sample rate mismatch');
-            const reader = response.body.getReader();
-            const chunks = [];
-            let bytes = 0;
-            for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                if (!value || !value.length) continue;
-                chunks.push(value);
-                bytes += value.length;
-            }
-            if (!bytes) throw new Error('empty');
-            if (bytes % 2) {
-                const last = chunks[chunks.length - 1];
-                chunks[chunks.length - 1] = last.subarray(0, last.length - 1);
-                bytes -= 1;
-            }
-            // 记录可能在合成途中被删掉或被挤出列表
-            if (!records.includes(record)) return;
-            // 合成中替换会改变整条 PCM 的长度：先按旧数据记下目标段与当前播放位置，
-            // 替换后按长度差重排时间线，后面到达的数据才不会接到错误的偏移上
-            const sampleRateNow = sampleRateOf(record);
-            const capturing = record.state === 'capturing' && Boolean(record.session);
-            const session = capturing ? record.session : null;
-            const targetIndex = segmentIndex(record, segment);
-            const targetStart = segmentSpans(record).starts[targetIndex];
-            const oldDuration = segment.bytes / 2 / sampleRateNow;
-            const deltaDuration = (bytes - segment.bytes) / 2 / sampleRateNow;
-            const position = session ? livePosition(session) : 0;
-
-            clearSegmentAudio(segment);
-            segment.chunks = chunks;
-            segment.bytes = bytes;
-            // 编辑过的文本要写回分段和整条记录，音频与文字才不会对不上
-            if (text !== segment.text) {
-                setSegmentLabel(segment, text);
-                refreshRecordText(record);
-            }
-            // 被跳过或失败的段重生成成功后也要恢复成可播状态
-            setSegmentState(record, segment, 'done');
-
-            if (session) {
-                record.bytes = record.segments.reduce((sum, part) => sum + part.bytes, 0);
-                session.receivedSeconds = record.bytes / 2 / sampleRateNow;
-                // 目标段整段在当前位置之前：后面内容的绝对位置整体平移；
-                // 当前位置落在目标段内：从该段开头重排，直接听到新音频
-                let next = position;
-                if (targetStart + oldDuration <= position) next += deltaDuration;
-                else if (position > targetStart) next = targetStart;
-                next = Math.min(Math.max(0, next), session.receivedSeconds);
-                session.pausedOffset = next;
-                if (!session.paused) rescheduleTimeline(record, next);
-            } else if (record.state === 'capturing') {
-                // 捕获刚开始或会话已收尾，先只维护字节账；WAV 留给 finalize 建
-                record.bytes = record.segments.reduce((sum, part) => sum + part.bytes, 0);
-                record.seconds = record.bytes / 2 / sampleRateNow;
-            } else {
-                rebuildRecord(record);
-            }
-            autoPlay = true;
-        } catch (error) {
-            failed = true;
-        } finally {
-            segment.busy = false;
-            record.regenerating = false;
-            refreshSegmentControls(record);
-            if (failed) {
-                flashSegmentRegenButton(segment, '失败');
-            } else if (autoPlay && records.includes(record) && record.state !== 'failed') {
-                // 重生成成功后直接播放新音频；合成中会自动切到分段播放
-                playChainSegment(record, segment);
-            }
-        }
-    }
+    // 重生成流程拆到 regenerate.js：这里只注入记录、播放和 UI 同步能力
+    const { regenerateSegment, regenerateRecord } = createRegenerator({
+        records,
+        selection,
+        input: ui.input,
+        sampleRateOf,
+        segmentIndex,
+        segmentSpans,
+        livePosition,
+        rescheduleTimeline,
+        clearSegmentAudio,
+        setSegmentState,
+        setSegmentLabel,
+        refreshRecordText,
+        rebuildRecord,
+        refreshSegmentControls,
+        stopTimeline,
+        stopChain,
+        openSegmentPanel,
+        playChainSegment,
+        flashSegmentRegenButton,
+    });
 
     function updateProgress(record, done, total) {
         if (!records.includes(record)) return;
@@ -1783,15 +1664,6 @@ export default function initSichangHandler() {
     }
 
     ui.go.addEventListener('click', submitCompose);
-    // 换音色后不用重新粘贴文本：按面板当前音色和语速再合成一条。
-    // 整条被选中时使用输入框里编辑后的全文
-    function resynthesizeRecord(record) {
-        const selectedWhole = selection.record === record && !selection.segment;
-        const text = (selectedWhole ? ui.input.value : record.text).trim();
-        if (!text) return;
-        const { voice, rate } = currentTts();
-        startSession({ text, voice, rate, format: 'pcm16' });
-    }
     // 面板里的按键不要冒泡到站点，避免触发站点自己的输入/发送快捷键
     ui.compose.addEventListener('keydown', event => {
         event.stopPropagation();

@@ -17,7 +17,10 @@
 src/
   main.js              # 唯一入口：注册 handler、登记清理、处理重复注入
   sichang/             # 思畅站点实现的全部代码
-    handler.js         # 接管 /api/tts、面板、播放与分段
+    handler.js         # 接管 /api/tts、面板、播放与分段编排
+    regenerate.js      # 单段/整条重生成流程（整条复用逐段流程）
+    tts.js             # 单段一次性 TTS 请求（重生成用）
+    text.js            # 文本切分与展示格式化（纯函数）
     constants.js       # 接口路径、分段阈值、localStorage key、倍速
     voices.js          # 音色列表
     styles.js          # 面板样式（PANEL_CSS）
@@ -26,7 +29,10 @@ src/
 
 - `src/main.js`：入口；注册 handler、登记清理函数、处理重复注入。
 - `src/sichang/handler.js`：判断 `sichang.xyz` 域名后接管 `/api/tts`；按句分段合成、边下边播，并把各段 PCM16 合并成 WAV 供下载。面板也可直接输入文本发起同一流程，以分段为顺序播放单位：点某段从该段开始连播，播到谁谁展开控制面板，记录头另有整条播放/暂停按钮；选中分段或整条会把文本填进输入框，编辑后可按新文本重生成。支持播放倍速、实时播放暂停/继续/跳转、单段重生成与下载，并区分「下载完成」与「时间线播完」。详见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
-- `src/sichang/` 其余文件：handler 的无状态依赖，按职责分文件，改哪块只读哪块。
+- `src/sichang/` 其余文件：按职责分文件，改哪块只读哪块。新增功能不要再往 handler 里堆，先判断是否属于已有模块。
+  - `regenerate.js`：单段重生成与整条重生成流程；整条重生成原地复用逐段流程，不新建记录。记录/播放/UI 的读写通过 `createRegenerator(host)` 注入。
+  - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
+  - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长/倍速格式化，纯函数。
   - `constants.js`：接口路径 `TTS_PATH`、分段阈值、`localStorage` key、播放倍速等契约常量。
   - `voices.js`：站点音色列表 `VOICE_GROUPS` 与 `VOICE_LABELS`。
   - `styles.js`：面板 `PANEL_CSS`，Shadow DOM 里注入的全部样式。
