@@ -143,6 +143,16 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .item:hover .more, .item.menuOpen .more, .more:focus-visible { opacity: 1; }
 .itemHead .more:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemPlay {
+    width: 20px;
+    height: 18px;
+    padding: 0;
+    border-radius: 5px;
+    color: #a9a9b3;
+    font-size: 9px;
+}
+.itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
 .menu {
     position: fixed;
     top: 0;
@@ -186,19 +196,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    cursor: zoom-in;
-}
-.item.textOpen .txt { display: block; overflow: visible; white-space: pre-wrap; cursor: zoom-out; }
-.tags { display: none; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-.item.textOpen .tags { display: flex; }
-.tag {
-    padding: 0 5px;
-    height: 15px;
-    line-height: 15px;
-    border-radius: 4px;
-    background: #24242b;
-    color: #8a8a94;
-    font-size: 10px;
+    cursor: pointer;
 }
 .segList { margin-top: 4px; }
 .segBox {

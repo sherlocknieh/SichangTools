@@ -418,6 +418,75 @@ export default function initSichangHandler() {
         if (activeAudio && !activeAudio.paused) activeAudio.pause();
     }
 
+    // 主条目的播放按钮：有队列就暂停/继续队列，否则从第一段开始顺序播放
+    function recordIsPlaying(record) {
+        const current = record.chain?.segment;
+        if (current?.audio && !current.audio.paused) return true;
+        if (record.chain?.waitingFor) return false;
+        if (record.state === 'playing') return true;
+        if (record.state === 'capturing') return Boolean(record.session && !record.session.paused);
+        return false;
+    }
+
+    function syncRecordPlayButton(record) {
+        const button = record?.playButton;
+        if (!button) return;
+        const waiting = Boolean(record.chain?.waitingFor);
+        const playing = recordIsPlaying(record);
+        const liveReady = record.state === 'playing'
+            || record.state === 'paused'
+            || (record.state === 'capturing' && Boolean(record.session));
+        const chainReady = Boolean(record.chain);
+        const segmentReady = record.segments.some(segment => segment.complete && segment.bytes && !segment.busy);
+        button.disabled = record.state === 'failed' || waiting || (!liveReady && !chainReady && !segmentReady);
+        if (waiting) {
+            button.textContent = '▶';
+            button.classList.remove('playing');
+            button.title = '等待下一段';
+            button.setAttribute('aria-label', '等待下一段');
+            button.setAttribute('aria-pressed', 'false');
+            return;
+        }
+        button.textContent = playing ? '⏸' : '▶';
+        button.classList.toggle('playing', playing);
+        button.title = playing ? '暂停整条' : '播放整条';
+        button.setAttribute('aria-label', button.title);
+        button.setAttribute('aria-pressed', playing ? 'true' : 'false');
+    }
+
+    function toggleRecordPlayback(record) {
+        if (record.state === 'failed') return;
+        if (record.chain) {
+            const current = record.chain.segment;
+            if (current?.audio && !current.audio.paused) {
+                pauseChain(record);
+                return;
+            }
+            if (current?.audio) {
+                resumeChain(record);
+                return;
+            }
+            return;
+        }
+        if (record.state === 'playing') {
+            pauseTimeline(record);
+            return;
+        }
+        if (record.state === 'paused') {
+            resumeTimeline(record);
+            return;
+        }
+        if (record.state === 'capturing') {
+            const session = record.session;
+            if (!session) return;
+            if (session.paused) resumeLiveCapture(record);
+            else pauseLiveCapture(record);
+            return;
+        }
+        const first = record.segments.find(segment => segment.complete && segment.bytes && !segment.busy);
+        if (first) playChainSegment(record, first);
+    }
+
     // 实时时间线播完后，声音归还给下一段；停止时只复位时间线，不影响顺序播放队列
     function stopTimeline(record) {
         if (!record || (record.state !== 'playing' && record.state !== 'paused')) return;
@@ -555,6 +624,7 @@ export default function initSichangHandler() {
         record.timelineTimer = null;
         record.state = 'paused';
         if (record.expandedSegment?.mode === 'live') syncSegmentPanel(record, record.expandedSegment);
+        syncRecordPlayButton(record);
     }
 
     function resumeTimeline(record) {
@@ -567,8 +637,10 @@ export default function initSichangHandler() {
         session.pausedOffset = offset;
         rescheduleTimeline(record, offset);
         record.state = 'playing';
+        record.autoSegment = null;
         startTimelineTicker(record, session);
         armTimelineEnd(record);
+        syncRecordPlayButton(record);
     }
 
     // 合成中改用分段顺序播放：实时时间线只停在当前位置，不中止合成、不改变捕获状态
@@ -580,6 +652,19 @@ export default function initSichangHandler() {
         stopSources(session);
         clearInterval(record.timelineTicker);
         record.timelineTicker = null;
+        syncRecordPlayButton(record);
+    }
+
+    function resumeLiveCapture(record) {
+        const session = record.session;
+        if (!session || session.stopped || !session.paused || record.state !== 'capturing') return;
+        session.paused = false;
+        const offset = Math.min(session.pausedOffset || 0, session.receivedSeconds);
+        session.pausedOffset = offset;
+        record.autoSegment = null;
+        rescheduleTimeline(record, offset);
+        startTimelineTicker(record, session);
+        syncRecordPlayButton(record);
     }
 
     function seekTimeline(record, seconds) {
@@ -653,6 +738,12 @@ export default function initSichangHandler() {
         const segCount = document.createElement('span');
         segCount.className = 'segCount';
         segCount.textContent = '0 段';
+        const playButton = document.createElement('button');
+        playButton.className = 'itemPlay';
+        playButton.textContent = '▶';
+        playButton.title = '播放整条';
+        playButton.setAttribute('aria-label', '播放整条');
+        playButton.disabled = true;
         const moreButton = document.createElement('button');
         moreButton.className = 'more';
         moreButton.textContent = '⋯';
@@ -677,7 +768,7 @@ export default function initSichangHandler() {
         deleteButton.className = 'danger';
         deleteButton.textContent = '删除';
         menu.append(menuInfo, copyButton, regenButton, downloadButton, deleteButton);
-        head.append(meta, duration, spacer, segCount, moreButton);
+        head.append(meta, duration, spacer, segCount, playButton, moreButton);
         // 挂到 shadow root 而不是面板内，菜单才能盖出滚动区
         ui.panel.getRootNode().appendChild(menu);
 
@@ -685,26 +776,20 @@ export default function initSichangHandler() {
         txt.className = 'txt';
         const preview = previewText(text) || '（无文本）';
         txt.textContent = preview;
-        txt.title = '点击展开或收起全文';
-
-        const tags = document.createElement('div');
-        tags.className = 'tags';
-        const voiceTag = document.createElement('span');
-        voiceTag.className = 'tag';
-        voiceTag.textContent = VOICE_LABELS.get(tts.voice) || tts.voice || '默认';
-        const rateTag = document.createElement('span');
-        rateTag.className = 'tag';
-        rateTag.textContent = `${formatRate(tts.rate)} 语速`;
-        tags.append(voiceTag, rateTag);
+        txt.title = '点击选中整条文本';
 
         const segList = document.createElement('div');
         segList.className = 'segList';
 
-        row.append(head, txt, tags, segList);
+        row.append(head, txt, segList);
         ui.list.insertBefore(row, ui.list.firstChild);
 
-        Object.assign(record, { row, head, txt, duration, segCount, moreButton, menu, downloadButton, segList });
+        Object.assign(record, { row, head, txt, duration, segCount, playButton, moreButton, menu, downloadButton, segList });
 
+        playButton.addEventListener('click', event => {
+            event.stopPropagation();
+            toggleRecordPlayback(record);
+        });
         moreButton.addEventListener('click', event => {
             event.stopPropagation();
             toggleMenu(record);
@@ -716,15 +801,10 @@ export default function initSichangHandler() {
         regenButton.addEventListener('click', () => resynthesizeRecord(record));
         downloadButton.addEventListener('click', () => downloadRecord(record));
         deleteButton.addEventListener('click', () => removeRecord(record));
-        // 点记录头、摘要或标签都算选中整条；分段区域有自己的选中逻辑
+        // 点记录头或摘要都算选中整条；分段区域有自己的选中逻辑
         row.addEventListener('click', event => {
             if (event.target.closest('.segBox, button')) return;
             selectRecord(record);
-        });
-        txt.addEventListener('click', () => {
-            const expanded = row.classList.toggle('textOpen');
-            txt.textContent = expanded ? (record.text || '（无文本）') : (previewText(record.text) || '（无文本）');
-            txt.title = expanded ? '点击收起全文' : '点击展开全文';
         });
 
         records.push(record);
@@ -824,6 +904,7 @@ export default function initSichangHandler() {
             segment.downloadButton.disabled = !segment.bytes || segment.busy;
             if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
         }
+        syncRecordPlayButton(record);
     }
 
     function setSegmentLabel(segment, text) {
@@ -835,10 +916,8 @@ export default function initSichangHandler() {
     // 某段文本被改过后，整条摘要、复制原文和「重新合成」都要跟着用新文本
     function refreshRecordText(record) {
         record.text = record.segments.map(segment => segment.text || '').join('');
-        const preview = previewText(record.text) || '（无文本）';
-        const open = record.row.classList.contains('textOpen');
-        record.txt.textContent = open ? (record.text || '（无文本）') : preview;
-        record.txt.title = open ? '点击收起全文' : '点击展开全文';
+        record.txt.textContent = previewText(record.text) || '（无文本）';
+        record.txt.title = '点击选中整条文本';
     }
 
     // 每段的状态直接写进子条目：待合成 → 合成中（时长随数据增长）→ 完成/失败
@@ -1175,6 +1254,7 @@ export default function initSichangHandler() {
             audio.mozPreservesPitch = true;
             audio.webkitPreservesPitch = true;
             audio.addEventListener('pause', () => syncSegmentPlayState(segment));
+            audio.addEventListener('play', () => syncRecordPlayButton(record));
             audio.addEventListener('ended', () => {
                 audio.currentTime = 0;
                 idleSegmentTime(record, segment);
@@ -1231,7 +1311,11 @@ export default function initSichangHandler() {
         record.autoSegment = segment;
         activeAudio = audio;
         openSegmentPanel(record, segment, 'segment');
-        audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
+        syncRecordPlayButton(record);
+        audio.play().then(
+            () => { syncSegmentPlayState(segment); syncRecordPlayButton(record); },
+            () => { syncSegmentPlayState(segment); syncRecordPlayButton(record); },
+        );
     }
 
     // 当前段播完，按列表顺序找下一段；还没合成完且仍在合成，就停在等待状态
@@ -1248,6 +1332,7 @@ export default function initSichangHandler() {
                     record.chain = { waitingFor: next };
                     const previous = record.segments[fromIndex];
                     if (previous) syncSegmentPanel(record, previous);
+                    syncRecordPlayButton(record);
                     return;
                 }
                 continue;
@@ -1260,6 +1345,7 @@ export default function initSichangHandler() {
         const segment = record.chain?.segment;
         if (!segment?.audio || segment.audio.paused) return;
         segment.audio.pause();
+        syncRecordPlayButton(record);
     }
 
     function resumeChain(record) {
@@ -1268,7 +1354,11 @@ export default function initSichangHandler() {
         stopActive();
         activeAudio = segment.audio;
         openSegmentPanel(record, segment, 'segment');
-        segment.audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
+        syncRecordPlayButton(record);
+        segment.audio.play().then(
+            () => { syncSegmentPlayState(segment); syncRecordPlayButton(record); },
+            () => { syncSegmentPlayState(segment); syncRecordPlayButton(record); },
+        );
     }
 
     function stopChain(record) {
@@ -1287,6 +1377,7 @@ export default function initSichangHandler() {
             const expanded = record.expandedSegment;
             if (expanded) closeSegmentPanel(record, expanded);
         }
+        syncRecordPlayButton(record);
     }
 
     function stopOtherChains(keep) {
@@ -1470,6 +1561,7 @@ export default function initSichangHandler() {
             if (record.expandedSegment?.mode === 'live') closeSegmentPanel(record, record.expandedSegment);
             record.autoSegment = null;
         }
+        syncRecordPlayButton(record);
     }
 
     // 面板里的手动入口：走同一条分段合成、边下边播、落盘流程，不依赖站点的朗读按钮
@@ -1756,6 +1848,7 @@ export default function initSichangHandler() {
         updateProgress(record, 0, session.total);
         // 合成一开始就盯住实时播放位置，播到哪段就展开哪段
         startTimelineTicker(record, session);
+        syncRecordPlayButton(record);
 
         const requestSegment = segmentText => window.fetch(TTS_PATH, {
             method: 'POST',
