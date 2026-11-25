@@ -22,8 +22,6 @@ src/
     voices.js          # 音色列表
     styles.js          # 面板样式（PANEL_CSS）
     audio.js           # PCM16/WAV 转换与拼接（纯函数）
-  assets/
-    icon.js            # 脚本图标 SVG
 ```
 
 - `src/main.js`：入口；注册 handler、登记清理函数、处理重复注入。
@@ -33,8 +31,7 @@ src/
   - `voices.js`：站点音色列表 `VOICE_GROUPS` 与 `VOICE_LABELS`。
   - `styles.js`：面板 `PANEL_CSS`，Shadow DOM 里注入的全部样式。
   - `audio.js`：PCM16/WAV 转换与拼接（`pcmToWav`、`pcmToSamples`、`joinedPcm`），纯函数。
-- `src/assets/icon.js`：脚本图标 SVG；黑圆白字，圆的填充留 25% 透明（原因见 `known-issues.md`）。
-- `vite.config.js`：userscript 元数据、匹配域名与构建产物配置。
+- `vite.config.js`：userscript 元数据、匹配域名与构建产物配置；`@icon` 直接指向站点 favicon（`https://sichang.xyz/favicon.ico`），不在仓库里维护本地图标资源。
 - `dist/sichang-tools.user.js`：构建产物，由构建脚本生成。
 - `.dev/`：开发构建相关代码。
   - `bump-and-build.mjs`：升版本 + 构建，提交前钩子调用。
