@@ -136,6 +136,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .compose .counter .clearInput:hover { color: #d5d5dd; }
 .compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose textarea::placeholder { color: #6f6f79; }
+.compose textarea.is-default { color: #6f6f79; }
 .compose .row { display: flex; align-items: center; gap: 6px; }
 .compose select, .compose input {
     height: 26px;
@@ -1364,8 +1365,13 @@ export default function initSichangHandler() {
         ui.input.style.height = `${Math.min(ui.input.scrollHeight + 2, 132)}px`;
     }
 
-    // 预填的试听文本不是用户草稿，落库时按空处理
+    // 预填的试听文本不是用户草稿，落库时按空处理；灰暗显示提示它不是用户内容
     let inputIsDefault = false;
+
+    function setInputDefault(isDefault) {
+        inputIsDefault = isDefault;
+        ui.input.classList.toggle('is-default', isDefault);
+    }
 
     function saveDraft() {
         try {
@@ -1388,14 +1394,14 @@ export default function initSichangHandler() {
         saveDraft();
     }
     ui.input.addEventListener('input', () => {
-        inputIsDefault = false;
+        setInputDefault(false);
         onInputChange();
     });
     // 聚焦即进入编辑：清掉预填的试听文本，让用户从空框开始打
     ui.input.addEventListener('focus', () => {
         if (!inputIsDefault) return;
         ui.input.value = '';
-        inputIsDefault = false;
+        setInputDefault(false);
         autoGrowInput();
         updateComposeMeta();
     });
@@ -1403,14 +1409,14 @@ export default function initSichangHandler() {
     ui.input.addEventListener('blur', () => {
         if (ui.input.value.trim()) return;
         ui.input.value = DEFAULT_INPUT_TEXT;
-        inputIsDefault = true;
+        setInputDefault(true);
         autoGrowInput();
         updateComposeMeta();
         saveDraft();
     });
     ui.clearInput.addEventListener('click', () => {
         ui.input.value = '';
-        inputIsDefault = false;
+        setInputDefault(false);
         onInputChange();
         ui.input.focus();
     });
@@ -1426,13 +1432,14 @@ export default function initSichangHandler() {
         const draft = localStorage.getItem(DRAFT_STORE_KEY);
         if (draft && draft.trim()) {
             ui.input.value = draft;
+            setInputDefault(false);
         } else {
             ui.input.value = DEFAULT_INPUT_TEXT;
-            inputIsDefault = true;
+            setInputDefault(true);
         }
     } catch {
         ui.input.value = DEFAULT_INPUT_TEXT;
-        inputIsDefault = true;
+        setInputDefault(true);
     }
     autoGrowInput();
     updateComposeMeta();

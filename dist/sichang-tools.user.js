@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1731
+// @version      2026.11.25.1732
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2226%22%20fill%3D%22%23fff%22%3ESC%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://sichang.xyz/*
@@ -166,6 +166,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .compose .counter .clearInput:hover { color: #d5d5dd; }
 .compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose textarea::placeholder { color: #6f6f79; }
+.compose textarea.is-default { color: #6f6f79; }
 .compose .row { display: flex; align-items: center; gap: 6px; }
 .compose select, .compose input {
     height: 26px;
@@ -1309,6 +1310,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			ui.input.style.height = `${Math.min(ui.input.scrollHeight + 2, 132)}px`;
 		}
 		let inputIsDefault = false;
+		function setInputDefault(isDefault) {
+			inputIsDefault = isDefault;
+			ui.input.classList.toggle("is-default", isDefault);
+		}
 		function saveDraft() {
 			try {
 				localStorage.setItem(DRAFT_STORE_KEY, inputIsDefault ? "" : ui.input.value);
@@ -1327,27 +1332,27 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			saveDraft();
 		}
 		ui.input.addEventListener("input", () => {
-			inputIsDefault = false;
+			setInputDefault(false);
 			onInputChange();
 		});
 		ui.input.addEventListener("focus", () => {
 			if (!inputIsDefault) return;
 			ui.input.value = "";
-			inputIsDefault = false;
+			setInputDefault(false);
 			autoGrowInput();
 			updateComposeMeta();
 		});
 		ui.input.addEventListener("blur", () => {
 			if (ui.input.value.trim()) return;
 			ui.input.value = DEFAULT_INPUT_TEXT;
-			inputIsDefault = true;
+			setInputDefault(true);
 			autoGrowInput();
 			updateComposeMeta();
 			saveDraft();
 		});
 		ui.clearInput.addEventListener("click", () => {
 			ui.input.value = "";
-			inputIsDefault = false;
+			setInputDefault(false);
 			onInputChange();
 			ui.input.focus();
 		});
@@ -1360,14 +1365,16 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		});
 		try {
 			const draft = localStorage.getItem(DRAFT_STORE_KEY);
-			if (draft && draft.trim()) ui.input.value = draft;
-			else {
+			if (draft && draft.trim()) {
+				ui.input.value = draft;
+				setInputDefault(false);
+			} else {
 				ui.input.value = DEFAULT_INPUT_TEXT;
-				inputIsDefault = true;
+				setInputDefault(true);
 			}
 		} catch {
 			ui.input.value = DEFAULT_INPUT_TEXT;
-			inputIsDefault = true;
+			setInputDefault(true);
 		}
 		autoGrowInput();
 		updateComposeMeta();
