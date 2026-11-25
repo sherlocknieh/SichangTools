@@ -747,7 +747,7 @@ export default function initSichangHandler() {
         // 单段重生成紧挨播放键：目标是选中、展开或正在播放的那一段
         const regenSegmentButton = document.createElement('button');
         regenSegmentButton.className = 'itemRegen';
-        regenSegmentButton.textContent = '重生成';
+        regenSegmentButton.textContent = '↻';
         regenSegmentButton.title = '先选中或展开一个分段';
         regenSegmentButton.setAttribute('aria-label', '重生成选中分段');
         regenSegmentButton.disabled = true;
@@ -882,33 +882,40 @@ export default function initSichangHandler() {
         if (!button) return;
         const segment = regenTargetSegment(record);
         const index = segment ? segmentIndex(record, segment) + 1 : 0;
-        // 播放/暂停时也允许重生成：点击后会先停掉时间线或目标段的播放
-        const allowed = record.state === 'ready' || record.state === 'playing' || record.state === 'paused';
+        // 播放/暂停、合成中都能重生成已完成段：合成中只替换该段并重排实时时间线
+        const allowed = record.state === 'ready' || record.state === 'playing'
+            || record.state === 'paused' || record.state === 'capturing';
         const busy = Boolean(segment?.busy);
         button.disabled = !segment || !allowed || record.regenerating || busy
             || !segment.complete || !segment.bytes;
-        if (record.regenerating && busy) {
-            button.textContent = '重生成中';
-            button.title = `正在重生成第 ${index} 段`;
-            return;
-        }
-        button.textContent = segment ? `重生成 ${index}` : '重生成';
+        // 失败/空文本的短暂反馈优先显示，不要被中途的刷新覆盖
+        if (button.classList.contains('failed')) return;
+        button.textContent = '↻';
+        button.classList.toggle('busy', Boolean(record.regenerating && busy));
         if (!segment) {
             button.title = '先选中或展开一个分段';
+        } else if (record.regenerating && busy) {
+            button.title = `正在重生成第 ${index} 段`;
         } else if (selection.record === record && selection.segment === segment) {
             button.title = `按输入框里的文本重生成第 ${index} 段`;
         } else {
             button.title = `重生成第 ${index} 段`;
         }
+        button.setAttribute('aria-label', button.title);
     }
 
     function flashRegenSegmentButton(record, message) {
         const button = record.regenSegmentButton;
         if (!button) return;
-        button.textContent = message;
+        button.textContent = '!';
+        button.title = message;
+        button.setAttribute('aria-label', message);
+        button.classList.add('failed');
+        button.classList.remove('busy');
         clearTimeout(button.flashTimer);
         button.flashTimer = setTimeout(() => {
-            if (button.textContent === message) refreshSegmentControls(record);
+            button.classList.remove('failed');
+            refreshSegmentControls(record);
         }, 1500);
     }
 
@@ -1466,10 +1473,11 @@ export default function initSichangHandler() {
         record.downloadButton.disabled = false;
     }
 
-    // 单独重生成一段：替换它的 PCM，再重建整条 WAV。合成进行中不可用；
-    // 播放/暂停时会先停掉时间线或目标段，避免和替换数据互相踩
+    // 单独重生成一段：替换它的 PCM，再重建整条 WAV。合成中也可以替换已完成的段，
+    // 但要把实时时间线的字节偏移一起换算；播放/暂停时会先停掉时间线或目标段
     async function regenerateSegment(record, segment) {
         if (!segment || !records.includes(record) || segment.busy || record.regenerating) return;
+        if (!segment.complete || !segment.bytes) return;
         // 选中这一段时以输入框里的文本为准；否则仍用这一段保存的原文
         const editing = selection.record === record && selection.segment === segment;
         const text = (editing ? ui.input.value : segment.text).trim();
@@ -1479,7 +1487,8 @@ export default function initSichangHandler() {
         }
         // 时间线还在播（或暂停）时直接重生成：先停下播放再替换，不留下旧声音
         if (record.state === 'playing' || record.state === 'paused') stopTimeline(record);
-        if (record.state !== 'ready') return;
+        // 合成中可以只替换目标段，不动正在进行的请求
+        if (record.state !== 'ready' && record.state !== 'capturing') return;
         // 顺序播放正播到或正等待这一段时，先停下队列；其他段可以继续播。
         // 停下队列会收起面板，这里重新展开目标段，让「重生成中」保持可见
         if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) {
@@ -1492,6 +1501,7 @@ export default function initSichangHandler() {
         record.regenerating = true;
         refreshSegmentControls(record);
         let failed = false;
+        let autoPlay = false;
         try {
             const response = await window.fetch(TTS_PATH, {
                 method: 'POST',
@@ -1525,6 +1535,17 @@ export default function initSichangHandler() {
             }
             // 记录可能在合成途中被删掉或被挤出列表
             if (!records.includes(record)) return;
+            // 合成中替换会改变整条 PCM 的长度：先按旧数据记下目标段与当前播放位置，
+            // 替换后按长度差重排时间线，后面到达的数据才不会接到错误的偏移上
+            const sampleRateNow = sampleRateOf(record);
+            const capturing = record.state === 'capturing' && Boolean(record.session);
+            const session = capturing ? record.session : null;
+            const targetIndex = segmentIndex(record, segment);
+            const targetStart = segmentSpans(record).starts[targetIndex];
+            const oldDuration = segment.bytes / 2 / sampleRateNow;
+            const deltaDuration = (bytes - segment.bytes) / 2 / sampleRateNow;
+            const position = session ? livePosition(session) : 0;
+
             clearSegmentAudio(segment);
             segment.chunks = chunks;
             segment.bytes = bytes;
@@ -1535,14 +1556,38 @@ export default function initSichangHandler() {
             }
             // 被跳过或失败的段重生成成功后也要恢复成可播状态
             setSegmentState(record, segment, 'done');
-            rebuildRecord(record);
+
+            if (session) {
+                record.bytes = record.segments.reduce((sum, part) => sum + part.bytes, 0);
+                session.receivedSeconds = record.bytes / 2 / sampleRateNow;
+                // 目标段整段在当前位置之前：后面内容的绝对位置整体平移；
+                // 当前位置落在目标段内：从该段开头重排，直接听到新音频
+                let next = position;
+                if (targetStart + oldDuration <= position) next += deltaDuration;
+                else if (position > targetStart) next = targetStart;
+                next = Math.min(Math.max(0, next), session.receivedSeconds);
+                session.pausedOffset = next;
+                if (!session.paused) rescheduleTimeline(record, next);
+            } else if (record.state === 'capturing') {
+                // 捕获刚开始或会话已收尾，先只维护字节账；WAV 留给 finalize 建
+                record.bytes = record.segments.reduce((sum, part) => sum + part.bytes, 0);
+                record.seconds = record.bytes / 2 / sampleRateNow;
+            } else {
+                rebuildRecord(record);
+            }
+            autoPlay = true;
         } catch (error) {
             failed = true;
         } finally {
             segment.busy = false;
             record.regenerating = false;
             refreshSegmentControls(record);
-            if (failed) flashRegenSegmentButton(record, '失败');
+            if (failed) {
+                flashRegenSegmentButton(record, '失败');
+            } else if (autoPlay && records.includes(record) && record.state !== 'failed') {
+                // 重生成成功后直接播放新音频；合成中会自动切到分段播放
+                playChainSegment(record, segment);
+            }
         }
     }
 

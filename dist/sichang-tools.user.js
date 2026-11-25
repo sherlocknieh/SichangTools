@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.2129
+// @version      2026.11.25.2205
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -230,19 +230,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
-/* 单段「重生成」放在整条播放键旁边：标出目标段号，未选中时不可点 */
+/* 单段「重生成」与整条播放键并排：图标按钮，目标段和状态放 title/aria */
 .itemHead .itemRegen {
+    width: 20px;
     height: 18px;
-    max-width: 64px;
-    padding: 0 5px;
+    padding: 0;
     border-radius: 5px;
-    color: #8a8a94;
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    color: #a9a9b3;
+    font-size: 13px;
+    line-height: 18px;
 }
 .itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemRegen.busy { animation: tts-spin 1s linear infinite; }
+.itemHead .itemRegen.failed { color: #ff9a9a; }
+@keyframes tts-spin { to { transform: rotate(360deg); } }
 .menu {
     position: fixed;
     top: 0;
@@ -1080,7 +1081,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			playButton.disabled = true;
 			const regenSegmentButton = document.createElement("button");
 			regenSegmentButton.className = "itemRegen";
-			regenSegmentButton.textContent = "重生成";
+			regenSegmentButton.textContent = "↻";
 			regenSegmentButton.title = "先选中或展开一个分段";
 			regenSegmentButton.setAttribute("aria-label", "重生成选中分段");
 			regenSegmentButton.disabled = true;
@@ -1205,26 +1206,30 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (!button) return;
 			const segment = regenTargetSegment(record);
 			const index = segment ? segmentIndex(record, segment) + 1 : 0;
-			const allowed = record.state === "ready" || record.state === "playing" || record.state === "paused";
+			const allowed = record.state === "ready" || record.state === "playing" || record.state === "paused" || record.state === "capturing";
 			const busy = Boolean(segment?.busy);
 			button.disabled = !segment || !allowed || record.regenerating || busy || !segment.complete || !segment.bytes;
-			if (record.regenerating && busy) {
-				button.textContent = "重生成中";
-				button.title = `正在重生成第 ${index} 段`;
-				return;
-			}
-			button.textContent = segment ? `重生成 ${index}` : "重生成";
+			if (button.classList.contains("failed")) return;
+			button.textContent = "↻";
+			button.classList.toggle("busy", Boolean(record.regenerating && busy));
 			if (!segment) button.title = "先选中或展开一个分段";
+			else if (record.regenerating && busy) button.title = `正在重生成第 ${index} 段`;
 			else if (selection.record === record && selection.segment === segment) button.title = `按输入框里的文本重生成第 ${index} 段`;
 			else button.title = `重生成第 ${index} 段`;
+			button.setAttribute("aria-label", button.title);
 		}
 		function flashRegenSegmentButton(record, message) {
 			const button = record.regenSegmentButton;
 			if (!button) return;
-			button.textContent = message;
+			button.textContent = "!";
+			button.title = message;
+			button.setAttribute("aria-label", message);
+			button.classList.add("failed");
+			button.classList.remove("busy");
 			clearTimeout(button.flashTimer);
 			button.flashTimer = setTimeout(() => {
-				if (button.textContent === message) refreshSegmentControls(record);
+				button.classList.remove("failed");
+				refreshSegmentControls(record);
 			}, 1500);
 		}
 		function segmentSpans(record) {
@@ -1741,13 +1746,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		async function regenerateSegment(record, segment) {
 			if (!segment || !records.includes(record) || segment.busy || record.regenerating) return;
+			if (!segment.complete || !segment.bytes) return;
 			const text = (selection.record === record && selection.segment === segment ? ui.input.value : segment.text).trim();
 			if (!text) {
 				flashRegenSegmentButton(record, "文本为空");
 				return;
 			}
 			if (record.state === "playing" || record.state === "paused") stopTimeline(record);
-			if (record.state !== "ready") return;
+			if (record.state !== "ready" && record.state !== "capturing") return;
 			if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) {
 				stopChain(record);
 				openSegmentPanel(record, segment, "segment");
@@ -1756,6 +1762,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.regenerating = true;
 			refreshSegmentControls(record);
 			let failed = false;
+			let autoPlay = false;
 			try {
 				const response = await window.fetch(TTS_PATH, {
 					method: "POST",
@@ -1789,6 +1796,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 					bytes -= 1;
 				}
 				if (!records.includes(record)) return;
+				const sampleRateNow = sampleRateOf(record);
+				const session = record.state === "capturing" && Boolean(record.session) ? record.session : null;
+				const targetIndex = segmentIndex(record, segment);
+				const targetStart = segmentSpans(record).starts[targetIndex];
+				const oldDuration = segment.bytes / 2 / sampleRateNow;
+				const deltaDuration = (bytes - segment.bytes) / 2 / sampleRateNow;
+				const position = session ? livePosition(session) : 0;
 				clearSegmentAudio(segment);
 				segment.chunks = chunks;
 				segment.bytes = bytes;
@@ -1797,7 +1811,20 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 					refreshRecordText(record);
 				}
 				setSegmentState(record, segment, "done");
-				rebuildRecord(record);
+				if (session) {
+					record.bytes = record.segments.reduce((sum, part) => sum + part.bytes, 0);
+					session.receivedSeconds = record.bytes / 2 / sampleRateNow;
+					let next = position;
+					if (targetStart + oldDuration <= position) next += deltaDuration;
+					else if (position > targetStart) next = targetStart;
+					next = Math.min(Math.max(0, next), session.receivedSeconds);
+					session.pausedOffset = next;
+					if (!session.paused) rescheduleTimeline(record, next);
+				} else if (record.state === "capturing") {
+					record.bytes = record.segments.reduce((sum, part) => sum + part.bytes, 0);
+					record.seconds = record.bytes / 2 / sampleRateNow;
+				} else rebuildRecord(record);
+				autoPlay = true;
 			} catch (error) {
 				failed = true;
 			} finally {
@@ -1805,6 +1832,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				record.regenerating = false;
 				refreshSegmentControls(record);
 				if (failed) flashRegenSegmentButton(record, "失败");
+				else if (autoPlay && records.includes(record) && record.state !== "failed") playChainSegment(record, segment);
 			}
 		}
 		function updateProgress(record, done, total) {

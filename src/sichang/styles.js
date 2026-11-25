@@ -153,19 +153,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
-/* 单段「重生成」放在整条播放键旁边：标出目标段号，未选中时不可点 */
+/* 单段「重生成」与整条播放键并排：图标按钮，目标段和状态放 title/aria */
 .itemHead .itemRegen {
+    width: 20px;
     height: 18px;
-    max-width: 64px;
-    padding: 0 5px;
+    padding: 0;
     border-radius: 5px;
-    color: #8a8a94;
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    color: #a9a9b3;
+    font-size: 13px;
+    line-height: 18px;
 }
 .itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemRegen.busy { animation: tts-spin 1s linear infinite; }
+.itemHead .itemRegen.failed { color: #ff9a9a; }
+@keyframes tts-spin { to { transform: rotate(360deg); } }
 .menu {
     position: fixed;
     top: 0;
