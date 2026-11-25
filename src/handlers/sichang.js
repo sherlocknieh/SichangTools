@@ -2,290 +2,29 @@
 // 这里直接接管这个请求：官方不会再整段合成，而是按句子分批请求、边下边播；
 // 每段的 PCM 同时拼成一条 WAV 放进右下角面板，供试听和下载。
 // 分段是为了长文本更稳：整段失败就什么都没了，分段后单段失败还能重试或再拆开。
-const TTS_PATH = '/api/tts';
-const PANEL_ID = 'sichang-tts-capture';
-const DEFAULT_SAMPLE_RATE = 24000;
-const MAX_RECORDS = 20;
-// 单段上限：太短会切碎语气，太长又容易让合成失败，取 160 字
-const MAX_SEGMENT_CHARS = 160;
-const MAX_ATTEMPTS = 2;
-// 单条最长约 22 分钟；超出后不再累积，避免长对话把内存吃满
-const MAX_PCM_BYTES = 64 * 1024 * 1024;
-// 脚本自己发的分段请求带这个头，用来和官方请求区分，避免无限接管
-const SEGMENT_HEADER = 'X-Sichang-Segment';
-// 首段先攒这么多秒再起播：开头几个网络块常比实时慢，直接播会在第一句里留小段补白
-const MIN_START_SECONDS = 0.5;
-// 站点自带的音色列表（与官方朗读使用同一接口参数），id 直接作为 voice 传给接口
-const VOICE_GROUPS = [
-    {
-        label: '中文',
-        voices: [
-            { id: 'mimo_default', label: '默认' },
-            { id: '冰糖', label: '冰糖（女声）' },
-            { id: '茉莉', label: '茉莉（女声）' },
-            { id: '苏打', label: '苏打（男声）' },
-            { id: '白桦', label: '白桦（男声）' },
-        ],
-    },
-    {
-        label: 'English',
-        voices: [
-            { id: 'Mia', label: 'Mia（女声）' },
-            { id: 'Chloe', label: 'Chloe（女声）' },
-            { id: 'Milo', label: 'Milo（男声）' },
-            { id: 'Dean', label: 'Dean（男声）' },
-        ],
-    },
-];
-const DEFAULT_VOICE = 'mimo_default';
-const VOICE_LABELS = new Map(VOICE_GROUPS.flatMap(group => group.voices.map(voice => [voice.id, voice.label])));
-// 输入框空着时的试听文本：短到一次合成就能听完，方便换音色反复试；
-// 只是占位用的预填，聚焦进入编辑就清掉，也不写入草稿
-const DEFAULT_INPUT_TEXT = '你好，我是思畅，今天天气不错。';
-const VOICE_STORE_KEY = 'sichang-tts-voice';
-const RATE_STORE_KEY = 'sichang-tts-rate';
-const FOLD_STORE_KEY = 'sichang-tts-folded';
-const PLAY_RATE_STORE_KEY = 'sichang-tts-play-rate';
-const DRAFT_STORE_KEY = 'sichang-tts-draft';
-const POS_STORE_KEY = 'sichang-tts-pos';
-// 播放倍速（不是合成语速）：面板 WAV 与分段试听走 <audio> 保音高；
-// 实时时间线只能用 Web Audio 的 playbackRate，会连音高一起变
-const PLAY_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-const PANEL_CSS = `
-:host { all: initial; }
-.panel {
-    width: 300px;
-    background: #16161a;
-    color: #e8e8ea;
-    border: 1px solid #2c2c33;
-    border-radius: 12px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
-    font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    overflow: hidden;
-}
-.head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 8px 7px 10px;
-    background: #1d1d22;
-    border-bottom: 1px solid #2c2c33;
-    cursor: move;
-    user-select: none;
-    touch-action: none;
-}
-.panel.dragging { opacity: .92; }
-.title { font-size: 12px; font-weight: 600; }
-.grip { color: #5a5a64; font-size: 11px; letter-spacing: -1px; }
-.count {
-    min-width: 18px;
-    padding: 0 5px;
-    height: 16px;
-    line-height: 16px;
-    text-align: center;
-    border-radius: 8px;
-    background: #3a3a44;
-    color: #c9c9d1;
-    font-size: 10px;
-}
-.spacer { flex: 1; }
-button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
-button:disabled { opacity: .4; cursor: default; pointer-events: none; }
-.head button {
-    height: 20px;
-    padding: 0 6px;
-    border-radius: 6px;
-    color: #a9a9b3;
-    font-size: 11px;
-}
-.head button:hover { background: #2c2c33; color: #fff; }
-.head select {
-    height: 20px;
-    padding: 0 3px;
-    border: 0;
-    border-radius: 6px;
-    background: #2a2a32;
-    color: #a9a9b3;
-    font: 10px system-ui, -apple-system, 'Segoe UI', sans-serif;
-    cursor: pointer;
-}
-.compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
-.compose textarea {
-    box-sizing: border-box;
-    width: 100%;
-    min-height: 44px;
-    max-height: 132px;
-    padding: 7px 8px;
-    border: 1px solid #2c2c33;
-    border-radius: 7px;
-    background: #101014;
-    color: #e8e8ea;
-    font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    resize: none;
-}
-.compose .counter {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    color: #6f6f79;
-    font-size: 10px;
-}
-.compose .counter .clearInput { color: #8a8a94; font-size: 10px; padding: 0 2px; }
-.compose .counter .clearInput:hover { color: #d5d5dd; }
-.compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
-.compose textarea::placeholder { color: #6f6f79; }
-.compose textarea.is-default { color: #6f6f79; }
-.compose .row { display: flex; align-items: center; gap: 6px; }
-.compose select, .compose input {
-    height: 26px;
-    padding: 0 6px;
-    border: 1px solid #2c2c33;
-    border-radius: 6px;
-    background: #1d1d22;
-    color: #d5d5dd;
-    font: 12px system-ui, -apple-system, 'Segoe UI', sans-serif;
-}
-.compose select { flex: 1; min-width: 0; }
-.compose input.rate { width: 48px; padding: 0 4px; text-align: center; }
-.compose .rateUnit { color: #80808a; font-size: 11px; margin-left: -3px; }
-.compose .go {
-    height: 26px;
-    padding: 0 14px;
-    border-radius: 6px;
-    background: #2d4a33;
-    color: #a9e6b8;
-    font-size: 12px;
-}
-.compose .go:hover { background: #3a5f43; color: #fff; }
-.panel.folded { width: auto; }
-.panel.folded .compose, .panel.folded .body { display: none; }
-.panel.folded .head { border-bottom: 0; }
-.body { max-height: 340px; overflow: auto; }
-.empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
-.item { display: flex; gap: 9px; padding: 9px 10px 9px 12px; border-bottom: 1px solid #232329; }
-.item:last-child { border-bottom: 0; }
-.meta { width: 38px; flex: none; padding-top: 1px; color: #80808a; font-size: 11px; }
-.meta .dur { display: block; color: #b9b9c2; }
-.item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
-@keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-.mid { flex: 1; min-width: 0; }
-.txt {
-    margin-bottom: 6px;
-    color: #c9c9d1;
-    font-size: 12px;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    cursor: zoom-in;
-}
-.txt.expanded { display: block; overflow: visible; white-space: pre-wrap; cursor: zoom-out; }
-.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.tag {
-    padding: 0 5px;
-    height: 15px;
-    line-height: 15px;
-    border-radius: 4px;
-    background: #24242b;
-    color: #8a8a94;
-    font-size: 10px;
-}
-.acts { display: flex; flex-wrap: wrap; gap: 5px; }
-.acts button {
-    height: 24px;
-    padding: 0 8px;
-    border-radius: 6px;
-    background: #2a2a32;
-    color: #d5d5dd;
-    font-size: 12px;
-}
-.acts button:hover { background: #35353f; color: #fff; }
-.acts .del { padding: 0 6px; color: #8a8a94; }
-.acts .del:hover { background: #3a2226; color: #ff9a9a; }
-.acts .playing { background: #2d4a33; color: #a9e6b8; }
-.bar {
-    display: none;
-    height: 3px;
-    margin-top: 7px;
-    border-radius: 2px;
-    background: #2a2a32;
-    overflow: hidden;
-    cursor: pointer;
-}
-.bar.show { display: block; }
-.bar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .15s linear; }
-.item[data-live] .bar .fill { width: 35%; background: #d8b46a; animation: tts-slide 1.1s ease-in-out infinite; }
-.item[data-live] .bar.determinate .fill { animation: none; }
-@keyframes tts-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
-.segs { margin-top: 5px; }
-.segs summary {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    color: #8a8a94;
-    font-size: 11px;
-    cursor: pointer;
-    list-style: none;
-    user-select: none;
-}
-.segs summary::-webkit-details-marker { display: none; }
-.segs summary::before { content: '▸'; font-size: 9px; transition: transform .15s; }
-.segs[open] summary::before { transform: rotate(90deg); }
-.segs .segCount { color: #b9b9c2; }
-.segBox { border-top: 1px solid #1f1f25; padding: 2px 0; }
-.segBox:first-child { border-top: 0; }
-.seg {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-}
-.seg .idx { width: 16px; flex: none; text-align: right; color: #6f6f79; }
-.seg .segText {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    color: #a9a9b3;
-}
-.seg .segDur { flex: none; color: #80808a; }
-.seg[data-state="pending"] .segDur { color: #6f6f79; }
-.seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
-.seg[data-state="failed"] .segDur, .seg[data-state="skipped"] .segDur { color: #c97a7a; }
-.seg button {
-    flex: none;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 5px;
-    background: #2a2a32;
-    color: #c9c9d1;
-    font-size: 10px;
-}
-.seg button:hover { background: #35353f; color: #fff; }
-.seg .segPlay { width: 20px; padding: 0; font-size: 9px; }
-.seg .segPlay.playing { background: #2d4a33; color: #a9e6b8; }
-.segBar {
-    display: none;
-    height: 2px;
-    margin: 2px 0 3px 20px;
-    border-radius: 1px;
-    background: #2a2a32;
-    overflow: hidden;
-    cursor: pointer;
-}
-.segBar.show { display: block; }
-.segBar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .1s linear; }
-@media (max-width: 480px) {
-    .panel { width: calc(100vw - 24px); }
-}
-button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
-    outline: 2px solid #5a9e6b;
-    outline-offset: 1px;
-}
-`;
+import {
+    TTS_PATH,
+    PANEL_ID,
+    DEFAULT_SAMPLE_RATE,
+    MAX_RECORDS,
+    MAX_SEGMENT_CHARS,
+    MAX_ATTEMPTS,
+    MAX_PCM_BYTES,
+    SEGMENT_HEADER,
+    MIN_START_SECONDS,
+    DEFAULT_INPUT_TEXT,
+    VOICE_STORE_KEY,
+    RATE_STORE_KEY,
+    FOLD_STORE_KEY,
+    PLAY_RATE_STORE_KEY,
+    DRAFT_STORE_KEY,
+    POS_STORE_KEY,
+    PLAY_RATES,
+} from '../sichang/constants.js';
+import { VOICE_GROUPS, VOICE_LABELS, DEFAULT_VOICE } from '../sichang/voices.js';
+import { PANEL_CSS } from '../sichang/styles.js';
+import { pcmToWav, pcmToSamples, joinedPcm } from '../sichang/audio.js';
 
 function createPanel() {
     const host = document.createElement('div');
@@ -360,37 +99,7 @@ function createPanel() {
     };
 }
 
-function pcmToWav(pcm, sampleRate) {
-    const dataLength = pcm.byteLength;
-    const buffer = new ArrayBuffer(44 + dataLength);
-    const view = new DataView(buffer);
-    const write = (offset, text) => {
-        for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
-    };
-    write(0, 'RIFF');
-    view.setUint32(4, 36 + dataLength, true);
-    write(8, 'WAVE');
-    write(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    write(36, 'data');
-    view.setUint32(40, dataLength, true);
-    new Uint8Array(buffer, 44).set(pcm);
-    return new Blob([buffer], { type: 'audio/wav' });
-}
 
-function pcmToSamples(pcm) {
-    const count = Math.floor(pcm.byteLength / 2);
-    const view = new DataView(pcm.buffer, pcm.byteOffset, count * 2);
-    const samples = new Float32Array(count);
-    for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
-    return samples;
-}
 
 function formatDuration(seconds) {
     const total = Math.max(0, Math.round(seconds));
@@ -436,17 +145,6 @@ function previewText(text) {
     return text.replace(/\[[^\]]{1,10}\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
 }
 
-function joinedPcm(chunks, length) {
-    const pcm = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of chunks) {
-        if (offset >= length) break;
-        const part = chunk.subarray(0, Math.min(chunk.length, length - offset));
-        pcm.set(part, offset);
-        offset += part.length;
-    }
-    return pcm;
-}
 
 // 先按句末标点和换行切开，再把短句攒到接近上限，避免一句话被硬生生截断
 function splitText(text) {

@@ -13,6 +13,11 @@
 
 - `src/main.js`：入口；注册 handler、登记清理函数、处理重复注入。
 - `src/handlers/sichang.js`：判断 `sichang.xyz` 域名后接管 `/api/tts`；按句分段合成、边下边播，并把各段 PCM16 合并成 WAV 供面板试听与下载。面板也可直接输入文本发起同一流程，支持播放倍速、实时播放暂停/继续/跳转、分段试听与单段重生成，并区分「下载完成」与「时间线播完」。详见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
+- `src/sichang/`：handler 的无状态依赖，按职责分文件，改哪块只读哪块。
+  - `constants.js`：接口路径 `TTS_PATH`、分段阈值、`localStorage` key、播放倍速等契约常量。
+  - `voices.js`：站点音色列表 `VOICE_GROUPS` 与 `VOICE_LABELS`。
+  - `styles.js`：面板 `PANEL_CSS`，Shadow DOM 里注入的全部样式。
+  - `audio.js`：PCM16/WAV 转换与拼接（`pcmToWav`、`pcmToSamples`、`joinedPcm`），纯函数。
 - `src/assets/icon.js`：脚本图标 SVG；黑圆白字，圆的填充留 25% 透明（原因见 `known-issues.md`）。
 - `vite.config.js`：userscript 元数据、匹配域名与构建产物配置。
 - `dist/sichang-tools.user.js`：构建产物，由构建脚本生成。

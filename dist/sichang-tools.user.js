@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1808
+// @version      2026.11.25.1809
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2226%22%20fill%3D%22%23fff%22%3ESC%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://sichang.xyz/*
@@ -13,12 +13,23 @@
 	var TTS_PATH = "/api/tts";
 	var PANEL_ID = "sichang-tts-capture";
 	var DEFAULT_SAMPLE_RATE = 24e3;
-	var MAX_RECORDS = 20;
-	var MAX_SEGMENT_CHARS = 160;
-	var MAX_ATTEMPTS = 2;
-	var MAX_PCM_BYTES = 67108864;
 	var SEGMENT_HEADER = "X-Sichang-Segment";
-	var MIN_START_SECONDS = .5;
+	var DEFAULT_INPUT_TEXT = "你好，我是思畅，今天天气不错。";
+	var VOICE_STORE_KEY = "sichang-tts-voice";
+	var RATE_STORE_KEY = "sichang-tts-rate";
+	var FOLD_STORE_KEY = "sichang-tts-folded";
+	var PLAY_RATE_STORE_KEY = "sichang-tts-play-rate";
+	var DRAFT_STORE_KEY = "sichang-tts-draft";
+	var POS_STORE_KEY = "sichang-tts-pos";
+	var PLAY_RATES = [
+		.5,
+		.75,
+		1,
+		1.25,
+		1.5,
+		1.75,
+		2
+	];
 	var VOICE_GROUPS = [{
 		label: "中文",
 		voices: [
@@ -64,24 +75,7 @@
 			}
 		]
 	}];
-	var DEFAULT_VOICE = "mimo_default";
 	var VOICE_LABELS = new Map(VOICE_GROUPS.flatMap((group) => group.voices.map((voice) => [voice.id, voice.label])));
-	var DEFAULT_INPUT_TEXT = "你好，我是思畅，今天天气不错。";
-	var VOICE_STORE_KEY = "sichang-tts-voice";
-	var RATE_STORE_KEY = "sichang-tts-rate";
-	var FOLD_STORE_KEY = "sichang-tts-folded";
-	var PLAY_RATE_STORE_KEY = "sichang-tts-play-rate";
-	var DRAFT_STORE_KEY = "sichang-tts-draft";
-	var POS_STORE_KEY = "sichang-tts-pos";
-	var PLAY_RATES = [
-		.5,
-		.75,
-		1,
-		1.25,
-		1.5,
-		1.75,
-		2
-	];
 	var PANEL_CSS = `
 :host { all: initial; }
 .panel {
@@ -316,6 +310,47 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
     outline-offset: 1px;
 }
 `;
+	function pcmToWav(pcm, sampleRate) {
+		const dataLength = pcm.byteLength;
+		const buffer = new ArrayBuffer(44 + dataLength);
+		const view = new DataView(buffer);
+		const write = (offset, text) => {
+			for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+		};
+		write(0, "RIFF");
+		view.setUint32(4, 36 + dataLength, true);
+		write(8, "WAVE");
+		write(12, "fmt ");
+		view.setUint32(16, 16, true);
+		view.setUint16(20, 1, true);
+		view.setUint16(22, 1, true);
+		view.setUint32(24, sampleRate, true);
+		view.setUint32(28, sampleRate * 2, true);
+		view.setUint16(32, 2, true);
+		view.setUint16(34, 16, true);
+		write(36, "data");
+		view.setUint32(40, dataLength, true);
+		new Uint8Array(buffer, 44).set(pcm);
+		return new Blob([buffer], { type: "audio/wav" });
+	}
+	function pcmToSamples(pcm) {
+		const count = Math.floor(pcm.byteLength / 2);
+		const view = new DataView(pcm.buffer, pcm.byteOffset, count * 2);
+		const samples = new Float32Array(count);
+		for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+		return samples;
+	}
+	function joinedPcm(chunks, length) {
+		const pcm = new Uint8Array(length);
+		let offset = 0;
+		for (const chunk of chunks) {
+			if (offset >= length) break;
+			const part = chunk.subarray(0, Math.min(chunk.length, length - offset));
+			pcm.set(part, offset);
+			offset += part.length;
+		}
+		return pcm;
+	}
 	function createPanel() {
 		const host = document.createElement("div");
 		host.id = PANEL_ID;
@@ -386,36 +421,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			go: panel.querySelector(".go")
 		};
 	}
-	function pcmToWav(pcm, sampleRate) {
-		const dataLength = pcm.byteLength;
-		const buffer = new ArrayBuffer(44 + dataLength);
-		const view = new DataView(buffer);
-		const write = (offset, text) => {
-			for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
-		};
-		write(0, "RIFF");
-		view.setUint32(4, 36 + dataLength, true);
-		write(8, "WAVE");
-		write(12, "fmt ");
-		view.setUint32(16, 16, true);
-		view.setUint16(20, 1, true);
-		view.setUint16(22, 1, true);
-		view.setUint32(24, sampleRate, true);
-		view.setUint32(28, sampleRate * 2, true);
-		view.setUint16(32, 2, true);
-		view.setUint16(34, 16, true);
-		write(36, "data");
-		view.setUint32(40, dataLength, true);
-		new Uint8Array(buffer, 44).set(pcm);
-		return new Blob([buffer], { type: "audio/wav" });
-	}
-	function pcmToSamples(pcm) {
-		const count = Math.floor(pcm.byteLength / 2);
-		const view = new DataView(pcm.buffer, pcm.byteOffset, count * 2);
-		const samples = new Float32Array(count);
-		for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
-		return samples;
-	}
 	function formatDuration(seconds) {
 		const total = Math.max(0, Math.round(seconds));
 		return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
@@ -452,17 +457,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 	function previewText(text) {
 		return text.replace(/\[[^\]]{1,10}\]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 	}
-	function joinedPcm(chunks, length) {
-		const pcm = new Uint8Array(length);
-		let offset = 0;
-		for (const chunk of chunks) {
-			if (offset >= length) break;
-			const part = chunk.subarray(0, Math.min(chunk.length, length - offset));
-			pcm.set(part, offset);
-			offset += part.length;
-		}
-		return pcm;
-	}
 	function splitText(text) {
 		const normalized = String(text || "").replace(/\r/g, "").trim();
 		if (!normalized) return [];
@@ -474,12 +468,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			current = "";
 		};
 		for (let part of parts) {
-			while (part.length > MAX_SEGMENT_CHARS) {
+			while (part.length > 160) {
 				flush();
-				chunks.push(part.slice(0, MAX_SEGMENT_CHARS));
-				part = part.slice(MAX_SEGMENT_CHARS);
+				chunks.push(part.slice(0, 160));
+				part = part.slice(160);
 			}
-			if (current.length + part.length > MAX_SEGMENT_CHARS) flush();
+			if (current.length + part.length > 160) flush();
 			current += part;
 		}
 		flush();
@@ -506,7 +500,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		ui.fold.addEventListener("click", () => applyFold(!ui.panel.classList.contains("folded")));
 		try {
-			if (localStorage.getItem(FOLD_STORE_KEY) === "1") applyFold(true);
+			if (localStorage.getItem("sichang-tts-folded") === "1") applyFold(true);
 		} catch {}
 		let manualPosition = false;
 		function clampPosition(left, top) {
@@ -543,7 +537,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			ui.host.style.bottom = `${Math.round(bottom)}px`;
 		}
 		try {
-			const saved = JSON.parse(localStorage.getItem(POS_STORE_KEY) || "null");
+			const saved = JSON.parse(localStorage.getItem("sichang-tts-pos") || "null");
 			if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
 				applyPosition(clampPosition(saved.left, saved.top));
 				manualPosition = true;
@@ -999,7 +993,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				txt.textContent = expanded ? text || "（无文本）" : preview;
 			});
 			records.push(record);
-			while (records.length > MAX_RECORDS) removeRecord(records[0]);
+			while (records.length > 20) removeRecord(records[0]);
 			updateCount();
 			return record;
 		}
@@ -1023,7 +1017,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			segment.status = state;
 			segment.complete = state === "done";
 			segment.row.dataset.state = state;
-			const seconds = segment.bytes / 2 / (record.sampleRate || DEFAULT_SAMPLE_RATE);
+			const seconds = segment.bytes / 2 / (record.sampleRate || 24e3);
 			if (state === "pending") segment.durationEl.textContent = "待合成";
 			else if (state === "active") segment.durationEl.textContent = `${formatSegmentDuration(seconds)}…`;
 			else if (state === "done") segment.durationEl.textContent = formatSegmentDuration(seconds);
@@ -1231,7 +1225,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 					})
 				});
 				if (!response.ok) throw new Error(`tts ${response.status}`);
-				if ((Number(response.headers.get("X-Sample-Rate")) || DEFAULT_SAMPLE_RATE) !== record.sampleRate) throw new Error("sample rate mismatch");
+				if ((Number(response.headers.get("X-Sample-Rate")) || 24e3) !== record.sampleRate) throw new Error("sample rate mismatch");
 				const reader = response.body.getReader();
 				const chunks = [];
 				let bytes = 0;
@@ -1343,7 +1337,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		});
 		function currentTts() {
 			return {
-				voice: ui.voice.value || DEFAULT_VOICE,
+				voice: ui.voice.value || "mimo_default",
 				rate: Math.min(2, Math.max(.5, Number(ui.rate.value) || 1))
 			};
 		}
@@ -1506,7 +1500,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (!session.started) {
 				session.pending.push(bytes);
 				session.pendingBytes += bytes.length;
-				if (session.pendingBytes < session.sampleRate * 2 * MIN_START_SECONDS) return;
+				if (session.pendingBytes < session.sampleRate * 2 * .5) return;
 				flushPending(session);
 				return;
 			}
@@ -1570,7 +1564,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				signal: session.controller.signal
 			}).then((response) => {
 				if (!response.ok) throw new Error(`tts ${response.status}`);
-				const sampleRate = Number(response.headers.get("X-Sample-Rate")) || DEFAULT_SAMPLE_RATE;
+				const sampleRate = Number(response.headers.get("X-Sample-Rate")) || 24e3;
 				session.sampleRate = sampleRate;
 				record.sampleRate = sampleRate;
 				return response;
@@ -1603,7 +1597,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 						const { done, value } = await reader.read();
 						if (done) break;
 						if (!value || !value.length || session.stopped) continue;
-						if (record.bytes + value.length > MAX_PCM_BYTES) continue;
+						if (record.bytes + value.length > 67108864) continue;
 						let data = value;
 						if (leftover.length) {
 							data = new Uint8Array(leftover.length + value.length);
@@ -1631,7 +1625,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			const speak = async (piece) => {
 				const segment = piece.segment;
 				const bytesBefore = segment.bytes;
-				for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) try {
+				for (let attempt = 0; attempt < 2; attempt++) try {
 					const response = await takePrefetch(piece);
 					if (session.stopped) return "done";
 					if (tasks.length) startPrefetch(tasks[0]);
@@ -1734,11 +1728,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		const originalFetch = window.fetch;
 		window.fetch = function(input, init) {
-			if (!(typeof input === "string" ? input : input?.url || "").includes(TTS_PATH) || isSegmentRequest(init)) return originalFetch.apply(this, arguments);
+			if (!(typeof input === "string" ? input : input?.url || "").includes("/api/tts") || isSegmentRequest(init)) return originalFetch.apply(this, arguments);
 			const request = parseRequest(init);
 			if (request && request.text) startSession({
 				...request,
-				voice: ui.voice.value || DEFAULT_VOICE
+				voice: ui.voice.value || "mimo_default"
 			});
 			return Promise.resolve(silentResponse());
 		};
