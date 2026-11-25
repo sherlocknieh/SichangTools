@@ -79,6 +79,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     color: #6f6f79;
     font-size: 10px;
 }
+.compose .counter .stats { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compose .counter .clearInput { color: #8a8a94; font-size: 10px; padding: 0 2px; }
 .compose .counter .clearInput:hover { color: #d5d5dd; }
 .compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
@@ -113,6 +114,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { padding: 7px 10px 8px; border-bottom: 1px solid #232329; }
 .item:last-child { border-bottom: 0; }
+.item.selected { background: #18181d; }
+.item.selected .txt { color: #e8e8ea; }
 .itemHead {
     position: relative;
     display: flex;
@@ -122,6 +125,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     color: #80808a;
     font-size: 11px;
     user-select: none;
+    cursor: pointer;
 }
 .itemHead .meta { color: #80808a; font-variant-numeric: tabular-nums; }
 .itemHead .dur { color: #b9b9c2; font-variant-numeric: tabular-nums; }
@@ -214,6 +218,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     cursor: pointer;
 }
 .seg:hover { background: #202026; }
+.seg.selected { background: #26262e; }
+.seg.selected .segText { color: #fff; }
 .seg .idx { width: 14px; flex: none; text-align: right; color: #6f6f79; font-variant-numeric: tabular-nums; }
 .seg .segText {
     flex: 1;

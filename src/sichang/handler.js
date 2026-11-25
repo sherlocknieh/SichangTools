@@ -290,6 +290,7 @@ export default function initSichangHandler() {
     };
     window.addEventListener('resize', onResize);
     const records = [];
+    const selection = { record: null, segment: null };
     let activeAudio = null;
     let activeSession = null;
     let activeTimeline = null;
@@ -329,6 +330,30 @@ export default function initSichangHandler() {
     function toggleMenu(record) {
         if (record.menu.hidden) openMenu(record);
         else hideMenu(record);
+    }
+    // 选中整条或某一段时，把对应文本放进输入框；再次点同一条不覆盖正在编辑的内容
+    function applySelection(record, segment) {
+        selection.record = record;
+        selection.segment = segment;
+        for (const item of records) {
+            item.row.classList.toggle('selected', item === record);
+            for (const part of item.segments) {
+                const chosen = Boolean(segment && part === segment);
+                part.row.classList.toggle('selected', chosen);
+                part.regenButton.title = chosen ? '按输入框里的文本重生成' : '重生成这一段';
+            }
+        }
+        updateComposeMeta();
+    }
+    function selectRecord(record) {
+        if (selection.record === record && !selection.segment) return;
+        applySelection(record, null);
+        setInputText(record.text || '');
+    }
+    function selectSegment(record, segment) {
+        if (selection.record === record && selection.segment === segment) return;
+        applySelection(record, segment);
+        setInputText(segment.text || '');
     }
     const onDocumentPointerDown = event => {
         const path = event.composedPath();
@@ -572,6 +597,7 @@ export default function initSichangHandler() {
     function removeRecord(record) {
         const index = records.indexOf(record);
         if (index >= 0) records.splice(index, 1);
+        if (selection.record === record) applySelection(null, null);
         stopChain(record);
         if (activeTimeline === record) activeTimeline = null;
         clearTimeout(record.timelineTimer);
@@ -677,7 +703,7 @@ export default function initSichangHandler() {
         row.append(head, txt, tags, segList);
         ui.list.insertBefore(row, ui.list.firstChild);
 
-        Object.assign(record, { row, head, duration, segCount, moreButton, menu, downloadButton, segList });
+        Object.assign(record, { row, head, txt, duration, segCount, moreButton, menu, downloadButton, segList });
 
         moreButton.addEventListener('click', event => {
             event.stopPropagation();
@@ -690,9 +716,14 @@ export default function initSichangHandler() {
         regenButton.addEventListener('click', () => resynthesizeRecord(record));
         downloadButton.addEventListener('click', () => downloadRecord(record));
         deleteButton.addEventListener('click', () => removeRecord(record));
+        // 点记录头、摘要或标签都算选中整条；分段区域有自己的选中逻辑
+        row.addEventListener('click', event => {
+            if (event.target.closest('.segBox, button')) return;
+            selectRecord(record);
+        });
         txt.addEventListener('click', () => {
             const expanded = row.classList.toggle('textOpen');
-            txt.textContent = expanded ? text || '（无文本）' : preview;
+            txt.textContent = expanded ? (record.text || '（无文本）') : (previewText(record.text) || '（无文本）');
             txt.title = expanded ? '点击收起全文' : '点击展开全文';
         });
 
@@ -799,6 +830,15 @@ export default function initSichangHandler() {
         segment.text = text;
         segment.label.textContent = previewText(text).slice(0, 24) || '（无文本）';
         segment.label.title = text;
+    }
+
+    // 某段文本被改过后，整条摘要、复制原文和「重新合成」都要跟着用新文本
+    function refreshRecordText(record) {
+        record.text = record.segments.map(segment => segment.text || '').join('');
+        const preview = previewText(record.text) || '（无文本）';
+        const open = record.row.classList.contains('textOpen');
+        record.txt.textContent = open ? (record.text || '（无文本）') : preview;
+        record.txt.title = open ? '点击收起全文' : '点击展开全文';
     }
 
     // 每段的状态直接写进子条目：待合成 → 合成中（时长随数据增长）→ 完成/失败
@@ -989,6 +1029,7 @@ export default function initSichangHandler() {
         const regenButton = document.createElement('button');
         regenButton.className = 'segAction';
         regenButton.textContent = '重生成';
+        regenButton.title = '重生成这一段';
         regenButton.disabled = true;
         const copyButton = document.createElement('button');
         copyButton.className = 'segAction';
@@ -1014,6 +1055,7 @@ export default function initSichangHandler() {
 
         row.addEventListener('click', event => {
             if (event.target.closest('button')) return;
+            selectSegment(record, segment);
             if (record.expandedSegment === segment) {
                 closeSegmentPanel(record, segment);
                 return;
@@ -1277,11 +1319,25 @@ export default function initSichangHandler() {
     // 避免和正在进行的合成/时间线播放互相踩数据
     async function regenerateSegment(record, segment) {
         if (segment.busy || record.regenerating) return;
+        // 选中这一段时以输入框里的文本为准；否则仍用这一段保存的原文
+        const editing = selection.record === record && selection.segment === segment;
+        const text = (editing ? ui.input.value : segment.text).trim();
+        if (!text) {
+            segment.regenButton.textContent = '文本为空';
+            setTimeout(() => {
+                if (segment.regenButton.textContent === '文本为空') segment.regenButton.textContent = '重生成';
+            }, 1500);
+            return;
+        }
         // 时间线还在播（或暂停）时直接重生成：先停下播放再替换，不留下旧声音
         if (record.state === 'playing' || record.state === 'paused') stopTimeline(record);
         if (record.state !== 'ready') return;
-        // 顺序播放正播到或正等待这一段时，先停下队列；其他段可以继续播
-        if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) stopChain(record);
+        // 顺序播放正播到或正等待这一段时，先停下队列；其他段可以继续播。
+        // 停下队列会收起面板，这里重新展开目标段，让「重生成中」保持可见
+        if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) {
+            stopChain(record);
+            openSegmentPanel(record, segment, 'segment');
+        }
         // 先标目标段 busy 再刷新，保证它自己的播放/重生成按钮立即锁上，
         // 其他段仍保持可播
         segment.busy = true;
@@ -1294,7 +1350,7 @@ export default function initSichangHandler() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', [SEGMENT_HEADER]: '1' },
                 body: JSON.stringify({
-                    text: segment.text,
+                    text,
                     voice: record.tts.voice,
                     rate: record.tts.rate,
                     format: record.tts.format,
@@ -1325,6 +1381,11 @@ export default function initSichangHandler() {
             clearSegmentAudio(segment);
             segment.chunks = chunks;
             segment.bytes = bytes;
+            // 编辑过的文本要写回分段和整条记录，音频与文字才不会对不上
+            if (text !== segment.text) {
+                setSegmentLabel(segment, text);
+                refreshRecordText(record);
+            }
             // 被跳过或失败的段重生成成功后也要恢复成可播状态
             setSegmentState(record, segment, 'done');
             rebuildRecord(record);
@@ -1453,12 +1514,31 @@ export default function initSichangHandler() {
         } catch {}
     }
 
-    // 字数和分段数就是这次会发出的请求数，提前给个心理预期
+    // 选中整条/分段后把文本写进输入框，走和手动输入相同的统计与草稿逻辑
+    function setInputText(text) {
+        ui.input.value = text;
+        setInputDefault(false);
+        autoGrowInput();
+        updateComposeMeta();
+        saveDraft();
+    }
+
+    // 字数和分段数就是这次会发出的请求数，提前给个心理预期；
+    // 选中记录或分段时再补一个来源提示，说明「重生成」会用这里的文本
     function updateComposeMeta() {
         const text = ui.input.value.trim();
         const chars = text.replace(/\s/g, '').length;
         const segments = splitText(text).length;
-        ui.stats.textContent = `${chars} 字 · ${segments} 段`;
+        let hint = '';
+        if (selection.record) {
+            if (selection.segment) {
+                const index = selection.record.segments.indexOf(selection.segment);
+                if (index >= 0) hint = ` · 编辑第 ${index + 1} 段`;
+            } else {
+                hint = ' · 整条';
+            }
+        }
+        ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
         ui.go.disabled = !text;
     }
 
@@ -1479,8 +1559,10 @@ export default function initSichangHandler() {
         autoGrowInput();
         updateComposeMeta();
     });
-    // 失焦后仍为空就恢复预填，保证空框里始终有段试听文本
+    // 失焦后仍为空就恢复预填，保证空框里始终有段试听文本；
+    // 正在编辑选中记录/分段时保持空框，不能把试听文本塞进重生成请求
     ui.input.addEventListener('blur', () => {
+        if (selection.record) return;
         if (ui.input.value.trim()) return;
         ui.input.value = DEFAULT_INPUT_TEXT;
         setInputDefault(true);
@@ -1491,6 +1573,7 @@ export default function initSichangHandler() {
     ui.clearInput.addEventListener('click', () => {
         ui.input.value = '';
         setInputDefault(false);
+        applySelection(null, null);
         onInputChange();
         ui.input.focus();
     });
@@ -1534,11 +1617,14 @@ export default function initSichangHandler() {
     }
 
     ui.go.addEventListener('click', submitCompose);
-    // 换音色后不用重新粘贴文本：按面板当前音色和语速再合成一条
+    // 换音色后不用重新粘贴文本：按面板当前音色和语速再合成一条。
+    // 整条被选中时使用输入框里编辑后的全文
     function resynthesizeRecord(record) {
-        if (!record.text) return;
+        const selectedWhole = selection.record === record && !selection.segment;
+        const text = (selectedWhole ? ui.input.value : record.text).trim();
+        if (!text) return;
         const { voice, rate } = currentTts();
-        startSession({ text: record.text, voice, rate, format: 'pcm16' });
+        startSession({ text, voice, rate, format: 'pcm16' });
     }
     // 面板里的按键不要冒泡到站点，避免触发站点自己的输入/发送快捷键
     ui.compose.addEventListener('keydown', event => {
@@ -1637,6 +1723,8 @@ export default function initSichangHandler() {
         if (!tasks.length) return null;
 
         const record = beginRecord(text, { voice, rate, format });
+        // 开始新的合成后，输入框不再承担某一段的编辑目标
+        applySelection(null, null);
         // 先把每段的子条目建出来：合成期间就能逐段看到「待合成/合成中/完成」，
         // 也保证列表顺序与最终 WAV 的拼接顺序一致
         for (const task of tasks) task.segment = createSegment(record, task.text);

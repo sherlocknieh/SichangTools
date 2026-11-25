@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1840
+// @version      2026.11.25.1858
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2226%22%20fill%3D%22%23fff%22%3ESC%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://sichang.xyz/*
@@ -156,6 +156,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     color: #6f6f79;
     font-size: 10px;
 }
+.compose .counter .stats { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compose .counter .clearInput { color: #8a8a94; font-size: 10px; padding: 0 2px; }
 .compose .counter .clearInput:hover { color: #d5d5dd; }
 .compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
@@ -190,6 +191,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { padding: 7px 10px 8px; border-bottom: 1px solid #232329; }
 .item:last-child { border-bottom: 0; }
+.item.selected { background: #18181d; }
+.item.selected .txt { color: #e8e8ea; }
 .itemHead {
     position: relative;
     display: flex;
@@ -199,6 +202,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     color: #80808a;
     font-size: 11px;
     user-select: none;
+    cursor: pointer;
 }
 .itemHead .meta { color: #80808a; font-variant-numeric: tabular-nums; }
 .itemHead .dur { color: #b9b9c2; font-variant-numeric: tabular-nums; }
@@ -291,6 +295,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     cursor: pointer;
 }
 .seg:hover { background: #202026; }
+.seg.selected { background: #26262e; }
+.seg.selected .segText { color: #fff; }
 .seg .idx { width: 14px; flex: none; text-align: right; color: #6f6f79; font-variant-numeric: tabular-nums; }
 .seg .segText {
     flex: 1;
@@ -653,6 +659,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		};
 		window.addEventListener("resize", onResize);
 		const records = [];
+		const selection = {
+			record: null,
+			segment: null
+		};
 		let activeAudio = null;
 		let activeSession = null;
 		let activeTimeline = null;
@@ -689,6 +699,29 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		function toggleMenu(record) {
 			if (record.menu.hidden) openMenu(record);
 			else hideMenu(record);
+		}
+		function applySelection(record, segment) {
+			selection.record = record;
+			selection.segment = segment;
+			for (const item of records) {
+				item.row.classList.toggle("selected", item === record);
+				for (const part of item.segments) {
+					const chosen = Boolean(segment && part === segment);
+					part.row.classList.toggle("selected", chosen);
+					part.regenButton.title = chosen ? "按输入框里的文本重生成" : "重生成这一段";
+				}
+			}
+			updateComposeMeta();
+		}
+		function selectRecord(record) {
+			if (selection.record === record && !selection.segment) return;
+			applySelection(record, null);
+			setInputText(record.text || "");
+		}
+		function selectSegment(record, segment) {
+			if (selection.record === record && selection.segment === segment) return;
+			applySelection(record, segment);
+			setInputText(segment.text || "");
 		}
 		const onDocumentPointerDown = (event) => {
 			const path = event.composedPath();
@@ -896,6 +929,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		function removeRecord(record) {
 			const index = records.indexOf(record);
 			if (index >= 0) records.splice(index, 1);
+			if (selection.record === record) applySelection(null, null);
 			stopChain(record);
 			if (activeTimeline === record) activeTimeline = null;
 			clearTimeout(record.timelineTimer);
@@ -975,8 +1009,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			ui.panel.getRootNode().appendChild(menu);
 			const txt = document.createElement("div");
 			txt.className = "txt";
-			const preview = previewText(text) || "（无文本）";
-			txt.textContent = preview;
+			txt.textContent = previewText(text) || "（无文本）";
 			txt.title = "点击展开或收起全文";
 			const tags = document.createElement("div");
 			tags.className = "tags";
@@ -994,6 +1027,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			Object.assign(record, {
 				row,
 				head,
+				txt,
 				duration,
 				segCount,
 				moreButton,
@@ -1015,9 +1049,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			regenButton.addEventListener("click", () => resynthesizeRecord(record));
 			downloadButton.addEventListener("click", () => downloadRecord(record));
 			deleteButton.addEventListener("click", () => removeRecord(record));
+			row.addEventListener("click", (event) => {
+				if (event.target.closest(".segBox, button")) return;
+				selectRecord(record);
+			});
 			txt.addEventListener("click", () => {
 				const expanded = row.classList.toggle("textOpen");
-				txt.textContent = expanded ? text || "（无文本）" : preview;
+				txt.textContent = expanded ? record.text || "（无文本）" : previewText(record.text) || "（无文本）";
 				txt.title = expanded ? "点击收起全文" : "点击展开全文";
 			});
 			records.push(record);
@@ -1110,6 +1148,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			segment.text = text;
 			segment.label.textContent = previewText(text).slice(0, 24) || "（无文本）";
 			segment.label.title = text;
+		}
+		function refreshRecordText(record) {
+			record.text = record.segments.map((segment) => segment.text || "").join("");
+			const preview = previewText(record.text) || "（无文本）";
+			const open = record.row.classList.contains("textOpen");
+			record.txt.textContent = open ? record.text || "（无文本）" : preview;
+			record.txt.title = open ? "点击收起全文" : "点击展开全文";
 		}
 		function setSegmentState(record, segment, state) {
 			segment.status = state;
@@ -1277,6 +1322,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			const regenButton = document.createElement("button");
 			regenButton.className = "segAction";
 			regenButton.textContent = "重生成";
+			regenButton.title = "重生成这一段";
 			regenButton.disabled = true;
 			const copyButton = document.createElement("button");
 			copyButton.className = "segAction";
@@ -1315,6 +1361,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			renumberSegments(record);
 			row.addEventListener("click", (event) => {
 				if (event.target.closest("button")) return;
+				selectSegment(record, segment);
 				if (record.expandedSegment === segment) {
 					closeSegmentPanel(record, segment);
 					return;
@@ -1547,9 +1594,20 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		async function regenerateSegment(record, segment) {
 			if (segment.busy || record.regenerating) return;
+			const text = (selection.record === record && selection.segment === segment ? ui.input.value : segment.text).trim();
+			if (!text) {
+				segment.regenButton.textContent = "文本为空";
+				setTimeout(() => {
+					if (segment.regenButton.textContent === "文本为空") segment.regenButton.textContent = "重生成";
+				}, 1500);
+				return;
+			}
 			if (record.state === "playing" || record.state === "paused") stopTimeline(record);
 			if (record.state !== "ready") return;
-			if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) stopChain(record);
+			if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) {
+				stopChain(record);
+				openSegmentPanel(record, segment, "segment");
+			}
 			segment.busy = true;
 			segment.regenButton.textContent = "重生成中";
 			record.regenerating = true;
@@ -1563,7 +1621,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 						[SEGMENT_HEADER]: "1"
 					},
 					body: JSON.stringify({
-						text: segment.text,
+						text,
 						voice: record.tts.voice,
 						rate: record.tts.rate,
 						format: record.tts.format
@@ -1591,6 +1649,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				clearSegmentAudio(segment);
 				segment.chunks = chunks;
 				segment.bytes = bytes;
+				if (text !== segment.text) {
+					setSegmentLabel(segment, text);
+					refreshRecordText(record);
+				}
 				setSegmentState(record, segment, "done");
 				rebuildRecord(record);
 				ok = true;
@@ -1691,11 +1753,25 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				localStorage.setItem(DRAFT_STORE_KEY, inputIsDefault ? "" : ui.input.value);
 			} catch {}
 		}
+		function setInputText(text) {
+			ui.input.value = text;
+			setInputDefault(false);
+			autoGrowInput();
+			updateComposeMeta();
+			saveDraft();
+		}
 		function updateComposeMeta() {
 			const text = ui.input.value.trim();
 			const chars = text.replace(/\s/g, "").length;
 			const segments = splitText(text).length;
-			ui.stats.textContent = `${chars} 字 · ${segments} 段`;
+			let hint = "";
+			if (selection.record) {
+				if (selection.segment) {
+					const index = selection.record.segments.indexOf(selection.segment);
+					if (index >= 0) hint = ` · 编辑第 ${index + 1} 段`;
+				} else hint = " · 整条";
+			}
+			ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
 			ui.go.disabled = !text;
 		}
 		function onInputChange() {
@@ -1715,6 +1791,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			updateComposeMeta();
 		});
 		ui.input.addEventListener("blur", () => {
+			if (selection.record) return;
 			if (ui.input.value.trim()) return;
 			ui.input.value = DEFAULT_INPUT_TEXT;
 			setInputDefault(true);
@@ -1725,6 +1802,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		ui.clearInput.addEventListener("click", () => {
 			ui.input.value = "";
 			setInputDefault(false);
+			applySelection(null, null);
 			onInputChange();
 			ui.input.focus();
 		});
@@ -1770,10 +1848,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		ui.go.addEventListener("click", submitCompose);
 		function resynthesizeRecord(record) {
-			if (!record.text) return;
+			const text = (selection.record === record && !selection.segment ? ui.input.value : record.text).trim();
+			if (!text) return;
 			const { voice, rate } = currentTts();
 			startSession({
-				text: record.text,
+				text,
 				voice,
 				rate,
 				format: "pcm16"
@@ -1859,6 +1938,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				rate,
 				format
 			});
+			applySelection(null, null);
 			for (const task of tasks) task.segment = createSegment(record, task.text);
 			refreshSegmentControls(record);
 			ensureAudioContext();
