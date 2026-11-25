@@ -29,3 +29,9 @@
 
 - 匹配域名改 `vite.config.js`；产物 `dist/` 由构建脚本生成。
 - 版本号由 `.dev/bump-and-build.mjs` 写入 `vite.config.js`，格式 `YYYY.MM.DD.HHmm`；源码、版本号与 `dist` 在同一提交里。
+
+## 调试约定
+
+- 改完代码只用 `npm run build` 等命令验证，不自行启动浏览器或操作已打开的页面。
+- 真机验证（打开 `sichang.xyz`、点击面板、看控制台）先弹窗问用户；简单的视觉变化由用户自己看。
+- 用户同意后按 `docs/development.md` 操作，调试产物只写 `.dev/build/`。

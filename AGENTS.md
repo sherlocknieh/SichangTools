@@ -18,9 +18,15 @@ Vite 构建的浏览器用户脚本（原生 ES modules，无框架），接管�
 1. 定位：按文档地图找承载文件，只动相关文件。
 2. 约定：改源码前读 `docs/conventions.md`。
 3. 实现：能改现有 handler 就不新增文件。
-4. 验证：`npm run build` 通过；行为在 `sichang.xyz` 聊天页实测。
+4. 验证：`npm run build` 通过；真机验证（开浏览器、打开 `sichang.xyz`、点击面板）先弹窗问用户，同意后再做。
 5. 记录：变更同步到对应文档（功能 → `features/`，机制 → `logic/`，改版 → `known-issues.md`）。
 6. 提交：`npm run release "<type>: <说明>"`。
+
+## 调试约定
+
+- 不要自行启动浏览器调试：改完代码只用 `npm run build`、静态检查等命令验证。
+- 启动浏览器、打开目标站点，或对已共享页面做 reload、点击、输入、截图，都必须先弹窗询问；简单的视觉变化交给用户自己看。
+- 用户同意后按 `docs/development.md` 的方式调试，产物只写 `.dev/build/`，不动 `dist/`。
 
 ## 自动提交
 

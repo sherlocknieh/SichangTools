@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.2216
+// @version      2026.11.25.2219
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
