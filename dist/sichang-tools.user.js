@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1714
+// @version      2026.11.25.1728
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2226%22%20fill%3D%22%23fff%22%3ESC%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://sichang.xyz/*
@@ -339,7 +339,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
-            <select class="speed" aria-label="播放倍速" title="播放倍速（仅面板试听，保持音高）">${PLAY_RATES.map((rate) => `<option value="${rate}">${rate}×</option>`).join("")}</select>
+            <select class="speed" aria-label="播放倍速" title="播放倍速（试听保持音高，实时播放会变调）">${PLAY_RATES.map((rate) => `<option value="${rate}">${rate}×</option>`).join("")}</select>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
@@ -404,6 +404,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		view.setUint32(40, dataLength, true);
 		new Uint8Array(buffer, 44).set(pcm);
 		return new Blob([buffer], { type: "audio/wav" });
+	}
+	function pcmToSamples(pcm) {
+		const count = Math.floor(pcm.byteLength / 2);
+		const view = new DataView(pcm.buffer, pcm.byteOffset, count * 2);
+		const samples = new Float32Array(count);
+		for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+		return samples;
 	}
 	function formatDuration(seconds) {
 		const total = Math.max(0, Math.round(seconds));
@@ -603,6 +610,16 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			for (const record of records) {
 				if (record.audio) record.audio.playbackRate = value;
 				for (const segment of record.segments) if (segment.audio) segment.audio.playbackRate = value;
+				const session = record.session;
+				if (!session) continue;
+				if (!(record.state === "playing" || record.state === "paused" || record.state === "capturing" && session.started)) continue;
+				const position = livePosition(session);
+				session.rate = value;
+				session.pausedOffset = position;
+				if (record.state !== "paused") {
+					rescheduleTimeline(record, position);
+					if (record.state === "playing") armTimelineEnd(record);
+				}
 			}
 		});
 		function ensureAudioContext() {
@@ -619,40 +636,151 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (activeAudio && !activeAudio.paused) activeAudio.pause();
 		}
 		function stopTimeline(record) {
-			if (!record || record.state !== "playing") return;
+			if (!record || record.state !== "playing" && record.state !== "paused") return;
 			clearTimeout(record.timelineTimer);
 			clearInterval(record.timelineTicker);
 			record.timelineTimer = null;
 			record.timelineTicker = null;
+			if (record.session) record.session.paused = false;
 			record.session?.abort();
 			if (activeSession && activeSession.record === record) activeSession = null;
 			record.session = null;
 			if (activeTimeline === record) activeTimeline = null;
 			record.state = "ready";
 			record.playButton.textContent = "播放";
+			record.playButton.setAttribute("aria-label", "播放");
 			record.playButton.classList.remove("playing");
+			record.stopButton.hidden = true;
 			record.bar.classList.remove("show");
 			record.fill.style.width = "0%";
 			record.duration.textContent = formatDuration(record.seconds);
 			setSegmentsEnabled(record, true);
 		}
+		function livePosition(session) {
+			if (session.paused) return session.pausedOffset || 0;
+			if (session.timelineStart === null) return session.startOffset || 0;
+			const elapsed = Math.max(0, session.context.currentTime - session.timelineStart);
+			const position = session.startOffset + elapsed * session.rate;
+			return Math.min(session.receivedSeconds, Math.max(0, position));
+		}
 		function startTimelineTicker(record, session) {
-			const total = session.playhead - session.timelineStart;
+			clearInterval(record.timelineTicker);
 			const tick = () => {
 				if (record.state !== "playing") return;
-				const elapsed = session.context.currentTime - session.timelineStart;
-				const ratio = Math.min(1, Math.max(0, elapsed / total));
+				const total = session.receivedSeconds || record.seconds;
+				const ratio = total ? Math.min(1, livePosition(session) / total) : 0;
 				record.fill.style.width = `${ratio * 100}%`;
 			};
 			tick();
 			record.timelineTicker = setInterval(tick, 250);
-			record.timelineTimer = setTimeout(() => stopTimeline(record), Math.max(0, session.playhead - session.context.currentTime) * 1e3 + 80);
+		}
+		function armTimelineEnd(record) {
+			const session = record.session;
+			clearTimeout(record.timelineTimer);
+			record.timelineTimer = null;
+			if (!session || record.state !== "playing") return;
+			const remaining = Math.max(0, session.receivedSeconds - livePosition(session)) / session.rate;
+			record.timelineTimer = setTimeout(() => stopTimeline(record), remaining * 1e3 + 120);
+		}
+		function pcmFromBytes(record, startByte) {
+			const from = Math.min(Math.max(0, startByte), record.bytes);
+			const out = new Uint8Array(record.bytes - from);
+			let written = 0;
+			let cursor = 0;
+			for (const segment of record.segments) for (const chunk of segment.chunks) {
+				const end = cursor + chunk.length;
+				if (end > from) {
+					const begin = Math.max(0, from - cursor);
+					out.set(chunk.subarray(begin), written);
+					written += chunk.length - begin;
+				}
+				cursor = end;
+			}
+			return out.subarray(0, written);
+		}
+		function rescheduleTimeline(record, offset) {
+			const session = record.session;
+			if (!session) return;
+			const context = ensureAudioContext();
+			session.context = context;
+			stopSources(session);
+			const sampleRate = session.sampleRate || record.sampleRate;
+			const pcm = pcmFromBytes(record, Math.round(offset * sampleRate) * 2);
+			const count = Math.floor(pcm.byteLength / 2);
+			if (!count) {
+				session.started = false;
+				session.timelineStart = null;
+				session.playhead = 0;
+				session.startOffset = offset;
+				return;
+			}
+			const buffer = context.createBuffer(1, count, sampleRate);
+			buffer.copyToChannel(pcmToSamples(pcm), 0);
+			const source = context.createBufferSource();
+			source.buffer = buffer;
+			source.playbackRate.value = session.rate;
+			source.connect(context.destination);
+			const startAt = context.currentTime + .06;
+			source.start(startAt);
+			source.onended = () => {
+				const index = session.sources.indexOf(source);
+				if (index >= 0) session.sources.splice(index, 1);
+			};
+			session.sources.push(source);
+			session.started = true;
+			session.timelineStart = startAt;
+			session.startOffset = offset;
+			session.playhead = startAt + buffer.duration / session.rate;
+		}
+		function pauseTimeline(record) {
+			const session = record.session;
+			if (!session || record.state !== "playing") return;
+			const position = livePosition(session);
+			session.paused = true;
+			session.pausedOffset = position;
+			stopSources(session);
+			clearInterval(record.timelineTicker);
+			clearTimeout(record.timelineTimer);
+			record.timelineTicker = null;
+			record.timelineTimer = null;
+			record.state = "paused";
+			record.playButton.textContent = "继续";
+			record.playButton.setAttribute("aria-label", "继续播放");
+			record.playButton.classList.remove("playing");
+		}
+		function resumeTimeline(record) {
+			const session = record.session;
+			if (!session || record.state !== "paused") return;
+			stopActive();
+			session.paused = false;
+			const offset = Math.min(session.pausedOffset || 0, session.receivedSeconds);
+			session.pausedOffset = offset;
+			rescheduleTimeline(record, offset);
+			record.state = "playing";
+			record.playButton.textContent = "暂停";
+			record.playButton.setAttribute("aria-label", "暂停播放");
+			record.playButton.classList.add("playing");
+			startTimelineTicker(record, session);
+			armTimelineEnd(record);
+		}
+		function seekTimeline(record, seconds) {
+			const session = record.session;
+			if (!session) return;
+			const position = Math.min(Math.max(0, seconds), session.receivedSeconds);
+			session.pausedOffset = position;
+			if (!session.paused) {
+				rescheduleTimeline(record, position);
+				armTimelineEnd(record);
+			}
+			const ratio = session.receivedSeconds ? position / session.receivedSeconds : 0;
+			record.fill.style.width = `${ratio * 100}%`;
 		}
 		function syncPlayState() {
 			for (const record of records) {
 				if (record.state !== "ready" || !record.playButton) continue;
 				const playing = Boolean(record.audio && !record.audio.paused);
 				record.playButton.textContent = playing ? "暂停" : "播放";
+				record.playButton.setAttribute("aria-label", playing ? "暂停播放" : "播放");
 				record.playButton.classList.toggle("playing", playing);
 			}
 		}
@@ -731,6 +859,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			const playButton = document.createElement("button");
 			playButton.textContent = "停止";
 			playButton.setAttribute("aria-label", "停止合成");
+			const stopButton = document.createElement("button");
+			stopButton.textContent = "停止";
+			stopButton.setAttribute("aria-label", "停止播放");
+			stopButton.hidden = true;
 			const copyButton = document.createElement("button");
 			copyButton.textContent = "复制";
 			copyButton.setAttribute("aria-label", "复制原文");
@@ -745,7 +877,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			deleteButton.className = "del";
 			deleteButton.textContent = "✕";
 			deleteButton.setAttribute("aria-label", "删除");
-			acts.append(playButton, copyButton, regenButton, downloadButton, deleteButton);
+			acts.append(playButton, stopButton, copyButton, regenButton, downloadButton, deleteButton);
 			const segs = document.createElement("details");
 			segs.className = "segs";
 			segs.open = true;
@@ -766,6 +898,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				row,
 				duration,
 				playButton,
+				stopButton,
 				downloadButton,
 				bar,
 				fill,
@@ -774,10 +907,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				segCount
 			});
 			bar.addEventListener("click", (event) => {
-				const audio = record.audio;
-				if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
 				const rect = bar.getBoundingClientRect();
 				const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+				if (record.state === "playing" || record.state === "paused") {
+					seekTimeline(record, ratio * (record.session?.receivedSeconds || 0));
+					return;
+				}
+				const audio = record.audio;
+				if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
 				audio.currentTime = ratio * audio.duration;
 				fill.style.width = `${ratio * 100}%`;
 			});
@@ -787,7 +924,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 					return;
 				}
 				if (record.state === "playing") {
-					stopTimeline(record);
+					pauseTimeline(record);
+					return;
+				}
+				if (record.state === "paused") {
+					resumeTimeline(record);
 					return;
 				}
 				if (record.audio && !record.audio.paused) {
@@ -819,6 +960,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				bar.classList.add("show");
 				record.audio.play().then(syncPlayState, syncPlayState);
 			});
+			stopButton.addEventListener("click", () => stopTimeline(record));
 			downloadButton.addEventListener("click", () => {
 				if (!record.url) return;
 				const link = document.createElement("a");
@@ -903,12 +1045,19 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			playButton.addEventListener("click", () => toggleSegmentPlay(record, segment));
 			regenButton.addEventListener("click", () => regenerateSegment(record, segment));
 			bar.addEventListener("click", (event) => {
-				const audio = segment.audio;
-				if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
+				if (!segment.complete || segment.busy || record.regenerating) return;
+				if (record.state !== "ready" && record.state !== "paused") return;
 				const rect = bar.getBoundingClientRect();
 				const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-				audio.currentTime = ratio * audio.duration;
-				fill.style.width = `${ratio * 100}%`;
+				const audio = ensureSegmentAudio(record, segment);
+				const seek = () => {
+					if (!Number.isFinite(audio.duration) || !audio.duration) return;
+					audio.currentTime = ratio * audio.duration;
+					segment.bar.classList.add("show");
+					fill.style.width = `${ratio * 100}%`;
+				};
+				if (audio.readyState >= 1) seek();
+				else audio.addEventListener("loadedmetadata", seek, { once: true });
 			});
 			return segment;
 		}
@@ -939,16 +1088,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			segment.fill.style.width = "0%";
 			syncSegmentPlayState(segment);
 		}
-		function toggleSegmentPlay(record, segment) {
-			if (!segment.complete || segment.busy || record.regenerating) return;
-			if (record.state === "playing") stopTimeline(record);
-			if (record.state !== "ready") return;
-			if (segment.audio && !segment.audio.paused) {
-				segment.audio.pause();
-				return;
-			}
-			stopActive();
-			stopTimeline(activeTimeline);
+		function ensureSegmentAudio(record, segment) {
 			if (!segment.audio) {
 				const audio = new Audio(ensureSegmentUrl(record, segment));
 				audio.preservesPitch = true;
@@ -956,6 +1096,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				audio.webkitPreservesPitch = true;
 				audio.addEventListener("pause", () => syncSegmentPlayState(segment));
 				audio.addEventListener("ended", () => {
+					audio.currentTime = 0;
 					segment.bar.classList.remove("show");
 					segment.fill.style.width = "0%";
 					syncSegmentPlayState(segment);
@@ -967,9 +1108,22 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				segment.audio = audio;
 			}
 			segment.audio.playbackRate = playRate;
-			activeAudio = segment.audio;
+			return segment.audio;
+		}
+		function toggleSegmentPlay(record, segment) {
+			if (!segment.complete || segment.busy || record.regenerating) return;
+			if (record.state !== "ready" && record.state !== "paused" && record.state !== "playing") return;
+			if (segment.audio && !segment.audio.paused) {
+				segment.audio.pause();
+				return;
+			}
+			if (record.state === "playing") pauseTimeline(record);
+			stopActive();
+			if (activeTimeline && activeTimeline !== record) stopTimeline(activeTimeline);
+			const audio = ensureSegmentAudio(record, segment);
+			activeAudio = audio;
 			segment.bar.classList.add("show");
-			segment.audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
+			audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
 		}
 		function dropAudio(record) {
 			if (record.audio) {
@@ -988,6 +1142,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.fill.style.width = "0%";
 			record.bar.classList.remove("show");
 			record.playButton.textContent = "播放";
+			record.playButton.setAttribute("aria-label", "播放");
 			record.playButton.classList.remove("playing");
 		}
 		function rebuildRecord(record) {
@@ -1010,7 +1165,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		async function regenerateSegment(record, segment) {
 			if (segment.busy || record.regenerating) return;
-			if (record.state === "playing") stopTimeline(record);
+			if (record.state === "playing" || record.state === "paused") stopTimeline(record);
 			if (record.state !== "ready") return;
 			record.regenerating = true;
 			setSegmentsEnabled(record, false);
@@ -1086,6 +1241,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.bar.classList.remove("show");
 			record.duration.textContent = "失败";
 			record.playButton.textContent = "播放";
+			record.playButton.setAttribute("aria-label", "播放");
 			record.playButton.disabled = true;
 			record.downloadButton.disabled = true;
 			setSegmentsEnabled(record, false);
@@ -1110,6 +1266,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.bar.classList.remove("determinate");
 			record.duration.textContent = formatDuration(record.seconds);
 			record.playButton.textContent = "播放";
+			record.playButton.setAttribute("aria-label", "播放");
 			record.playButton.disabled = false;
 			record.downloadButton.disabled = false;
 			for (const segment of record.segments) segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
@@ -1119,10 +1276,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				record.state = "playing";
 				record.session = session;
 				activeTimeline = record;
-				record.playButton.textContent = "停止";
+				record.playButton.textContent = "暂停";
+				record.playButton.setAttribute("aria-label", "暂停播放");
+				record.playButton.classList.add("playing");
+				record.stopButton.hidden = false;
 				record.bar.classList.add("show");
 				record.bar.classList.add("determinate");
 				startTimelineTicker(record, session);
+				armTimelineEnd(record);
 			}
 		}
 		try {
@@ -1228,23 +1389,24 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			for (const record of [...records]) removeRecord(record);
 			activeAudio = null;
 		});
-		function startSource(session, bytes) {
-			const count = bytes.byteLength / 2;
+		function startSource(session, bytes, audioStart) {
+			const count = Math.floor(bytes.byteLength / 2);
 			if (!count) return;
-			const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-			const samples = new Float32Array(count);
-			for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
 			const context = ensureAudioContext();
 			session.context = context;
 			const buffer = context.createBuffer(1, count, session.sampleRate);
-			buffer.copyToChannel(samples, 0);
+			buffer.copyToChannel(pcmToSamples(bytes), 0);
 			const source = context.createBufferSource();
 			source.buffer = buffer;
+			source.playbackRate.value = session.rate;
 			source.connect(context.destination);
 			const startAt = Math.max(session.playhead, context.currentTime + .06);
+			if (session.timelineStart === null || startAt > session.playhead + .005) {
+				session.timelineStart = startAt;
+				session.startOffset = audioStart;
+			}
 			source.start(startAt);
-			if (session.timelineStart === null) session.timelineStart = startAt;
-			session.playhead = startAt + buffer.duration;
+			session.playhead = startAt + buffer.duration / session.rate;
 			source.onended = () => {
 				const index = session.sources.indexOf(source);
 				if (index >= 0) session.sources.splice(index, 1);
@@ -1252,7 +1414,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			session.sources.push(source);
 		}
 		function flushPending(session) {
-			if (session.stopped || session.started || !session.pendingBytes) return;
+			if (session.stopped || session.paused || session.started || !session.pendingBytes) return;
 			const merged = new Uint8Array(session.pendingBytes);
 			let offset = 0;
 			for (const part of session.pending) {
@@ -1262,9 +1424,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			session.pending = [];
 			session.pendingBytes = 0;
 			session.started = true;
-			startSource(session, merged);
+			startSource(session, merged, 0);
 		}
-		function schedulePcm(session, bytes) {
+		function schedulePcm(session, bytes, audioStart) {
+			if (session.paused) return;
 			if (!session.started) {
 				session.pending.push(bytes);
 				session.pendingBytes += bytes.length;
@@ -1272,7 +1435,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				flushPending(session);
 				return;
 			}
-			startSource(session, bytes);
+			startSource(session, bytes, audioStart);
 		}
 		function stopSources(session) {
 			for (const source of session.sources) try {
@@ -1300,6 +1463,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				pending: [],
 				pendingBytes: 0,
 				timelineStart: null,
+				startOffset: 0,
+				receivedSeconds: 0,
+				rate: 1,
+				paused: false,
+				pausedOffset: 0,
 				context: null,
 				sources: [],
 				sampleRate: DEFAULT_SAMPLE_RATE,
@@ -1375,7 +1543,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 							target.chunks.push(part);
 							target.bytes += evenLength;
 							record.bytes += evenLength;
-							schedulePcm(session, part);
+							schedulePcm(session, part, session.receivedSeconds);
+							session.receivedSeconds += evenLength / 2 / session.sampleRate;
 						}
 						leftover = data.subarray(evenLength);
 					}
@@ -1428,7 +1597,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				} catch {}
 				stopSources(session);
 				if (activeSession === session) activeSession = null;
-				if (record.state === "playing") {
+				if (record.state === "playing" || record.state === "paused") {
 					stopTimeline(record);
 					return;
 				}

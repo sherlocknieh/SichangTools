@@ -47,7 +47,8 @@ const FOLD_STORE_KEY = 'sichang-tts-folded';
 const PLAY_RATE_STORE_KEY = 'sichang-tts-play-rate';
 const DRAFT_STORE_KEY = 'sichang-tts-draft';
 const POS_STORE_KEY = 'sichang-tts-pos';
-// 播放倍速（不是合成语速）：只作用于面板 WAV 试听，实时时间线固定 1×
+// 播放倍速（不是合成语速）：面板 WAV 与分段试听走 <audio> 保音高；
+// 实时时间线只能用 Web Audio 的 playbackRate，会连音高一起变
 const PLAY_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const PANEL_CSS = `
@@ -310,7 +311,7 @@ function createPanel() {
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
-            <select class="speed" aria-label="播放倍速" title="播放倍速（仅面板试听，保持音高）">${speeds}</select>
+            <select class="speed" aria-label="播放倍速" title="播放倍速（试听保持音高，实时播放会变调）">${speeds}</select>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
@@ -376,6 +377,14 @@ function pcmToWav(pcm, sampleRate) {
     view.setUint32(40, dataLength, true);
     new Uint8Array(buffer, 44).set(pcm);
     return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function pcmToSamples(pcm) {
+    const count = Math.floor(pcm.byteLength / 2);
+    const view = new DataView(pcm.buffer, pcm.byteOffset, count * 2);
+    const samples = new Float32Array(count);
+    for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+    return samples;
 }
 
 function formatDuration(seconds) {
@@ -597,6 +606,19 @@ export default function initSichangHandler() {
             for (const segment of record.segments) {
                 if (segment.audio) segment.audio.playbackRate = value;
             }
+            // 实时时间线没有 preservesPitch，换速会连音高一起变；按当前位置重排
+            const session = record.session;
+            if (!session) continue;
+            const live = record.state === 'playing' || record.state === 'paused'
+                || (record.state === 'capturing' && session.started);
+            if (!live) continue;
+            const position = livePosition(session);
+            session.rate = value;
+            session.pausedOffset = position;
+            if (record.state !== 'paused') {
+                rescheduleTimeline(record, position);
+                if (record.state === 'playing') armTimelineEnd(record);
+            }
         }
     });
 
@@ -621,38 +643,161 @@ export default function initSichangHandler() {
     // 合成结束时整条音频已经排进 Web Audio 的时间线，可能还要播很久；
     // 这段时间必须留着「停止」，否则用户既停不下来，点「播放」还会和它叠音
     function stopTimeline(record) {
-        if (!record || record.state !== 'playing') return;
+        if (!record || (record.state !== 'playing' && record.state !== 'paused')) return;
         clearTimeout(record.timelineTimer);
         clearInterval(record.timelineTicker);
         record.timelineTimer = null;
         record.timelineTicker = null;
+        if (record.session) record.session.paused = false;
         record.session?.abort();
         if (activeSession && activeSession.record === record) activeSession = null;
         record.session = null;
         if (activeTimeline === record) activeTimeline = null;
         record.state = 'ready';
         record.playButton.textContent = '播放';
+        record.playButton.setAttribute('aria-label', '播放');
         record.playButton.classList.remove('playing');
+        record.stopButton.hidden = true;
         record.bar.classList.remove('show');
         record.fill.style.width = '0%';
         record.duration.textContent = formatDuration(record.seconds);
         setSegmentsEnabled(record, true);
     }
 
+    // 实时播放的当前进度（秒）：暂停时停在暂停点，播放时从锚点按倍速线性推进
+    function livePosition(session) {
+        if (session.paused) return session.pausedOffset || 0;
+        if (session.timelineStart === null) return session.startOffset || 0;
+        const elapsed = Math.max(0, session.context.currentTime - session.timelineStart);
+        const position = session.startOffset + elapsed * session.rate;
+        return Math.min(session.receivedSeconds, Math.max(0, position));
+    }
+
     function startTimelineTicker(record, session) {
-        const total = session.playhead - session.timelineStart;
+        clearInterval(record.timelineTicker);
         const tick = () => {
             if (record.state !== 'playing') return;
-            const elapsed = session.context.currentTime - session.timelineStart;
-            const ratio = Math.min(1, Math.max(0, elapsed / total));
+            const total = session.receivedSeconds || record.seconds;
+            const ratio = total ? Math.min(1, livePosition(session) / total) : 0;
             record.fill.style.width = `${ratio * 100}%`;
         };
         tick();
         record.timelineTicker = setInterval(tick, 250);
-        record.timelineTimer = setTimeout(
-            () => stopTimeline(record),
-            Math.max(0, session.playhead - session.context.currentTime) * 1000 + 80,
-        );
+    }
+
+    // 结束定时器只在数据全部下完后才有意义；暂停、跳转、换速都要重算
+    function armTimelineEnd(record) {
+        const session = record.session;
+        clearTimeout(record.timelineTimer);
+        record.timelineTimer = null;
+        if (!session || record.state !== 'playing') return;
+        const remaining = Math.max(0, session.receivedSeconds - livePosition(session)) / session.rate;
+        record.timelineTimer = setTimeout(() => stopTimeline(record), remaining * 1000 + 120);
+    }
+
+    // 从整条已收到的 PCM 里切出 startByte 之后的部分；各段 chunks 按到达顺序排列
+    function pcmFromBytes(record, startByte) {
+        const from = Math.min(Math.max(0, startByte), record.bytes);
+        const out = new Uint8Array(record.bytes - from);
+        let written = 0;
+        let cursor = 0;
+        for (const segment of record.segments) {
+            for (const chunk of segment.chunks) {
+                const end = cursor + chunk.length;
+                if (end > from) {
+                    const begin = Math.max(0, from - cursor);
+                    out.set(chunk.subarray(begin), written);
+                    written += chunk.length - begin;
+                }
+                cursor = end;
+            }
+        }
+        return out.subarray(0, written);
+    }
+
+    // 暂停继续、进度跳转、换速都走「按 PCM 重排」：不保留每个块的 AudioBuffer，
+    // 否则长文本播放时会攒出上百兆的 Float32
+    function rescheduleTimeline(record, offset) {
+        const session = record.session;
+        if (!session) return;
+        const context = ensureAudioContext();
+        session.context = context;
+        stopSources(session);
+        const sampleRate = session.sampleRate || record.sampleRate;
+        const pcm = pcmFromBytes(record, Math.round(offset * sampleRate) * 2);
+        const count = Math.floor(pcm.byteLength / 2);
+        if (!count) {
+            session.started = false;
+            session.timelineStart = null;
+            session.playhead = 0;
+            session.startOffset = offset;
+            return;
+        }
+        const buffer = context.createBuffer(1, count, sampleRate);
+        buffer.copyToChannel(pcmToSamples(pcm), 0);
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.playbackRate.value = session.rate;
+        source.connect(context.destination);
+        const startAt = context.currentTime + 0.06;
+        source.start(startAt);
+        source.onended = () => {
+            const index = session.sources.indexOf(source);
+            if (index >= 0) session.sources.splice(index, 1);
+        };
+        session.sources.push(source);
+        session.started = true;
+        session.timelineStart = startAt;
+        session.startOffset = offset;
+        session.playhead = startAt + buffer.duration / session.rate;
+    }
+
+    // 实时播放可能要好几分钟；暂停只停声音，合成照常继续，继续时从暂停点重排
+    function pauseTimeline(record) {
+        const session = record.session;
+        if (!session || record.state !== 'playing') return;
+        const position = livePosition(session);
+        session.paused = true;
+        session.pausedOffset = position;
+        stopSources(session);
+        clearInterval(record.timelineTicker);
+        clearTimeout(record.timelineTimer);
+        record.timelineTicker = null;
+        record.timelineTimer = null;
+        record.state = 'paused';
+        record.playButton.textContent = '继续';
+        record.playButton.setAttribute('aria-label', '继续播放');
+        record.playButton.classList.remove('playing');
+    }
+
+    function resumeTimeline(record) {
+        const session = record.session;
+        if (!session || record.state !== 'paused') return;
+        // 继续时间线前先停掉分段试听，避免两路声音叠在一起
+        stopActive();
+        session.paused = false;
+        const offset = Math.min(session.pausedOffset || 0, session.receivedSeconds);
+        session.pausedOffset = offset;
+        rescheduleTimeline(record, offset);
+        record.state = 'playing';
+        record.playButton.textContent = '暂停';
+        record.playButton.setAttribute('aria-label', '暂停播放');
+        record.playButton.classList.add('playing');
+        startTimelineTicker(record, session);
+        armTimelineEnd(record);
+    }
+
+    function seekTimeline(record, seconds) {
+        const session = record.session;
+        if (!session) return;
+        const position = Math.min(Math.max(0, seconds), session.receivedSeconds);
+        session.pausedOffset = position;
+        if (!session.paused) {
+            rescheduleTimeline(record, position);
+            armTimelineEnd(record);
+        }
+        const ratio = session.receivedSeconds ? position / session.receivedSeconds : 0;
+        record.fill.style.width = `${ratio * 100}%`;
     }
 
     // 单条播放结束或被打断时，把按钮文字和状态一起改回来；捕获中的行不参与
@@ -661,6 +806,7 @@ export default function initSichangHandler() {
             if (record.state !== 'ready' || !record.playButton) continue;
             const playing = Boolean(record.audio && !record.audio.paused);
             record.playButton.textContent = playing ? '暂停' : '播放';
+            record.playButton.setAttribute('aria-label', playing ? '暂停播放' : '播放');
             record.playButton.classList.toggle('playing', playing);
         }
     }
@@ -744,6 +890,11 @@ export default function initSichangHandler() {
         const playButton = document.createElement('button');
         playButton.textContent = '停止';
         playButton.setAttribute('aria-label', '停止合成');
+        // 实时播放单独给一个「停止」：主按钮在播放/暂停之间切换，停不下来会很难受
+        const stopButton = document.createElement('button');
+        stopButton.textContent = '停止';
+        stopButton.setAttribute('aria-label', '停止播放');
+        stopButton.hidden = true;
         const copyButton = document.createElement('button');
         copyButton.textContent = '复制';
         copyButton.setAttribute('aria-label', '复制原文');
@@ -758,7 +909,7 @@ export default function initSichangHandler() {
         deleteButton.className = 'del';
         deleteButton.textContent = '✕';
         deleteButton.setAttribute('aria-label', '删除');
-        acts.append(playButton, copyButton, regenButton, downloadButton, deleteButton);
+        acts.append(playButton, stopButton, copyButton, regenButton, downloadButton, deleteButton);
 
         const segs = document.createElement('details');
         segs.className = 'segs';
@@ -778,14 +929,18 @@ export default function initSichangHandler() {
         ui.list.insertBefore(row, ui.list.firstChild);
         bar.classList.add('show');
 
-        Object.assign(record, { row, duration, playButton, downloadButton, bar, fill, segs, segList, segCount });
+        Object.assign(record, { row, duration, playButton, stopButton, downloadButton, bar, fill, segs, segList, segCount });
 
-        // 进度条点击跳转只认当前 audio，重建 WAV 后自动换成新的那条
+        // 进度条点击跳转：实时时间线按已收到音频的长度换算，播放整条 WAV 时直接改 currentTime
         bar.addEventListener('click', event => {
-            const audio = record.audio;
-            if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
             const rect = bar.getBoundingClientRect();
             const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+            if (record.state === 'playing' || record.state === 'paused') {
+                seekTimeline(record, ratio * (record.session?.receivedSeconds || 0));
+                return;
+            }
+            const audio = record.audio;
+            if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
             audio.currentTime = ratio * audio.duration;
             fill.style.width = `${ratio * 100}%`;
         });
@@ -796,7 +951,11 @@ export default function initSichangHandler() {
                 return;
             }
             if (record.state === 'playing') {
-                stopTimeline(record);
+                pauseTimeline(record);
+                return;
+            }
+            if (record.state === 'paused') {
+                resumeTimeline(record);
                 return;
             }
             if (record.audio && !record.audio.paused) {
@@ -830,6 +989,7 @@ export default function initSichangHandler() {
             bar.classList.add('show');
             record.audio.play().then(syncPlayState, syncPlayState);
         });
+        stopButton.addEventListener('click', () => stopTimeline(record));
         downloadButton.addEventListener('click', () => {
             if (!record.url) return;
             const link = document.createElement('a');
@@ -904,14 +1064,21 @@ export default function initSichangHandler() {
         Object.assign(segment, { box, row, durationEl: segDuration, playButton, regenButton, bar, fill });
         playButton.addEventListener('click', () => toggleSegmentPlay(record, segment));
         regenButton.addEventListener('click', () => regenerateSegment(record, segment));
-        // 分段进度条自己跳转，只操作本段的 audio
+        // 分段进度条自己跳转；还没播过时按需建 audio，停在目标位置
         bar.addEventListener('click', event => {
-            const audio = segment.audio;
-            if (!audio || !Number.isFinite(audio.duration) || !audio.duration) return;
+            if (!segment.complete || segment.busy || record.regenerating) return;
+            if (record.state !== 'ready' && record.state !== 'paused') return;
             const rect = bar.getBoundingClientRect();
             const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-            audio.currentTime = ratio * audio.duration;
-            fill.style.width = `${ratio * 100}%`;
+            const audio = ensureSegmentAudio(record, segment);
+            const seek = () => {
+                if (!Number.isFinite(audio.duration) || !audio.duration) return;
+                audio.currentTime = ratio * audio.duration;
+                segment.bar.classList.add('show');
+                fill.style.width = `${ratio * 100}%`;
+            };
+            if (audio.readyState >= 1) seek();
+            else audio.addEventListener('loadedmetadata', seek, { once: true });
         });
         return segment;
     }
@@ -947,17 +1114,8 @@ export default function initSichangHandler() {
         syncSegmentPlayState(segment);
     }
 
-    function toggleSegmentPlay(record, segment) {
-        if (!segment.complete || segment.busy || record.regenerating) return;
-        // 时间线还在播时点某一段，先停整体播放，避免两路声音叠在一起
-        if (record.state === 'playing') stopTimeline(record);
-        if (record.state !== 'ready') return;
-        if (segment.audio && !segment.audio.paused) {
-            segment.audio.pause();
-            return;
-        }
-        stopActive();
-        stopTimeline(activeTimeline);
+    // 第一次播放或拖动进度时才生成 WAV blob；变速保持不变调
+    function ensureSegmentAudio(record, segment) {
         if (!segment.audio) {
             const audio = new Audio(ensureSegmentUrl(record, segment));
             audio.preservesPitch = true;
@@ -965,6 +1123,7 @@ export default function initSichangHandler() {
             audio.webkitPreservesPitch = true;
             audio.addEventListener('pause', () => syncSegmentPlayState(segment));
             audio.addEventListener('ended', () => {
+                audio.currentTime = 0;
                 segment.bar.classList.remove('show');
                 segment.fill.style.width = '0%';
                 syncSegmentPlayState(segment);
@@ -976,9 +1135,24 @@ export default function initSichangHandler() {
             segment.audio = audio;
         }
         segment.audio.playbackRate = playRate;
-        activeAudio = segment.audio;
+        return segment.audio;
+    }
+
+    function toggleSegmentPlay(record, segment) {
+        if (!segment.complete || segment.busy || record.regenerating) return;
+        if (record.state !== 'ready' && record.state !== 'paused' && record.state !== 'playing') return;
+        if (segment.audio && !segment.audio.paused) {
+            segment.audio.pause();
+            return;
+        }
+        // 实时播放中点某一段：先暂停整条时间线（不终止合成），避免两路声音叠在一起
+        if (record.state === 'playing') pauseTimeline(record);
+        stopActive();
+        if (activeTimeline && activeTimeline !== record) stopTimeline(activeTimeline);
+        const audio = ensureSegmentAudio(record, segment);
+        activeAudio = audio;
         segment.bar.classList.add('show');
-        segment.audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
+        audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
     }
 
     function dropAudio(record) {
@@ -1001,6 +1175,7 @@ export default function initSichangHandler() {
         record.fill.style.width = '0%';
         record.bar.classList.remove('show');
         record.playButton.textContent = '播放';
+        record.playButton.setAttribute('aria-label', '播放');
         record.playButton.classList.remove('playing');
     }
 
@@ -1028,8 +1203,8 @@ export default function initSichangHandler() {
     // 避免和正在进行的合成/时间线播放互相踩数据
     async function regenerateSegment(record, segment) {
         if (segment.busy || record.regenerating) return;
-        // 时间线还在播时直接重生成：先停止播放再替换，不留下旧声音
-        if (record.state === 'playing') stopTimeline(record);
+        // 时间线还在播（或暂停）时直接重生成：先停下播放再替换，不留下旧声音
+        if (record.state === 'playing' || record.state === 'paused') stopTimeline(record);
         if (record.state !== 'ready') return;
         record.regenerating = true;
         setSegmentsEnabled(record, false);
@@ -1107,6 +1282,7 @@ export default function initSichangHandler() {
         record.bar.classList.remove('show');
         record.duration.textContent = '失败';
         record.playButton.textContent = '播放';
+        record.playButton.setAttribute('aria-label', '播放');
         record.playButton.disabled = true;
         record.downloadButton.disabled = true;
         setSegmentsEnabled(record, false);
@@ -1133,6 +1309,7 @@ export default function initSichangHandler() {
         record.bar.classList.remove('determinate');
         record.duration.textContent = formatDuration(record.seconds);
         record.playButton.textContent = '播放';
+        record.playButton.setAttribute('aria-label', '播放');
         record.playButton.disabled = false;
         record.downloadButton.disabled = false;
         for (const segment of record.segments) {
@@ -1141,16 +1318,20 @@ export default function initSichangHandler() {
         setSegmentsEnabled(record, true);
 
         // 数据下完了，但整条音频还在时间线上播：这段可能长达数分钟，
-        // 按钮保持「停止」，播完再由定时器切回「播放」
+        // 按钮先给「暂停」并单独留一个「停止」，播完再由定时器切回「播放」
         if (session && !session.stopped && session.sources.length && session.playhead > session.context.currentTime + 0.05) {
             if (activeTimeline && activeTimeline !== record) stopTimeline(activeTimeline);
             record.state = 'playing';
             record.session = session;
             activeTimeline = record;
-            record.playButton.textContent = '停止';
+            record.playButton.textContent = '暂停';
+            record.playButton.setAttribute('aria-label', '暂停播放');
+            record.playButton.classList.add('playing');
+            record.stopButton.hidden = false;
             record.bar.classList.add('show');
             record.bar.classList.add('determinate');
             startTimelineTicker(record, session);
+            armTimelineEnd(record);
         }
     }
 
@@ -1264,26 +1445,28 @@ export default function initSichangHandler() {
         activeAudio = null;
     });
 
-    // 把一段 PCM 排进 Web Audio 的播放时间线，段与段之间按上一段的结束时间接续
-    function startSource(session, bytes) {
-        const count = bytes.byteLength / 2;
+    // 把一段 PCM 排进 Web Audio 的播放时间线，段与段之间按上一段的结束时间接续。
+    // audioStart 是这段在整条音频里的起点（秒），数据来晚时用它重锚进度
+    function startSource(session, bytes, audioStart) {
+        const count = Math.floor(bytes.byteLength / 2);
         if (!count) return;
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const samples = new Float32Array(count);
-        for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
         const context = ensureAudioContext();
         session.context = context;
         const buffer = context.createBuffer(1, count, session.sampleRate);
-        buffer.copyToChannel(samples, 0);
+        buffer.copyToChannel(pcmToSamples(bytes), 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
-        // 实时时间线不做变速：Web Audio 的 playbackRate 会连音高一起升，
-        // 倍速只用于面板 WAV（<audio> 由浏览器做保音高变速）
+        // 实时播放只能用 Web Audio 变速（会连音高一起变）；合成完成后的 WAV 走 <audio> 保音高
+        source.playbackRate.value = session.rate;
         source.connect(context.destination);
         const startAt = Math.max(session.playhead, context.currentTime + 0.06);
+        // 数据比实时慢时会晚于原计划起播，重锚一次进度，避免进度条跑到声音前面
+        if (session.timelineStart === null || startAt > session.playhead + 0.005) {
+            session.timelineStart = startAt;
+            session.startOffset = audioStart;
+        }
         source.start(startAt);
-        if (session.timelineStart === null) session.timelineStart = startAt;
-        session.playhead = startAt + buffer.duration;
+        session.playhead = startAt + buffer.duration / session.rate;
         // 播完就从时间线里摘掉，避免长文本攒下成千上万个节点
         source.onended = () => {
             const index = session.sources.indexOf(source);
@@ -1295,7 +1478,7 @@ export default function initSichangHandler() {
     // 首段先攒够 MIN_START_SECONDS 再排时间线：开头几个块到得慢，
     // 直接起播会在第一句里留出可听出来的补白
     function flushPending(session) {
-        if (session.stopped || session.started || !session.pendingBytes) return;
+        if (session.stopped || session.paused || session.started || !session.pendingBytes) return;
         const merged = new Uint8Array(session.pendingBytes);
         let offset = 0;
         for (const part of session.pending) {
@@ -1305,10 +1488,12 @@ export default function initSichangHandler() {
         session.pending = [];
         session.pendingBytes = 0;
         session.started = true;
-        startSource(session, merged);
+        startSource(session, merged, 0);
     }
 
-    function schedulePcm(session, bytes) {
+    function schedulePcm(session, bytes, audioStart) {
+        // 暂停期间照常收数据，但不排时间线；继续时统一按 PCM 重排
+        if (session.paused) return;
         if (!session.started) {
             session.pending.push(bytes);
             session.pendingBytes += bytes.length;
@@ -1316,7 +1501,7 @@ export default function initSichangHandler() {
             flushPending(session);
             return;
         }
-        startSource(session, bytes);
+        startSource(session, bytes, audioStart);
     }
 
     function stopSources(session) {
@@ -1348,6 +1533,11 @@ export default function initSichangHandler() {
             pending: [],
             pendingBytes: 0,
             timelineStart: null,
+            startOffset: 0,
+            receivedSeconds: 0,
+            rate: 1,
+            paused: false,
+            pausedOffset: 0,
             context: null,
             sources: [],
             sampleRate: DEFAULT_SAMPLE_RATE,
@@ -1417,7 +1607,8 @@ export default function initSichangHandler() {
                         target.chunks.push(part);
                         target.bytes += evenLength;
                         record.bytes += evenLength;
-                        schedulePcm(session, part);
+                        schedulePcm(session, part, session.receivedSeconds);
+                        session.receivedSeconds += evenLength / 2 / session.sampleRate;
                     }
                     leftover = data.subarray(evenLength);
                 }
@@ -1481,7 +1672,7 @@ export default function initSichangHandler() {
             stopSources(session);
             if (activeSession === session) activeSession = null;
             // 合成已结束、只剩时间线在播时，按停止要把按钮和进度一起复位
-            if (record.state === 'playing') {
+            if (record.state === 'playing' || record.state === 'paused') {
                 stopTimeline(record);
                 return;
             }
