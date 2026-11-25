@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1732
+// @version      2026.11.25.1808
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2226%22%20fill%3D%22%23fff%22%3ESC%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://sichang.xyz/*
@@ -282,6 +282,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     color: #a9a9b3;
 }
 .seg .segDur { flex: none; color: #80808a; }
+.seg[data-state="pending"] .segDur { color: #6f6f79; }
+.seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
+.seg[data-state="failed"] .segDur, .seg[data-state="skipped"] .segDur { color: #c97a7a; }
 .seg button {
     flex: none;
     height: 18px;
@@ -613,11 +616,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				for (const segment of record.segments) if (segment.audio) segment.audio.playbackRate = value;
 				const session = record.session;
 				if (!session) continue;
-				if (!(record.state === "playing" || record.state === "paused" || record.state === "capturing" && session.started)) continue;
+				if (!(record.state === "playing" || record.state === "paused" || record.state === "capturing")) continue;
 				const position = livePosition(session);
 				session.rate = value;
 				session.pausedOffset = position;
-				if (record.state !== "paused") {
+				if (!session.paused) {
 					rescheduleTimeline(record, position);
 					if (record.state === "playing") armTimelineEnd(record);
 				}
@@ -655,7 +658,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.bar.classList.remove("show");
 			record.fill.style.width = "0%";
 			record.duration.textContent = formatDuration(record.seconds);
-			setSegmentsEnabled(record, true);
+			refreshSegmentControls(record);
 		}
 		function livePosition(session) {
 			if (session.paused) return session.pausedOffset || 0;
@@ -705,6 +708,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			const context = ensureAudioContext();
 			session.context = context;
 			stopSources(session);
+			session.pending = [];
+			session.pendingBytes = 0;
 			const sampleRate = session.sampleRate || record.sampleRate;
 			const pcm = pcmFromBytes(record, Math.round(offset * sampleRate) * 2);
 			const count = Math.floor(pcm.byteLength / 2);
@@ -763,6 +768,21 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.playButton.classList.add("playing");
 			startTimelineTicker(record, session);
 			armTimelineEnd(record);
+		}
+		function pauseLiveCapture(record) {
+			const session = record.session;
+			if (!session || session.stopped || session.paused) return;
+			session.pausedOffset = livePosition(session);
+			session.paused = true;
+			stopSources(session);
+		}
+		function resumeLiveCapture(record) {
+			const session = record.session;
+			if (!session || session.stopped || !session.paused || record.state !== "capturing") return;
+			session.paused = false;
+			const offset = Math.min(session.pausedOffset || 0, session.receivedSeconds);
+			session.pausedOffset = offset;
+			rescheduleTimeline(record, offset);
 		}
 		function seekTimeline(record, seconds) {
 			const session = record.session;
@@ -987,35 +1007,59 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (seconds < 10) return `${seconds.toFixed(1)}s`;
 			return formatDuration(seconds);
 		}
-		function setSegmentsEnabled(record, enabled) {
+		function refreshSegmentControls(record) {
+			const playable = record.state !== "failed";
 			for (const segment of record.segments) {
-				segment.regenButton.disabled = !enabled || segment.busy;
-				segment.playButton.disabled = !enabled || segment.busy || !segment.complete;
+				segment.playButton.disabled = !playable || segment.busy || !segment.complete || !segment.bytes;
+				segment.regenButton.disabled = record.state !== "ready" || record.regenerating || segment.busy;
 			}
 		}
-		function createSegment(record, text) {
+		function setSegmentLabel(segment, text) {
+			segment.text = text;
+			segment.label.textContent = previewText(text).slice(0, 24) || "（无文本）";
+			segment.label.title = text;
+		}
+		function setSegmentState(record, segment, state) {
+			segment.status = state;
+			segment.complete = state === "done";
+			segment.row.dataset.state = state;
+			const seconds = segment.bytes / 2 / (record.sampleRate || DEFAULT_SAMPLE_RATE);
+			if (state === "pending") segment.durationEl.textContent = "待合成";
+			else if (state === "active") segment.durationEl.textContent = `${formatSegmentDuration(seconds)}…`;
+			else if (state === "done") segment.durationEl.textContent = formatSegmentDuration(seconds);
+			else if (state === "failed") segment.durationEl.textContent = "失败";
+			else segment.durationEl.textContent = "未合成";
+			refreshSegmentControls(record);
+		}
+		function renumberSegments(record) {
+			record.segments.forEach((segment, index) => {
+				segment.idx.textContent = String(index + 1);
+			});
+			record.segCount.textContent = String(record.segments.length);
+		}
+		function createSegment(record, text, after) {
 			const segment = {
 				text,
 				chunks: [],
 				bytes: 0,
 				busy: false,
-				complete: false
+				complete: false,
+				status: "pending"
 			};
-			record.segments.push(segment);
+			const index = after ? record.segments.indexOf(after) + 1 : record.segments.length;
+			record.segments.splice(index, 0, segment);
 			const box = document.createElement("div");
 			box.className = "segBox";
 			const row = document.createElement("div");
 			row.className = "seg";
+			row.dataset.state = "pending";
 			const idx = document.createElement("span");
 			idx.className = "idx";
-			idx.textContent = String(record.segments.length);
 			const label = document.createElement("span");
 			label.className = "segText";
-			label.textContent = previewText(text).slice(0, 24) || "（无文本）";
-			label.title = text;
 			const segDuration = document.createElement("span");
 			segDuration.className = "segDur";
-			segDuration.textContent = "…";
+			segDuration.textContent = "待合成";
 			const playButton = document.createElement("button");
 			playButton.className = "segPlay";
 			playButton.textContent = "▶";
@@ -1032,22 +1076,26 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			bar.appendChild(fill);
 			row.append(idx, label, segDuration, playButton, regenButton);
 			box.append(row, bar);
-			record.segList.appendChild(box);
-			record.segCount.textContent = String(record.segments.length);
+			if (after) record.segList.insertBefore(box, after.box.nextSibling);
+			else record.segList.appendChild(box);
 			Object.assign(segment, {
 				box,
 				row,
+				idx,
+				label,
 				durationEl: segDuration,
 				playButton,
 				regenButton,
 				bar,
 				fill
 			});
+			setSegmentLabel(segment, text);
+			renumberSegments(record);
 			playButton.addEventListener("click", () => toggleSegmentPlay(record, segment));
 			regenButton.addEventListener("click", () => regenerateSegment(record, segment));
 			bar.addEventListener("click", (event) => {
-				if (!segment.complete || segment.busy || record.regenerating) return;
-				if (record.state !== "ready" && record.state !== "paused") return;
+				if (!segment.complete || !segment.bytes || segment.busy) return;
+				if (record.state === "failed") return;
 				const rect = bar.getBoundingClientRect();
 				const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
 				const audio = ensureSegmentAudio(record, segment);
@@ -1101,6 +1149,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 					segment.bar.classList.remove("show");
 					segment.fill.style.width = "0%";
 					syncSegmentPlayState(segment);
+					if (record.state === "capturing") resumeLiveCapture(record);
 				});
 				audio.addEventListener("timeupdate", () => {
 					if (!Number.isFinite(audio.duration) || !audio.duration) return;
@@ -1112,13 +1161,15 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			return segment.audio;
 		}
 		function toggleSegmentPlay(record, segment) {
-			if (!segment.complete || segment.busy || record.regenerating) return;
-			if (record.state !== "ready" && record.state !== "paused" && record.state !== "playing") return;
+			if (!segment.complete || !segment.bytes || segment.busy) return;
+			if (record.state === "failed") return;
 			if (segment.audio && !segment.audio.paused) {
 				segment.audio.pause();
+				if (record.state === "capturing") resumeLiveCapture(record);
 				return;
 			}
 			if (record.state === "playing") pauseTimeline(record);
+			else if (record.state === "capturing") pauseLiveCapture(record);
 			stopActive();
 			if (activeTimeline && activeTimeline !== record) stopTimeline(activeTimeline);
 			const audio = ensureSegmentAudio(record, segment);
@@ -1126,19 +1177,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			segment.bar.classList.add("show");
 			audio.play().then(() => syncSegmentPlayState(segment), () => syncSegmentPlayState(segment));
 		}
-		function dropAudio(record) {
+		function dropRecordAudio(record) {
 			if (record.audio) {
 				if (record.audio === activeAudio) activeAudio = null;
 				record.audio.pause();
 				record.audio = null;
-			}
-			for (const segment of record.segments) if (segment.audio) {
-				if (segment.audio === activeAudio) activeAudio = null;
-				segment.audio.pause();
-				segment.audio = null;
-				segment.bar.classList.remove("show");
-				segment.fill.style.width = "0%";
-				syncSegmentPlayState(segment);
 			}
 			record.fill.style.width = "0%";
 			record.bar.classList.remove("show");
@@ -1168,11 +1211,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (segment.busy || record.regenerating) return;
 			if (record.state === "playing" || record.state === "paused") stopTimeline(record);
 			if (record.state !== "ready") return;
-			record.regenerating = true;
-			setSegmentsEnabled(record, false);
 			segment.busy = true;
-			segment.regenButton.disabled = true;
 			segment.regenButton.textContent = "重生成中";
+			record.regenerating = true;
+			refreshSegmentControls(record);
 			let ok = false;
 			try {
 				const response = await window.fetch(TTS_PATH, {
@@ -1208,10 +1250,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				}
 				if (!records.includes(record)) return;
 				clearSegmentAudio(segment);
-				dropAudio(record);
+				dropRecordAudio(record);
 				segment.chunks = chunks;
 				segment.bytes = bytes;
-				segment.durationEl.textContent = formatSegmentDuration(bytes / 2 / record.sampleRate);
+				setSegmentState(record, segment, "done");
 				rebuildRecord(record);
 				ok = true;
 			} catch (error) {
@@ -1223,7 +1265,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				segment.busy = false;
 				record.regenerating = false;
 				if (ok) segment.regenButton.textContent = "重生成";
-				setSegmentsEnabled(record, record.state === "ready");
+				refreshSegmentControls(record);
 			}
 		}
 		function updateProgress(record, done, total) {
@@ -1245,7 +1287,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.playButton.setAttribute("aria-label", "播放");
 			record.playButton.disabled = true;
 			record.downloadButton.disabled = true;
-			setSegmentsEnabled(record, false);
+			for (const segment of record.segments) if (segment.status === "pending" || segment.status === "active") setSegmentState(record, segment, segment.bytes ? "done" : "skipped");
+			refreshSegmentControls(record);
 		}
 		function finalizeRecord(record) {
 			if (!records.includes(record) || record.state !== "capturing") return;
@@ -1270,8 +1313,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.playButton.setAttribute("aria-label", "播放");
 			record.playButton.disabled = false;
 			record.downloadButton.disabled = false;
-			for (const segment of record.segments) segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
-			setSegmentsEnabled(record, true);
+			for (const segment of record.segments) if (segment.status === "pending" || segment.status === "active") setSegmentState(record, segment, segment.bytes ? "done" : "skipped");
+			refreshSegmentControls(record);
 			if (session && !session.stopped && session.sources.length && session.playhead > session.context.currentTime + .05) {
 				if (activeTimeline && activeTimeline !== record) stopTimeline(activeTimeline);
 				record.state = "playing";
@@ -1456,7 +1499,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			session.pending = [];
 			session.pendingBytes = 0;
 			session.started = true;
-			startSource(session, merged, 0);
+			startSource(session, merged, session.startOffset || 0);
 		}
 		function schedulePcm(session, bytes, audioStart) {
 			if (session.paused) return;
@@ -1479,13 +1522,15 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			stopTimeline(activeTimeline);
 			activeSession?.stop();
 			stopActive();
-			const tasks = splitText(text);
+			const tasks = splitText(text).map((segmentText) => ({ text: segmentText }));
 			if (!tasks.length) return null;
 			const record = beginRecord(text, {
 				voice,
 				rate,
 				format
 			});
+			for (const task of tasks) task.segment = createSegment(record, task.text);
+			refreshSegmentControls(record);
 			ensureAudioContext();
 			const session = {
 				record,
@@ -1533,7 +1578,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			let prefetch = null;
 			const startPrefetch = (piece) => {
 				if (prefetch) return;
-				const promise = requestSegment(piece);
+				const promise = requestSegment(piece.text);
 				promise.catch(() => {});
 				prefetch = {
 					piece,
@@ -1546,16 +1591,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 					prefetch = null;
 					return promise;
 				}
-				return requestSegment(piece);
+				return requestSegment(piece.text);
 			};
 			const consume = async (response, piece) => {
 				const reader = response.body.getReader();
+				const segment = piece.segment;
 				let leftover = new Uint8Array(0);
-				let segment = null;
-				const ensureSegment = () => {
-					if (!segment) segment = createSegment(record, piece);
-					return segment;
-				};
+				setSegmentState(record, segment, "active");
 				try {
 					for (;;) {
 						const { done, value } = await reader.read();
@@ -1571,25 +1613,24 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 						const evenLength = data.length - data.length % 2;
 						if (evenLength) {
 							const part = data.subarray(0, evenLength);
-							const target = ensureSegment();
-							target.chunks.push(part);
-							target.bytes += evenLength;
+							segment.chunks.push(part);
+							segment.bytes += evenLength;
 							record.bytes += evenLength;
 							schedulePcm(session, part, session.receivedSeconds);
 							session.receivedSeconds += evenLength / 2 / session.sampleRate;
+							segment.durationEl.textContent = `${formatSegmentDuration(segment.bytes / 2 / session.sampleRate)}…`;
 						}
 						leftover = data.subarray(evenLength);
 					}
 				} finally {
-					if (segment) {
-						segment.complete = true;
-						segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / record.sampleRate);
-					}
+					if (segment.bytes) setSegmentState(record, segment, "done");
+					else setSegmentState(record, segment, "pending");
 				}
 				flushPending(session);
 			};
 			const speak = async (piece) => {
-				const segmentsBefore = record.segments.length;
+				const segment = piece.segment;
+				const bytesBefore = segment.bytes;
 				for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) try {
 					const response = await takePrefetch(piece);
 					if (session.stopped) return "done";
@@ -1598,13 +1639,26 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 					return "done";
 				} catch (error) {
 					if (session.stopped || session.controller.signal.aborted) return "done";
-					if (record.segments.length > segmentsBefore) return "done";
+					if (segment.bytes > bytesBefore) return "done";
 				}
-				if (record.segments.length > segmentsBefore) return "done";
-				const halves = splitInHalf(piece);
-				if (!halves) return "failed";
-				tasks.unshift(...halves);
+				if (segment.bytes > bytesBefore) return "done";
+				const halves = splitInHalf(piece.text);
+				if (!halves) {
+					setSegmentState(record, segment, "failed");
+					return "failed";
+				}
+				setSegmentLabel(segment, halves[0]);
+				setSegmentState(record, segment, "pending");
+				const second = createSegment(record, halves[1], segment);
+				tasks.unshift({
+					text: halves[0],
+					segment
+				}, {
+					text: halves[1],
+					segment: second
+				});
 				session.total += halves.length - 1;
+				updateProgress(record, session.done, session.total);
 				return "split";
 			};
 			(async () => {

@@ -14,7 +14,7 @@ export default defineConfig({
       userscript: {
         name: 'SichangTools',
         namespace: 'https://github.com/sherlocknieh/',
-        version: '2026.11.25.1732',
+        version: '2026.11.25.1808',
         description: '接管思畅 AI 朗读，分段合成、边下边播并保存 WAV',
         icon: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(ICON_SVG),
         match: MATCH_PATTERNS,
