@@ -153,19 +153,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
-/* 单段「重生成」与整条播放键并排：图标按钮，目标段和状态放 title/aria */
-.itemHead .itemRegen {
-    width: 20px;
-    height: 18px;
-    padding: 0;
-    border-radius: 5px;
-    color: #a9a9b3;
-    font-size: 13px;
-    line-height: 18px;
-}
-.itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
-.itemHead .itemRegen.busy { animation: tts-spin 1s linear infinite; }
-.itemHead .itemRegen.failed { color: #ff9a9a; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
 .menu {
     position: fixed;
@@ -258,6 +245,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .segPlay:hover { background: #35353f; color: #fff; }
 .segPlay.playing { background: #2d4a33; color: #a9e6b8; }
+/* 单段「重生成」紧挨播放键：图标按钮，目标与状态放 title/aria */
+.segRegen {
+    flex: none;
+    width: 20px;
+    height: 18px;
+    padding: 0;
+    border-radius: 5px;
+    background: #2a2a32;
+    color: #c9c9d1;
+    font-size: 12px;
+}
+.segRegen:hover { background: #35353f; color: #fff; }
+.segRegen.busy { animation: tts-spin 1s linear infinite; }
+.segRegen.failed { background: #3a2226; color: #ff9a9a; }
 .segCaret {
     flex: none;
     width: 8px;
