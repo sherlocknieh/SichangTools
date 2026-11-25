@@ -22,6 +22,6 @@ export const FOLD_STORE_KEY = 'sichang-tts-folded';
 export const PLAY_RATE_STORE_KEY = 'sichang-tts-play-rate';
 export const DRAFT_STORE_KEY = 'sichang-tts-draft';
 export const POS_STORE_KEY = 'sichang-tts-pos';
-// 播放倍速（不是合成语速）：面板 WAV 与分段试听走 <audio> 保音高；
+// 播放倍速（不是合成语速）：分段试听走 <audio> 保音高；
 // 实时时间线只能用 Web Audio 的 playbackRate，会连音高一起变
 export const PLAY_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
