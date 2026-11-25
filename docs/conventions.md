@@ -4,8 +4,8 @@
 
 ## 新增功能
 
-- 优先扩展 `src/handlers/sichang.js`，只有职责明显不同才新建 handler，并在 `src/main.js` 的 `initialize()` 里注册。
-- 与 handler 生命周期无关的常量、音色、样式和纯函数放 `src/sichang/`，按职责建文件；不要为了少一个 import 把新逻辑塞回 handler 顶部。
+- 优先扩展 `src/sichang/handler.js`，只有职责明显不同才新建 handler，并在 `src/main.js` 的 `initialize()` 里注册。
+- 常量、音色、样式和纯函数与 handler 同目录（`src/sichang/`），按职责建文件；不要为了少一个 import 把新逻辑塞回 handler 顶部。
 - handler 的初始化函数返回清理函数：自己添加的事件监听、observer、定时器、注入节点和改过的原型方法（含 `window.fetch`）都要能撤销。
 - handler 先判断当前 hostname，不匹配就直接返回，不执行 DOM 修改。
 - 同一个功能只保留一处实现。

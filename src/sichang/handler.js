@@ -21,10 +21,10 @@ import {
     DRAFT_STORE_KEY,
     POS_STORE_KEY,
     PLAY_RATES,
-} from '../sichang/constants.js';
-import { VOICE_GROUPS, VOICE_LABELS, DEFAULT_VOICE } from '../sichang/voices.js';
-import { PANEL_CSS } from '../sichang/styles.js';
-import { pcmToWav, pcmToSamples, joinedPcm } from '../sichang/audio.js';
+} from './constants.js';
+import { VOICE_GROUPS, VOICE_LABELS, DEFAULT_VOICE } from './voices.js';
+import { PANEL_CSS } from './styles.js';
+import { pcmToWav, pcmToSamples, joinedPcm } from './audio.js';
 
 function createPanel() {
     const host = document.createElement('div');

@@ -1,4 +1,4 @@
-import initSichangHandler from './handlers/sichang.js';
+import initSichangHandler from './sichang/handler.js';
 
 // handler 返回清理函数，这里统一登记；热更新或重复注入时按逆序执行
 const disposers = [];
