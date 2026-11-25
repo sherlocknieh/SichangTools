@@ -39,7 +39,8 @@ const VOICE_GROUPS = [
 ];
 const DEFAULT_VOICE = 'mimo_default';
 const VOICE_LABELS = new Map(VOICE_GROUPS.flatMap(group => group.voices.map(voice => [voice.id, voice.label])));
-// 输入框预填的试听文本：短到一次合成就能听完，方便换音色反复试
+// 输入框空着时的试听文本：短到一次合成就能听完，方便换音色反复试；
+// 只是占位用的预填，聚焦进入编辑就清掉，也不写入草稿
 const DEFAULT_INPUT_TEXT = '你好，我是思畅，今天天气不错。';
 const VOICE_STORE_KEY = 'sichang-tts-voice';
 const RATE_STORE_KEY = 'sichang-tts-rate';
@@ -1363,9 +1364,12 @@ export default function initSichangHandler() {
         ui.input.style.height = `${Math.min(ui.input.scrollHeight + 2, 132)}px`;
     }
 
+    // 预填的试听文本不是用户草稿，落库时按空处理
+    let inputIsDefault = false;
+
     function saveDraft() {
         try {
-            localStorage.setItem(DRAFT_STORE_KEY, ui.input.value);
+            localStorage.setItem(DRAFT_STORE_KEY, inputIsDefault ? '' : ui.input.value);
         } catch {}
     }
 
@@ -1383,9 +1387,30 @@ export default function initSichangHandler() {
         updateComposeMeta();
         saveDraft();
     }
-    ui.input.addEventListener('input', onInputChange);
+    ui.input.addEventListener('input', () => {
+        inputIsDefault = false;
+        onInputChange();
+    });
+    // 聚焦即进入编辑：清掉预填的试听文本，让用户从空框开始打
+    ui.input.addEventListener('focus', () => {
+        if (!inputIsDefault) return;
+        ui.input.value = '';
+        inputIsDefault = false;
+        autoGrowInput();
+        updateComposeMeta();
+    });
+    // 失焦后仍为空就恢复预填，保证空框里始终有段试听文本
+    ui.input.addEventListener('blur', () => {
+        if (ui.input.value.trim()) return;
+        ui.input.value = DEFAULT_INPUT_TEXT;
+        inputIsDefault = true;
+        autoGrowInput();
+        updateComposeMeta();
+        saveDraft();
+    });
     ui.clearInput.addEventListener('click', () => {
         ui.input.value = '';
+        inputIsDefault = false;
         onInputChange();
         ui.input.focus();
     });
@@ -1399,9 +1424,15 @@ export default function initSichangHandler() {
 
     try {
         const draft = localStorage.getItem(DRAFT_STORE_KEY);
-        ui.input.value = draft === null ? DEFAULT_INPUT_TEXT : draft;
+        if (draft && draft.trim()) {
+            ui.input.value = draft;
+        } else {
+            ui.input.value = DEFAULT_INPUT_TEXT;
+            inputIsDefault = true;
+        }
     } catch {
         ui.input.value = DEFAULT_INPUT_TEXT;
+        inputIsDefault = true;
     }
     autoGrowInput();
     updateComposeMeta();

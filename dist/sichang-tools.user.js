@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.1728
+// @version      2026.11.25.1731
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2232%22%20fill%3D%22%23000%22%20fill-opacity%3D%220.75%22%2F%3E%0A%20%20%20%20%3Ctext%20x%3D%2232%22%20y%3D%2232%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22central%22%20font-size%3D%2226%22%20fill%3D%22%23fff%22%3ESC%3C%2Ftext%3E%0A%3C%2Fsvg%3E
 // @match        https://sichang.xyz/*
@@ -1308,9 +1308,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			ui.input.style.height = "auto";
 			ui.input.style.height = `${Math.min(ui.input.scrollHeight + 2, 132)}px`;
 		}
+		let inputIsDefault = false;
 		function saveDraft() {
 			try {
-				localStorage.setItem(DRAFT_STORE_KEY, ui.input.value);
+				localStorage.setItem(DRAFT_STORE_KEY, inputIsDefault ? "" : ui.input.value);
 			} catch {}
 		}
 		function updateComposeMeta() {
@@ -1325,9 +1326,28 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			updateComposeMeta();
 			saveDraft();
 		}
-		ui.input.addEventListener("input", onInputChange);
+		ui.input.addEventListener("input", () => {
+			inputIsDefault = false;
+			onInputChange();
+		});
+		ui.input.addEventListener("focus", () => {
+			if (!inputIsDefault) return;
+			ui.input.value = "";
+			inputIsDefault = false;
+			autoGrowInput();
+			updateComposeMeta();
+		});
+		ui.input.addEventListener("blur", () => {
+			if (ui.input.value.trim()) return;
+			ui.input.value = DEFAULT_INPUT_TEXT;
+			inputIsDefault = true;
+			autoGrowInput();
+			updateComposeMeta();
+			saveDraft();
+		});
 		ui.clearInput.addEventListener("click", () => {
 			ui.input.value = "";
+			inputIsDefault = false;
 			onInputChange();
 			ui.input.focus();
 		});
@@ -1340,9 +1360,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		});
 		try {
 			const draft = localStorage.getItem(DRAFT_STORE_KEY);
-			ui.input.value = draft === null ? DEFAULT_INPUT_TEXT : draft;
+			if (draft && draft.trim()) ui.input.value = draft;
+			else {
+				ui.input.value = DEFAULT_INPUT_TEXT;
+				inputIsDefault = true;
+			}
 		} catch {
 			ui.input.value = DEFAULT_INPUT_TEXT;
+			inputIsDefault = true;
 		}
 		autoGrowInput();
 		updateComposeMeta();
