@@ -130,12 +130,24 @@ export default function initSichangHandler() {
             localStorage.setItem(PLAYBACK_RATE_STORE_KEY, String(host.playbackRate));
         } catch {}
         syncPlaybackRateButton();
-        // 只改已经建好的分段音频；实时时间线仍按原速播放
+        // 只改已下载完成的音频：分段 <audio>，以及下载结束后仍在播的时间线；
+        // 合成中的实时流保持原速
         for (const record of host.records) {
             for (const segment of record.segments) {
                 if (segment.audio) segment.audio.playbackRate = host.playbackRate;
             }
+            if (record.state !== 'playing' && record.state !== 'paused') continue;
+            const session = record.session;
+            if (!session) continue;
+            const position = host.livePosition(session);
+            session.rate = host.playbackRate;
+            session.pausedOffset = position;
+            if (!session.paused) {
+                host.rescheduleTimeline(record, position);
+                if (record.state === 'playing') host.armTimelineEnd(record);
+            }
         }
+        if (host.activeAudio) host.activeAudio.playbackRate = host.playbackRate;
     });
 
     return () => {

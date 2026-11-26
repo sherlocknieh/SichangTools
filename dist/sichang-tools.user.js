@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1819
+// @version      2026.11.26.1821
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -1796,7 +1796,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (session.paused) return session.pausedOffset || 0;
 			if (session.timelineStart === null) return session.startOffset || 0;
 			const elapsed = Math.max(0, session.context.currentTime - session.timelineStart);
-			const position = session.startOffset + elapsed;
+			const position = session.startOffset + elapsed * session.rate;
 			return Math.min(session.receivedSeconds, Math.max(0, position));
 		}
 		function showLiveSegment(record, session, position) {
@@ -1827,7 +1827,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			clearTimeout(record.timelineTimer);
 			record.timelineTimer = null;
 			if (!session || record.state !== "playing") return;
-			const remaining = Math.max(0, session.receivedSeconds - livePosition(session));
+			const remaining = Math.max(0, session.receivedSeconds - livePosition(session)) / session.rate;
 			record.timelineTimer = setTimeout(() => stopTimeline(record), remaining * 1e3 + 120);
 		}
 		function pcmFromBytes(record, startByte) {
@@ -1868,6 +1868,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			buffer.copyToChannel(pcmToSamples(pcm), 0);
 			const source = context.createBufferSource();
 			source.buffer = buffer;
+			source.playbackRate.value = session.rate;
 			source.connect(context.destination);
 			const startAt = context.currentTime + .06;
 			source.start(startAt);
@@ -1879,7 +1880,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			session.started = true;
 			session.timelineStart = startAt;
 			session.startOffset = offset;
-			session.playhead = startAt + buffer.duration;
+			session.playhead = startAt + buffer.duration / session.rate;
 		}
 		function pauseTimeline(record) {
 			const session = record.session;
@@ -1951,6 +1952,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			buffer.copyToChannel(pcmToSamples(bytes), 0);
 			const source = context.createBufferSource();
 			source.buffer = buffer;
+			source.playbackRate.value = session.rate;
 			source.connect(context.destination);
 			const startAt = Math.max(session.playhead, context.currentTime + .06);
 			if (session.timelineStart === null || startAt > session.playhead + .005) {
@@ -1958,7 +1960,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				session.startOffset = audioStart;
 			}
 			source.start(startAt);
-			session.playhead = startAt + buffer.duration;
+			session.playhead = startAt + buffer.duration / session.rate;
 			source.onended = () => {
 				const index = session.sources.indexOf(source);
 				if (index >= 0) session.sources.splice(index, 1);
@@ -2151,6 +2153,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				timelineStart: null,
 				startOffset: 0,
 				receivedSeconds: 0,
+				rate: 1,
 				paused: false,
 				pausedOffset: 0,
 				synthesisPaused: false,
@@ -2649,7 +2652,20 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				localStorage.setItem(PLAYBACK_RATE_STORE_KEY, String(host.playbackRate));
 			} catch {}
 			syncPlaybackRateButton();
-			for (const record of host.records) for (const segment of record.segments) if (segment.audio) segment.audio.playbackRate = host.playbackRate;
+			for (const record of host.records) {
+				for (const segment of record.segments) if (segment.audio) segment.audio.playbackRate = host.playbackRate;
+				if (record.state !== "playing" && record.state !== "paused") continue;
+				const session = record.session;
+				if (!session) continue;
+				const position = host.livePosition(session);
+				session.rate = host.playbackRate;
+				session.pausedOffset = position;
+				if (!session.paused) {
+					host.rescheduleTimeline(record, position);
+					if (record.state === "playing") host.armTimelineEnd(record);
+				}
+			}
+			if (host.activeAudio) host.activeAudio.playbackRate = host.playbackRate;
 		});
 		return () => {
 			for (const dispose of disposers.splice(0).reverse()) try {

@@ -185,6 +185,7 @@ export function createSynthesis(host) {
             timelineStart: null,
             startOffset: 0,
             receivedSeconds: 0,
+            rate: 1,
             paused: false,
             pausedOffset: 0,
             synthesisPaused: false,

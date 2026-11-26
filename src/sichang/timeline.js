@@ -32,12 +32,12 @@ export function createTimeline(host) {
         host.refreshSegmentControls(record);
     }
 
-    // 实时播放的当前进度（秒）：暂停时停在暂停点，播放时从锚点线性推进
+    // 实时播放的当前进度（秒）：暂停时停在暂停点，播放时从锚点按会话倍速推进
     function livePosition(session) {
         if (session.paused) return session.pausedOffset || 0;
         if (session.timelineStart === null) return session.startOffset || 0;
         const elapsed = Math.max(0, session.context.currentTime - session.timelineStart);
-        const position = session.startOffset + elapsed;
+        const position = session.startOffset + elapsed * session.rate;
         return Math.min(session.receivedSeconds, Math.max(0, position));
     }
 
@@ -73,7 +73,7 @@ export function createTimeline(host) {
         clearTimeout(record.timelineTimer);
         record.timelineTimer = null;
         if (!session || record.state !== 'playing') return;
-        const remaining = Math.max(0, session.receivedSeconds - livePosition(session));
+        const remaining = Math.max(0, session.receivedSeconds - livePosition(session)) / session.rate;
         record.timelineTimer = setTimeout(() => stopTimeline(record), remaining * 1000 + 120);
     }
 
@@ -122,6 +122,7 @@ export function createTimeline(host) {
         buffer.copyToChannel(pcmToSamples(pcm), 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
+        source.playbackRate.value = session.rate;
         source.connect(context.destination);
         const startAt = context.currentTime + 0.06;
         source.start(startAt);
@@ -133,7 +134,7 @@ export function createTimeline(host) {
         session.started = true;
         session.timelineStart = startAt;
         session.startOffset = offset;
-        session.playhead = startAt + buffer.duration;
+        session.playhead = startAt + buffer.duration / session.rate;
     }
 
     // 实时播放可能要好几分钟；暂停只停声音，合成照常继续，继续时从暂停点重排
@@ -216,6 +217,7 @@ export function createTimeline(host) {
         buffer.copyToChannel(pcmToSamples(bytes), 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
+        source.playbackRate.value = session.rate;
         source.connect(context.destination);
         const startAt = Math.max(session.playhead, context.currentTime + 0.06);
         // 数据比实时慢时会晚于原计划起播，重锚一次进度，避免进度条跑到声音前面
@@ -224,7 +226,7 @@ export function createTimeline(host) {
             session.startOffset = audioStart;
         }
         source.start(startAt);
-        session.playhead = startAt + buffer.duration;
+        session.playhead = startAt + buffer.duration / session.rate;
         // 播完就从时间线里摘掉，避免长文本攒下成千上万个节点
         source.onended = () => {
             const index = session.sources.indexOf(source);
