@@ -26,7 +26,7 @@ export function createPanel() {
         </optgroup>
     `).join('');
     panel.innerHTML = `
-        <div class="head" title="拖动移动，双击复位">
+        <div class="head" title="单击收起/展开，拖动移动，双击复位">
             <span class="grip" aria-hidden="true">⠿</span>
             <span class="title">语音捕获</span>
             <span class="count">0</span>

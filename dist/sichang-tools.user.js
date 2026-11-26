@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1747
+// @version      2026.11.26.1748
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -426,7 +426,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		const panel = document.createElement("div");
 		panel.className = "panel";
 		panel.innerHTML = `
-        <div class="head" title="拖动移动，双击复位">
+        <div class="head" title="单击收起/展开，拖动移动，双击复位">
             <span class="grip" aria-hidden="true">⠿</span>
             <span class="title">语音捕获</span>
             <span class="count">0</span>
@@ -561,25 +561,39 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		} catch {}
 		placePanel();
 		let drag = null;
+		let ignoreClick = false;
 		ui.head.addEventListener("pointerdown", (event) => {
 			if (event.button !== 0 || event.target.closest("button, select")) return;
 			host.closeMenus();
 			const rect = ui.host.getBoundingClientRect();
 			drag = {
 				dx: event.clientX - rect.left,
-				dy: event.clientY - rect.top
+				dy: event.clientY - rect.top,
+				startX: event.clientX,
+				startY: event.clientY,
+				moved: false
 			};
 			ui.head.setPointerCapture(event.pointerId);
 			ui.panel.classList.add("dragging");
 		});
 		ui.head.addEventListener("pointermove", (event) => {
 			if (!drag) return;
+			if (!drag.moved) {
+				if (Math.abs(event.clientX - drag.startX) + Math.abs(event.clientY - drag.startY) < 6) return;
+				drag.moved = true;
+			}
 			applyPosition(clampPosition(event.clientX - drag.dx, event.clientY - drag.dy));
 		});
 		function endDrag() {
 			if (!drag) return;
+			const moved = drag.moved;
 			drag = null;
 			ui.panel.classList.remove("dragging");
+			if (!moved) return;
+			ignoreClick = true;
+			setTimeout(() => {
+				ignoreClick = false;
+			}, 0);
 			manualPosition = true;
 			const rect = ui.host.getBoundingClientRect();
 			try {
@@ -591,6 +605,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		ui.head.addEventListener("pointerup", endDrag);
 		ui.head.addEventListener("pointercancel", endDrag);
+		ui.head.addEventListener("click", (event) => {
+			if (event.target.closest("button, select")) return;
+			if (ignoreClick) {
+				ignoreClick = false;
+				return;
+			}
+			applyFold(!ui.panel.classList.contains("folded"));
+		});
 		ui.head.addEventListener("dblclick", (event) => {
 			if (event.target.closest("button, select")) return;
 			resetPosition();
