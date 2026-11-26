@@ -141,7 +141,7 @@ export function createRecordView(host) {
         controls.append(toggleButton, timeEl, voiceEl, bar, stopButton, replayButton, downloadButton, synthButton);
         panel.append(controls);
 
-        row.append(idx, label, segDuration, playButton, regenButton, caret);
+        row.append(caret, idx, label, segDuration, playButton, regenButton);
         box.append(row, panel);
         if (after) record.segList.insertBefore(box, after.box.nextSibling);
         else record.segList.appendChild(box);

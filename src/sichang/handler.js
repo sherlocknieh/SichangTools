@@ -2,6 +2,7 @@
 // 这里只负责装配：共享状态、选中逻辑和模块接线；具体职责见同目录各模块。
 // 面板以分段为播放单位：点哪段就从哪段开始顺序播放，播到谁谁展开控制面板。
 
+import { PLAYBACK_RATES, PLAYBACK_RATE_STORE_KEY } from './constants.js';
 import { createPanel } from './panel.js';
 import { createPanelLayout } from './panel-layout.js';
 import { createCompose } from './compose.js';
@@ -26,6 +27,8 @@ export default function initSichangHandler() {
         activeSession: null,
         activeTimeline: null,
         audioContext: null,
+        // 只作用于已下载完成的分段 <audio>，实时时间线不跟随
+        playbackRate: 1,
         // 输入框里是否有用户尚未提交的手动改动：播放自动跟随遇到它就停下，不覆盖草稿
         inputTyping: false,
     };
@@ -109,6 +112,31 @@ export default function initSichangHandler() {
     // 合成要覆盖 window.fetch；放在最后装配，确保开始新朗读时所有回调都已就位
     adopt(createSynthesis(host));
     adopt(createPanelLayout(host));
+
+    function syncPlaybackRateButton() {
+        ui.rateCycle.textContent = `${host.playbackRate}×`;
+        ui.rateCycle.title = `播放倍速 ${host.playbackRate}×（仅已下载音频）`;
+        ui.rateCycle.setAttribute('aria-label', ui.rateCycle.title);
+    }
+    try {
+        const savedRate = Number(localStorage.getItem(PLAYBACK_RATE_STORE_KEY));
+        if (PLAYBACK_RATES.includes(savedRate)) host.playbackRate = savedRate;
+    } catch {}
+    syncPlaybackRateButton();
+    ui.rateCycle.addEventListener('click', () => {
+        const index = PLAYBACK_RATES.indexOf(host.playbackRate);
+        host.playbackRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
+        try {
+            localStorage.setItem(PLAYBACK_RATE_STORE_KEY, String(host.playbackRate));
+        } catch {}
+        syncPlaybackRateButton();
+        // 只改已经建好的分段音频；实时时间线仍按原速播放
+        for (const record of host.records) {
+            for (const segment of record.segments) {
+                if (segment.audio) segment.audio.playbackRate = host.playbackRate;
+            }
+        }
+    });
 
     return () => {
         for (const dispose of disposers.splice(0).reverse()) {

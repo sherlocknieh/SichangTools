@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1811
+// @version      2026.11.26.1819
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -16,10 +16,16 @@
 	var SEGMENT_HEADER = "X-Sichang-Segment";
 	var DEFAULT_INPUT_TEXT = "你好，我是思畅，今天天气不错。";
 	var VOICE_STORE_KEY = "sichang-tts-voice";
-	var RATE_STORE_KEY = "sichang-tts-rate";
+	var PLAYBACK_RATE_STORE_KEY = "sichang-tts-playback-rate";
 	var FOLD_STORE_KEY = "sichang-tts-folded";
 	var DRAFT_STORE_KEY = "sichang-tts-draft";
 	var POS_STORE_KEY = "sichang-tts-pos";
+	var PLAYBACK_RATES = [
+		1,
+		1.25,
+		1.5,
+		2
+	];
 	var VOICE_GROUPS = [{
 		label: "中文",
 		voices: [
@@ -118,6 +124,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 11px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
+.head .rateCycle { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
 .head .clear.confirm { background: #3a2226; color: #ff9a9a; }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-top: 1px solid #232329; }
@@ -167,8 +174,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font: 12px system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 .compose select { flex: 1; min-width: 0; }
-.compose input.rate { width: 48px; padding: 0 4px; text-align: center; }
-.compose .rateUnit { color: #80808a; font-size: 11px; margin-left: -3px; }
 .compose .go {
     height: 26px;
     padding: 0 14px;
@@ -418,6 +423,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
+            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
@@ -436,8 +442,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
         </optgroup>
     `).join("")}</select>
-                <input class="rate" type="number" min="0.5" max="2" step="0.1" value="1" aria-label="语速" title="语速">
-                <span class="rateUnit" aria-hidden="true">×</span>
                 <button class="go">合成</button>
             </div>
         </div>
@@ -452,13 +456,13 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			list: panel.querySelector(".list"),
 			empty: panel.querySelector(".empty"),
 			count: panel.querySelector(".count"),
+			rateCycle: panel.querySelector(".rateCycle"),
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
 			compose: panel.querySelector(".compose"),
 			input: panel.querySelector(".input"),
 			clearInput: panel.querySelector(".clearInput"),
 			voice: panel.querySelector(".voice"),
-			rate: panel.querySelector(".rate"),
 			go: panel.querySelector(".go")
 		};
 	}
@@ -603,7 +607,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function currentTts() {
 			return {
 				voice: ui.voice.value || "mimo_default",
-				rate: Math.min(2, Math.max(.5, Number(ui.rate.value) || 1))
+				rate: 1
 			};
 		}
 		function activeSynthesis() {
@@ -694,18 +698,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			onInputChange();
 			ui.input.focus();
 		});
-		ui.rate.addEventListener("change", () => {
-			const { rate } = currentTts();
-			ui.rate.value = String(rate);
-			try {
-				localStorage.setItem(RATE_STORE_KEY, String(rate));
-			} catch {}
-		});
 		try {
 			const savedVoice = localStorage.getItem(VOICE_STORE_KEY);
 			if (savedVoice && [...ui.voice.options].some((option) => option.value === savedVoice)) ui.voice.value = savedVoice;
-			const savedRate = Number(localStorage.getItem(RATE_STORE_KEY));
-			if (savedRate >= .5 && savedRate <= 2) ui.rate.value = String(savedRate);
 		} catch {}
 		try {
 			const draft = localStorage.getItem(DRAFT_STORE_KEY);
@@ -731,7 +726,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const { voice, rate } = currentTts();
 			try {
 				localStorage.setItem(VOICE_STORE_KEY, voice);
-				localStorage.setItem(RATE_STORE_KEY, String(rate));
 			} catch {}
 			host.inputTyping = true;
 			host.startSession({
@@ -1224,7 +1218,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			downloadButton.disabled = true;
 			controls.append(toggleButton, timeEl, voiceEl, bar, stopButton, replayButton, downloadButton, synthButton);
 			panel.append(controls);
-			row.append(idx, label, segDuration, playButton, regenButton, caret);
+			row.append(caret, idx, label, segDuration, playButton, regenButton);
 			box.append(row, panel);
 			if (after) record.segList.insertBefore(box, after.box.nextSibling);
 			else record.segList.appendChild(box);
@@ -1613,6 +1607,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function ensureSegmentAudio(record, segment) {
 			if (!segment.audio) {
 				const audio = new Audio(ensureSegmentUrl(record, segment));
+				audio.preservesPitch = true;
+				audio.mozPreservesPitch = true;
+				audio.webkitPreservesPitch = true;
 				audio.addEventListener("pause", () => host.syncSegmentPlayState(segment));
 				audio.addEventListener("play", () => syncRecordPlayButton(record));
 				audio.addEventListener("ended", () => {
@@ -1628,6 +1625,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				});
 				segment.audio = audio;
 			}
+			segment.audio.playbackRate = host.playbackRate;
 			return segment.audio;
 		}
 		function toggleSegmentPlay(record, segment) {
@@ -2562,6 +2560,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			activeSession: null,
 			activeTimeline: null,
 			audioContext: null,
+			playbackRate: 1,
 			inputTyping: false
 		};
 		function applySelection(record, segment) {
@@ -2633,6 +2632,25 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		}));
 		adopt(createSynthesis(host));
 		adopt(createPanelLayout(host));
+		function syncPlaybackRateButton() {
+			ui.rateCycle.textContent = `${host.playbackRate}×`;
+			ui.rateCycle.title = `播放倍速 ${host.playbackRate}×（仅已下载音频）`;
+			ui.rateCycle.setAttribute("aria-label", ui.rateCycle.title);
+		}
+		try {
+			const savedRate = Number(localStorage.getItem(PLAYBACK_RATE_STORE_KEY));
+			if (PLAYBACK_RATES.includes(savedRate)) host.playbackRate = savedRate;
+		} catch {}
+		syncPlaybackRateButton();
+		ui.rateCycle.addEventListener("click", () => {
+			const index = PLAYBACK_RATES.indexOf(host.playbackRate);
+			host.playbackRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
+			try {
+				localStorage.setItem(PLAYBACK_RATE_STORE_KEY, String(host.playbackRate));
+			} catch {}
+			syncPlaybackRateButton();
+			for (const record of host.records) for (const segment of record.segments) if (segment.audio) segment.audio.playbackRate = host.playbackRate;
+		});
 		return () => {
 			for (const dispose of disposers.splice(0).reverse()) try {
 				dispose();

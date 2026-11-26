@@ -31,6 +31,7 @@ export function createPanel() {
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
+            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
@@ -45,8 +46,6 @@ export function createPanel() {
             </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${groups}</select>
-                <input class="rate" type="number" min="0.5" max="2" step="0.1" value="1" aria-label="语速" title="语速">
-                <span class="rateUnit" aria-hidden="true">×</span>
                 <button class="go">合成</button>
             </div>
         </div>
@@ -61,13 +60,13 @@ export function createPanel() {
         list: panel.querySelector('.list'),
         empty: panel.querySelector('.empty'),
         count: panel.querySelector('.count'),
+        rateCycle: panel.querySelector('.rateCycle'),
         clear: panel.querySelector('.clear'),
         fold: panel.querySelector('.fold'),
         compose: panel.querySelector('.compose'),
         input: panel.querySelector('.input'),
         clearInput: panel.querySelector('.clearInput'),
         voice: panel.querySelector('.voice'),
-        rate: panel.querySelector('.rate'),
         go: panel.querySelector('.go'),
     };
 }

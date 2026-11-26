@@ -3,7 +3,6 @@
 import {
     DEFAULT_INPUT_TEXT,
     DRAFT_STORE_KEY,
-    RATE_STORE_KEY,
     VOICE_STORE_KEY,
 } from './constants.js';
 import { DEFAULT_VOICE } from './voices.js';
@@ -18,10 +17,9 @@ export function createCompose(host) {
         } catch {}
     });
 
+    // 生成选项只保留音色，合成语速固定 1×；播放倍速是另一套，只影响已下载音频
     function currentTts() {
-        const voice = ui.voice.value || DEFAULT_VOICE;
-        const rate = Math.min(2, Math.max(0.5, Number(ui.rate.value) || 1));
-        return { voice, rate };
+        return { voice: ui.voice.value || DEFAULT_VOICE, rate: 1 };
     }
 
     // 合成期间「合成」按钮改为暂停/继续；只有还在流式合成的记录算活跃会话
@@ -128,19 +126,9 @@ export function createCompose(host) {
         onInputChange();
         ui.input.focus();
     });
-    ui.rate.addEventListener('change', () => {
-        const { rate } = currentTts();
-        ui.rate.value = String(rate);
-        try {
-            localStorage.setItem(RATE_STORE_KEY, String(rate));
-        } catch {}
-    });
-
     try {
         const savedVoice = localStorage.getItem(VOICE_STORE_KEY);
         if (savedVoice && [...ui.voice.options].some(option => option.value === savedVoice)) ui.voice.value = savedVoice;
-        const savedRate = Number(localStorage.getItem(RATE_STORE_KEY));
-        if (savedRate >= 0.5 && savedRate <= 2) ui.rate.value = String(savedRate);
     } catch {}
 
     try {
@@ -168,7 +156,6 @@ export function createCompose(host) {
         const { voice, rate } = currentTts();
         try {
             localStorage.setItem(VOICE_STORE_KEY, voice);
-            localStorage.setItem(RATE_STORE_KEY, String(rate));
         } catch {}
         // 不清空输入：换音色后可以直接再点合成，反复试听。
         // 这段文本是用户刚写的，标记成手输内容，实时播放跟随不能覆盖它

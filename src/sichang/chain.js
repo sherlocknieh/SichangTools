@@ -105,6 +105,9 @@ export function createChain(host) {
     function ensureSegmentAudio(record, segment) {
         if (!segment.audio) {
             const audio = new Audio(ensureSegmentUrl(record, segment));
+            audio.preservesPitch = true;
+            audio.mozPreservesPitch = true;
+            audio.webkitPreservesPitch = true;
             audio.addEventListener('pause', () => host.syncSegmentPlayState(segment));
             audio.addEventListener('play', () => syncRecordPlayButton(record));
             audio.addEventListener('ended', () => {
@@ -121,6 +124,7 @@ export function createChain(host) {
             });
             segment.audio = audio;
         }
+        segment.audio.playbackRate = host.playbackRate;
         return segment.audio;
     }
 

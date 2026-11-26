@@ -47,6 +47,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 11px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
+.head .rateCycle { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
 .head .clear.confirm { background: #3a2226; color: #ff9a9a; }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-top: 1px solid #232329; }
@@ -96,8 +97,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font: 12px system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 .compose select { flex: 1; min-width: 0; }
-.compose input.rate { width: 48px; padding: 0 4px; text-align: center; }
-.compose .rateUnit { color: #80808a; font-size: 11px; margin-left: -3px; }
 .compose .go {
     height: 26px;
     padding: 0 14px;
