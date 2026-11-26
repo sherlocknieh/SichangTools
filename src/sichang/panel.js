@@ -35,10 +35,12 @@ export function createPanel() {
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="compose">
-            <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
+            <div class="inputWrap">
+                <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
+                <button class="clearInput" hidden aria-label="清空输入" title="清空输入">×</button>
+            </div>
             <div class="counter">
                 <span class="stats">0 字 · 0 段</span>
-                <button class="clearInput" aria-label="清空输入">清空</button>
             </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${groups}</select>

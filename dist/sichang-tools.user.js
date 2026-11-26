@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1739
+// @version      2026.11.26.1747
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -115,12 +115,13 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .head button:hover { background: #2c2c33; color: #fff; }
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
+.compose .inputWrap { position: relative; }
 .compose textarea {
     box-sizing: border-box;
     width: 100%;
     min-height: 44px;
     max-height: 132px;
-    padding: 7px 8px;
+    padding: 7px 26px 7px 8px;
     border: 1px solid #2c2c33;
     border-radius: 7px;
     background: #101014;
@@ -137,8 +138,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 10px;
 }
 .compose .counter .stats { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.compose .counter .clearInput { color: #8a8a94; font-size: 10px; padding: 0 2px; }
-.compose .counter .clearInput:hover { color: #d5d5dd; }
+.compose .clearInput {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    color: #6f6f79;
+    font-size: 14px;
+    line-height: 18px;
+    text-align: center;
+}
+.compose .clearInput:hover { background: #2c2c33; color: #fff; }
+.compose .clearInput[hidden] { display: none; }
 .compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose textarea::placeholder { color: #6f6f79; }
 .compose textarea.is-default { color: #6f6f79; }
@@ -422,10 +435,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="compose">
-            <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
+            <div class="inputWrap">
+                <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
+                <button class="clearInput" hidden aria-label="清空输入" title="清空输入">×</button>
+            </div>
             <div class="counter">
                 <span class="stats">0 字 · 0 段</span>
-                <button class="clearInput" aria-label="清空输入">清空</button>
             </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
@@ -718,6 +733,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				} else hint = " · 整条";
 			}
 			ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
+			ui.clearInput.hidden = inputIsDefault || !ui.input.value;
 			syncGoButton();
 		}
 		function onInputChange() {

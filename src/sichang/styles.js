@@ -48,12 +48,13 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .head button:hover { background: #2c2c33; color: #fff; }
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
+.compose .inputWrap { position: relative; }
 .compose textarea {
     box-sizing: border-box;
     width: 100%;
     min-height: 44px;
     max-height: 132px;
-    padding: 7px 8px;
+    padding: 7px 26px 7px 8px;
     border: 1px solid #2c2c33;
     border-radius: 7px;
     background: #101014;
@@ -70,8 +71,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 10px;
 }
 .compose .counter .stats { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.compose .counter .clearInput { color: #8a8a94; font-size: 10px; padding: 0 2px; }
-.compose .counter .clearInput:hover { color: #d5d5dd; }
+.compose .clearInput {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    color: #6f6f79;
+    font-size: 14px;
+    line-height: 18px;
+    text-align: center;
+}
+.compose .clearInput:hover { background: #2c2c33; color: #fff; }
+.compose .clearInput[hidden] { display: none; }
 .compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose textarea::placeholder { color: #6f6f79; }
 .compose textarea.is-default { color: #6f6f79; }

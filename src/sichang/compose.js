@@ -101,6 +101,8 @@ export function createCompose(host) {
             }
         }
         ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
+        // 预填的试听文本不是用户内容，不显示清空入口；空框也无需清空
+        ui.clearInput.hidden = inputIsDefault || !ui.input.value;
         syncGoButton();
     }
 
