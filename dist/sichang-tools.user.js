@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1736
+// @version      2026.11.26.1739
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -164,6 +164,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 12px;
 }
 .compose .go:hover { background: #3a5f43; color: #fff; }
+.compose .go.paused { background: #4a3a22; color: #f0cd8a; }
+.compose .go.paused:hover { background: #5a4728; color: #fff; }
 .panel.folded { width: auto; }
 .panel.folded .compose, .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
@@ -655,6 +657,31 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				rate: Math.min(2, Math.max(.5, Number(ui.rate.value) || 1))
 			};
 		}
+		function activeSynthesis() {
+			const session = host.activeSession;
+			if (!session || session.stopped || !session.record) return null;
+			if (!host.records.includes(session.record)) return null;
+			if (session.record.state !== "capturing") return null;
+			return session;
+		}
+		function syncGoButton() {
+			const session = activeSynthesis();
+			if (session) {
+				const paused = Boolean(session.synthesisPaused);
+				ui.go.textContent = paused ? "继续" : "暂停";
+				ui.go.classList.toggle("paused", paused);
+				ui.go.disabled = false;
+				const label = paused ? "继续合成" : "暂停合成";
+				ui.go.title = label;
+				ui.go.setAttribute("aria-label", label);
+				return;
+			}
+			ui.go.textContent = "合成";
+			ui.go.classList.remove("paused");
+			ui.go.title = "合成";
+			ui.go.setAttribute("aria-label", "合成");
+			ui.go.disabled = !ui.input.value.trim();
+		}
 		function autoGrowInput() {
 			if (ui.panel.classList.contains("folded")) return;
 			ui.input.style.height = "auto";
@@ -691,7 +718,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				} else hint = " · 整条";
 			}
 			ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
-			ui.go.disabled = !text;
+			syncGoButton();
 		}
 		function onInputChange() {
 			autoGrowInput();
@@ -774,8 +801,16 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				rate,
 				format: "pcm16"
 			});
+			syncGoButton();
 		}
-		ui.go.addEventListener("click", submitCompose);
+		function triggerCompose() {
+			if (activeSynthesis()) {
+				host.toggleSynthesisPause?.();
+				return;
+			}
+			submitCompose();
+		}
+		ui.go.addEventListener("click", triggerCompose);
 		ui.compose.addEventListener("keydown", (event) => {
 			event.stopPropagation();
 			if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
@@ -792,7 +827,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			setInputText,
 			updateComposeMeta,
 			onInputChange,
-			submitCompose
+			submitCompose,
+			activeSynthesis,
+			syncGoButton
 		} };
 	}
 	function pcmToWav(pcm, sampleRate) {
@@ -2015,6 +2052,45 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 	}
 	function createSynthesis(host) {
 		const { records, ui } = host;
+		function waitWhilePaused(session) {
+			if (!session.synthesisPaused || session.stopped) return Promise.resolve();
+			return new Promise((resolve) => session.holdResolvers.push(resolve));
+		}
+		function releaseHold(session) {
+			const waiters = session.holdResolvers.splice(0);
+			for (const resolve of waiters) resolve();
+		}
+		function setSynthesisPaused(session, paused) {
+			if (!session || session.stopped || session.synthesisPaused === paused) return;
+			session.synthesisPaused = paused;
+			const record = session.record;
+			if (paused) {
+				const chainSegment = record.chain?.segment;
+				if (chainSegment?.audio && !chainSegment.audio.paused) {
+					session.resumeChainOnUnpause = true;
+					host.pauseChain(record);
+				} else if (!session.paused) {
+					session.resumeTimelineOnUnpause = true;
+					host.pauseLiveCapture(record);
+				}
+			} else {
+				releaseHold(session);
+				if (session.resumeChainOnUnpause) {
+					session.resumeChainOnUnpause = false;
+					if ((record.chain?.segment)?.audio?.paused) host.resumeChain(record);
+				}
+				if (session.resumeTimelineOnUnpause) {
+					session.resumeTimelineOnUnpause = false;
+					if (!record.chain && session.paused && record.state === "capturing") host.resumeLiveCapture(record);
+				}
+			}
+			host.syncGoButton?.();
+		}
+		function toggleSynthesisPause() {
+			const session = host.activeSession;
+			if (!session || session.stopped || session.record?.state !== "capturing") return;
+			setSynthesisPaused(session, !session.synthesisPaused);
+		}
 		function updateProgress(record, done, total) {
 			if (!records.includes(record)) return;
 			record.duration.textContent = total > 1 ? `${done}/${total}` : "合成中";
@@ -2033,6 +2109,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.autoSegment = null;
 			for (const segment of record.segments) if (segment.status === "pending" || segment.status === "active") host.setSegmentState(record, segment, segment.bytes ? "done" : "skipped");
 			host.refreshSegmentControls(record);
+			host.syncGoButton?.();
 		}
 		function finalizeRecord(record) {
 			if (!records.includes(record) || record.state !== "capturing") return;
@@ -2068,6 +2145,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				record.autoSegment = null;
 			}
 			host.syncRecordPlayButton(record);
+			host.syncGoButton?.();
 		}
 		function startSession({ text, voice, rate, format }) {
 			host.stopTimeline(host.activeTimeline);
@@ -2097,6 +2175,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				receivedSeconds: 0,
 				paused: false,
 				pausedOffset: 0,
+				synthesisPaused: false,
+				holdResolvers: [],
+				resumeTimelineOnUnpause: false,
+				resumeChainOnUnpause: false,
 				context: null,
 				sources: [],
 				sampleRate: DEFAULT_SAMPLE_RATE,
@@ -2106,6 +2188,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			};
 			record.session = session;
 			host.activeSession = session;
+			host.syncGoButton?.();
 			updateProgress(record, 0, session.total);
 			host.startTimelineTicker(record, session);
 			host.syncRecordPlayButton(record);
@@ -2131,7 +2214,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			});
 			let prefetch = null;
 			const startPrefetch = (piece) => {
-				if (prefetch) return;
+				if (prefetch || session.synthesisPaused || session.stopped) return;
 				const promise = requestSegment(piece.text);
 				promise.catch(() => {});
 				prefetch = {
@@ -2154,9 +2237,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				host.setSegmentState(record, segment, "active");
 				try {
 					for (;;) {
+						await waitWhilePaused(session);
+						if (session.stopped) break;
 						const { done, value } = await reader.read();
 						if (done) break;
-						if (!value || !value.length || session.stopped) continue;
+						await waitWhilePaused(session);
+						if (session.stopped) break;
+						if (!value || !value.length) continue;
 						if (record.bytes + value.length > 67108864) continue;
 						let data = value;
 						if (leftover.length) {
@@ -2186,7 +2273,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				const segment = piece.segment;
 				const bytesBefore = segment.bytes;
 				for (let attempt = 0; attempt < 2; attempt++) try {
+					await waitWhilePaused(session);
+					if (session.stopped) return "done";
 					const response = await takePrefetch(piece);
+					await waitWhilePaused(session);
 					if (session.stopped) return "done";
 					if (tasks.length) startPrefetch(tasks[0]);
 					await consume(response, piece);
@@ -2218,6 +2308,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			(async () => {
 				startPrefetch(tasks[0]);
 				while (tasks.length && !session.stopped) {
+					await waitWhilePaused(session);
+					if (session.stopped) break;
 					const piece = tasks.shift();
 					const result = await speak(piece);
 					if (session.stopped) break;
@@ -2232,6 +2324,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			session.stop = () => {
 				if (session.stopped) return;
 				session.stopped = true;
+				releaseHold(session);
 				try {
 					session.controller.abort();
 				} catch {}
@@ -2239,17 +2332,20 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				if (host.activeSession === session) host.activeSession = null;
 				if (record.state === "playing" || record.state === "paused") {
 					host.stopTimeline(record);
+					host.syncGoButton?.();
 					return;
 				}
 				finalizeRecord(record);
 			};
 			session.abort = () => {
 				session.stopped = true;
+				releaseHold(session);
 				try {
 					session.controller.abort();
 				} catch {}
 				host.stopSources(session);
 				if (host.activeSession === session) host.activeSession = null;
+				host.syncGoButton?.();
 			};
 			return session;
 		}
@@ -2301,7 +2397,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				startSession,
 				updateProgress,
 				markFailed,
-				finalizeRecord
+				finalizeRecord,
+				toggleSynthesisPause
 			},
 			dispose: () => {
 				window.fetch = originalFetch;

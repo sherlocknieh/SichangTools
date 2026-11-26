@@ -97,6 +97,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 12px;
 }
 .compose .go:hover { background: #3a5f43; color: #fff; }
+.compose .go.paused { background: #4a3a22; color: #f0cd8a; }
+.compose .go.paused:hover { background: #5a4728; color: #fff; }
 .panel.folded { width: auto; }
 .panel.folded .compose, .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }

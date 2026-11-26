@@ -14,6 +14,58 @@ import { joinedPcm, pcmToWav } from './audio.js';
 export function createSynthesis(host) {
     const { records, ui } = host;
 
+    // 合成暂停用一道闸门：消费循环停在读流之前，请求与数据都留在原地，
+    // 继续时从同一段同一条流接着读
+    function waitWhilePaused(session) {
+        if (!session.synthesisPaused || session.stopped) return Promise.resolve();
+        return new Promise(resolve => session.holdResolvers.push(resolve));
+    }
+
+    function releaseHold(session) {
+        const waiters = session.holdResolvers.splice(0);
+        for (const resolve of waiters) resolve();
+    }
+
+    // 暂停时先把当前出声的那一路停住；继续时只恢复原本正在播的那一路，
+    // 用户自己按过暂停的播放状态保持不变
+    function setSynthesisPaused(session, paused) {
+        if (!session || session.stopped || session.synthesisPaused === paused) return;
+        session.synthesisPaused = paused;
+        const record = session.record;
+        if (paused) {
+            const chainSegment = record.chain?.segment;
+            if (chainSegment?.audio && !chainSegment.audio.paused) {
+                session.resumeChainOnUnpause = true;
+                host.pauseChain(record);
+            } else if (!session.paused) {
+                session.resumeTimelineOnUnpause = true;
+                host.pauseLiveCapture(record);
+            }
+        } else {
+            releaseHold(session);
+            if (session.resumeChainOnUnpause) {
+                session.resumeChainOnUnpause = false;
+                // 暂停期间用户可能已经自己继续播放，别重复 resume 打断当前段
+                const chainSegment = record.chain?.segment;
+                if (chainSegment?.audio?.paused) host.resumeChain(record);
+            }
+            if (session.resumeTimelineOnUnpause) {
+                session.resumeTimelineOnUnpause = false;
+                // 暂停期间用户可能切到了分段顺序播放，别再把时间线叠回去
+                if (!record.chain && session.paused && record.state === 'capturing') {
+                    host.resumeLiveCapture(record);
+                }
+            }
+        }
+        host.syncGoButton?.();
+    }
+
+    function toggleSynthesisPause() {
+        const session = host.activeSession;
+        if (!session || session.stopped || session.record?.state !== 'capturing') return;
+        setSynthesisPaused(session, !session.synthesisPaused);
+    }
+
     function updateProgress(record, done, total) {
         if (!records.includes(record)) return;
         record.duration.textContent = total > 1 ? `${done}/${total}` : '合成中';
@@ -37,6 +89,7 @@ export function createSynthesis(host) {
             }
         }
         host.refreshSegmentControls(record);
+        host.syncGoButton?.();
     }
 
     function finalizeRecord(record) {
@@ -82,6 +135,7 @@ export function createSynthesis(host) {
             record.autoSegment = null;
         }
         host.syncRecordPlayButton(record);
+        host.syncGoButton?.();
     }
 
     function startSession({ text, voice, rate, format }) {
@@ -115,6 +169,10 @@ export function createSynthesis(host) {
             receivedSeconds: 0,
             paused: false,
             pausedOffset: 0,
+            synthesisPaused: false,
+            holdResolvers: [],
+            resumeTimelineOnUnpause: false,
+            resumeChainOnUnpause: false,
             context: null,
             sources: [],
             sampleRate: DEFAULT_SAMPLE_RATE,
@@ -124,6 +182,7 @@ export function createSynthesis(host) {
         };
         record.session = session;
         host.activeSession = session;
+        host.syncGoButton?.();
         updateProgress(record, 0, session.total);
         // 合成一开始就盯住实时播放位置，播到哪段就展开哪段
         host.startTimelineTicker(record, session);
@@ -145,7 +204,7 @@ export function createSynthesis(host) {
         // 一次预取下一段：当前段在播时，下一段已经在合成，接缝更短
         let prefetch = null;
         const startPrefetch = piece => {
-            if (prefetch) return;
+            if (prefetch || session.synthesisPaused || session.stopped) return;
             const promise = requestSegment(piece.text);
             promise.catch(() => {});
             prefetch = { piece, promise };
@@ -166,9 +225,14 @@ export function createSynthesis(host) {
             host.setSegmentState(record, segment, 'active');
             try {
                 for (;;) {
+                    await waitWhilePaused(session);
+                    if (session.stopped) break;
                     const { done, value } = await reader.read();
                     if (done) break;
-                    if (!value || !value.length || session.stopped) continue;
+                    // 读流期间用户可能刚按下暂停：先挂住这一块，不写进时间线
+                    await waitWhilePaused(session);
+                    if (session.stopped) break;
+                    if (!value || !value.length) continue;
                     if (record.bytes + value.length > MAX_PCM_BYTES) continue;
 
                     let data = value;
@@ -204,7 +268,10 @@ export function createSynthesis(host) {
             const bytesBefore = segment.bytes;
             for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
                 try {
+                    await waitWhilePaused(session);
+                    if (session.stopped) return 'done';
                     const response = await takePrefetch(piece);
+                    await waitWhilePaused(session);
                     if (session.stopped) return 'done';
                     // 当前段开始播时就把下一段发出去，缩短段间等待
                     if (tasks.length) startPrefetch(tasks[0]);
@@ -237,6 +304,8 @@ export function createSynthesis(host) {
         (async () => {
             startPrefetch(tasks[0]);
             while (tasks.length && !session.stopped) {
+                await waitWhilePaused(session);
+                if (session.stopped) break;
                 const piece = tasks.shift();
                 const result = await speak(piece);
                 if (session.stopped) break;
@@ -252,6 +321,7 @@ export function createSynthesis(host) {
         session.stop = () => {
             if (session.stopped) return;
             session.stopped = true;
+            releaseHold(session);
             try {
                 session.controller.abort();
             } catch {}
@@ -260,17 +330,20 @@ export function createSynthesis(host) {
             // 合成已结束、只剩时间线在播时，按停止要把按钮和进度一起复位
             if (record.state === 'playing' || record.state === 'paused') {
                 host.stopTimeline(record);
+                host.syncGoButton?.();
                 return;
             }
             finalizeRecord(record);
         };
         session.abort = () => {
             session.stopped = true;
+            releaseHold(session);
             try {
                 session.controller.abort();
             } catch {}
             host.stopSources(session);
             if (host.activeSession === session) host.activeSession = null;
+            host.syncGoButton?.();
         };
 
         return session;
@@ -321,7 +394,7 @@ export function createSynthesis(host) {
     };
 
     return {
-        api: { startSession, updateProgress, markFailed, finalizeRecord },
+        api: { startSession, updateProgress, markFailed, finalizeRecord, toggleSynthesisPause },
         dispose: () => {
             window.fetch = originalFetch;
         },

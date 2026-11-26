@@ -25,6 +25,34 @@ export function createCompose(host) {
         return { voice, rate };
     }
 
+    // 合成期间「合成」按钮改为暂停/继续；只有还在流式合成的记录算活跃会话
+    function activeSynthesis() {
+        const session = host.activeSession;
+        if (!session || session.stopped || !session.record) return null;
+        if (!host.records.includes(session.record)) return null;
+        if (session.record.state !== 'capturing') return null;
+        return session;
+    }
+
+    function syncGoButton() {
+        const session = activeSynthesis();
+        if (session) {
+            const paused = Boolean(session.synthesisPaused);
+            ui.go.textContent = paused ? '继续' : '暂停';
+            ui.go.classList.toggle('paused', paused);
+            ui.go.disabled = false;
+            const label = paused ? '继续合成' : '暂停合成';
+            ui.go.title = label;
+            ui.go.setAttribute('aria-label', label);
+            return;
+        }
+        ui.go.textContent = '合成';
+        ui.go.classList.remove('paused');
+        ui.go.title = '合成';
+        ui.go.setAttribute('aria-label', '合成');
+        ui.go.disabled = !ui.input.value.trim();
+    }
+
     // 输入区随内容长高，超过上限就内部滚动
     function autoGrowInput() {
         if (ui.panel.classList.contains('folded')) return;
@@ -73,7 +101,7 @@ export function createCompose(host) {
             }
         }
         ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
-        ui.go.disabled = !text;
+        syncGoButton();
     }
 
     function onInputChange() {
@@ -160,9 +188,19 @@ export function createCompose(host) {
         // 这段文本是用户刚写的，标记成手输内容，实时播放跟随不能覆盖它
         host.inputTyping = true;
         host.startSession({ text, voice, rate, format: 'pcm16' });
+        syncGoButton();
     }
 
-    ui.go.addEventListener('click', submitCompose);
+    // 合成进行中按钮就是暂停开关；快捷键 Ctrl/Cmd+Enter 仍直接发起新合成
+    function triggerCompose() {
+        if (activeSynthesis()) {
+            host.toggleSynthesisPause?.();
+            return;
+        }
+        submitCompose();
+    }
+
+    ui.go.addEventListener('click', triggerCompose);
     // 面板里的按键不要冒泡到站点，避免触发站点自己的输入/发送快捷键
     ui.compose.addEventListener('keydown', event => {
         event.stopPropagation();
@@ -183,6 +221,8 @@ export function createCompose(host) {
             updateComposeMeta,
             onInputChange,
             submitCompose,
+            activeSynthesis,
+            syncGoButton,
         },
     };
 }
