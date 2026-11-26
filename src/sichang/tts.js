@@ -1,5 +1,5 @@
 // 单段重生成用的一次性请求：读完整个 PCM16 流再返回，交给调用方替换分段。
-// 边下边播的流式消费在 handler 的分段合成流程里，不走这里。
+// 边下边播的流式消费在 synthesis.js 的分段合成流程里，不走这里。
 import { TTS_PATH, SEGMENT_HEADER, DEFAULT_SAMPLE_RATE } from './constants.js';
 
 export async function requestSegmentAudio({ text, voice, rate, format }) {

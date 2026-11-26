@@ -1,5 +1,5 @@
 // 分段重生成：单段原地替换，以及整条按段复用同一流程。
-// 这里只负责重生成流程；记录/UI/播放状态的读写通过 handler 注入的回调完成。
+// 这里只负责重生成流程；记录/UI/播放状态的读写通过 host 注入的回调完成。
 import { requestSegmentAudio } from './tts.js';
 import { splitText } from './text.js';
 

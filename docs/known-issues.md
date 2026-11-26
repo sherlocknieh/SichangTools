@@ -24,7 +24,7 @@
 
 **原因**：站点接口变化。先看 Network 里的 `/api/tts`：路径、请求体字段、`X-Sample-Rate` 头或音频格式任一变化都会失效。
 
-**规避**：按 `features/sichang.md` 的「接口契约」逐项核对；只改 handler 顶部的常量，不要把新契约散落到业务代码里。
+**规避**：按 `features/sichang.md` 的「接口契约」逐项核对；只改 `constants.js` 顶部与 `synthesis.js` 的请求/接管实现，不要把新契约散落到业务代码里。
 
 ## 实时播放换速会变调
 
