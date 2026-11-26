@@ -251,6 +251,8 @@ export default function initSichangHandler() {
     const records = [];
     const selection = { record: null, segment: null };
     let activeAudio = null;
+    // 输入框里是否有用户尚未提交的手动改动：播放自动跟随遇到它就停下，不覆盖草稿
+    let inputTyping = false;
     let activeSession = null;
     let activeTimeline = null;
     let audioContext = null;
@@ -312,6 +314,15 @@ export default function initSichangHandler() {
         if (selection.record === record && selection.segment === segment) return;
         applySelection(record, segment);
         setInputText(segment.text || '');
+    }
+    // 播放到哪段就把哪段文本填进输入框，选中状态一起跟着走，重生成也就能直接用这段文字。
+    // 输入框正被编辑或存着用户未提交的改动时让位，避免每换一段就冲掉正在写的内容
+    function mirrorPlayingText(record, segment) {
+        if (!segment || !String(segment.text || '').trim()) return;
+        if (selection.record === record && selection.segment === segment) return;
+        if (inputTyping || ui.input.getRootNode().activeElement === ui.input) return;
+        applySelection(record, segment);
+        setInputText(segment.text);
     }
     const onDocumentPointerDown = event => {
         const path = event.composedPath();
@@ -493,6 +504,7 @@ export default function initSichangHandler() {
         if (record.autoSegment !== segment) {
             record.autoSegment = segment;
             openSegmentPanel(record, segment, 'live');
+            mirrorPlayingText(record, segment);
         } else if (record.expandedSegment === segment && segment.mode === 'live') {
             updateSegmentTime(record, segment, position - start, duration);
             syncSegmentPanel(record, segment);
@@ -1331,6 +1343,7 @@ export default function initSichangHandler() {
         record.autoSegment = segment;
         activeAudio = audio;
         openSegmentPanel(record, segment, 'segment');
+        mirrorPlayingText(record, segment);
         syncRecordPlayButton(record);
         audio.play().then(
             () => { syncSegmentPlayState(segment); syncRecordPlayButton(record); },
@@ -1374,6 +1387,7 @@ export default function initSichangHandler() {
         stopActive();
         activeAudio = segment.audio;
         openSegmentPanel(record, segment, 'segment');
+        mirrorPlayingText(record, segment);
         syncRecordPlayButton(record);
         segment.audio.play().then(
             () => { syncSegmentPlayState(segment); syncRecordPlayButton(record); },
@@ -1552,6 +1566,7 @@ export default function initSichangHandler() {
 
     function setInputDefault(isDefault) {
         inputIsDefault = isDefault;
+        if (isDefault) inputTyping = false;
         ui.input.classList.toggle('is-default', isDefault);
     }
 
@@ -1564,6 +1579,7 @@ export default function initSichangHandler() {
     // 选中整条/分段后把文本写进输入框，走和手动输入相同的统计与草稿逻辑
     function setInputText(text) {
         ui.input.value = text;
+        inputTyping = false;
         setInputDefault(false);
         autoGrowInput();
         updateComposeMeta();
@@ -1595,6 +1611,7 @@ export default function initSichangHandler() {
         saveDraft();
     }
     ui.input.addEventListener('input', () => {
+        inputTyping = true;
         setInputDefault(false);
         onInputChange();
     });
@@ -1602,6 +1619,7 @@ export default function initSichangHandler() {
     ui.input.addEventListener('focus', () => {
         if (!inputIsDefault) return;
         ui.input.value = '';
+        inputTyping = false;
         setInputDefault(false);
         autoGrowInput();
         updateComposeMeta();
@@ -1619,6 +1637,7 @@ export default function initSichangHandler() {
     });
     ui.clearInput.addEventListener('click', () => {
         ui.input.value = '';
+        inputTyping = false;
         setInputDefault(false);
         applySelection(null, null);
         onInputChange();
@@ -1659,7 +1678,9 @@ export default function initSichangHandler() {
             localStorage.setItem(VOICE_STORE_KEY, voice);
             localStorage.setItem(RATE_STORE_KEY, String(rate));
         } catch {}
-        // 不清空输入：换音色后可以直接再点合成，反复试听
+        // 不清空输入：换音色后可以直接再点合成，反复试听。
+        // 这段文本是用户刚写的，标记成手输内容，实时播放跟随不能覆盖它
+        inputTyping = true;
         startSession({ text, voice, rate, format: 'pcm16' });
     }
 

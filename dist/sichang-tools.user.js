@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.25.2219
+// @version      2026.11.26.1655
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -847,6 +847,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			segment: null
 		};
 		let activeAudio = null;
+		let inputTyping = false;
 		let activeSession = null;
 		let activeTimeline = null;
 		let audioContext = null;
@@ -904,6 +905,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (selection.record === record && selection.segment === segment) return;
 			applySelection(record, segment);
 			setInputText(segment.text || "");
+		}
+		function mirrorPlayingText(record, segment) {
+			if (!segment || !String(segment.text || "").trim()) return;
+			if (selection.record === record && selection.segment === segment) return;
+			if (inputTyping || ui.input.getRootNode().activeElement === ui.input) return;
+			applySelection(record, segment);
+			setInputText(segment.text);
 		}
 		const onDocumentPointerDown = (event) => {
 			const path = event.composedPath();
@@ -1060,6 +1068,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (record.autoSegment !== segment) {
 				record.autoSegment = segment;
 				openSegmentPanel(record, segment, "live");
+				mirrorPlayingText(record, segment);
 			} else if (record.expandedSegment === segment && segment.mode === "live") {
 				updateSegmentTime(record, segment, position - start, duration);
 				syncSegmentPanel(record, segment);
@@ -1820,6 +1829,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			record.autoSegment = segment;
 			activeAudio = audio;
 			openSegmentPanel(record, segment, "segment");
+			mirrorPlayingText(record, segment);
 			syncRecordPlayButton(record);
 			audio.play().then(() => {
 				syncSegmentPlayState(segment);
@@ -1862,6 +1872,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			stopActive();
 			activeAudio = segment.audio;
 			openSegmentPanel(record, segment, "segment");
+			mirrorPlayingText(record, segment);
 			syncRecordPlayButton(record);
 			segment.audio.play().then(() => {
 				syncSegmentPlayState(segment);
@@ -2010,6 +2021,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		let inputIsDefault = false;
 		function setInputDefault(isDefault) {
 			inputIsDefault = isDefault;
+			if (isDefault) inputTyping = false;
 			ui.input.classList.toggle("is-default", isDefault);
 		}
 		function saveDraft() {
@@ -2019,6 +2031,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		function setInputText(text) {
 			ui.input.value = text;
+			inputTyping = false;
 			setInputDefault(false);
 			autoGrowInput();
 			updateComposeMeta();
@@ -2044,12 +2057,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			saveDraft();
 		}
 		ui.input.addEventListener("input", () => {
+			inputTyping = true;
 			setInputDefault(false);
 			onInputChange();
 		});
 		ui.input.addEventListener("focus", () => {
 			if (!inputIsDefault) return;
 			ui.input.value = "";
+			inputTyping = false;
 			setInputDefault(false);
 			autoGrowInput();
 			updateComposeMeta();
@@ -2065,6 +2080,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		});
 		ui.clearInput.addEventListener("click", () => {
 			ui.input.value = "";
+			inputTyping = false;
 			setInputDefault(false);
 			applySelection(null, null);
 			onInputChange();
@@ -2103,6 +2119,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				localStorage.setItem(VOICE_STORE_KEY, voice);
 				localStorage.setItem(RATE_STORE_KEY, String(rate));
 			} catch {}
+			inputTyping = true;
 			startSession({
 				text,
 				voice,
