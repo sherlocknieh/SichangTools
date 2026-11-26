@@ -47,16 +47,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 11px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
-.head select {
-    height: 20px;
-    padding: 0 3px;
-    border: 0;
-    border-radius: 6px;
-    background: #2a2a32;
-    color: #a9a9b3;
-    font: 10px system-ui, -apple-system, 'Segoe UI', sans-serif;
-    cursor: pointer;
-}
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
 .compose textarea {
     box-sizing: border-box;

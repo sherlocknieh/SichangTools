@@ -1,4 +1,4 @@
-// 实时时间线：边下边播、暂停继续、进度跳转、倍速重排。
+// 实时时间线：边下边播、暂停继续与进度跳转。
 // 它以整条 PCM 为源，和分段顺序播放共用「当前段」的进度展示，但播放通道完全独立。
 import { MIN_START_SECONDS } from './constants.js';
 import { formatDuration } from './text.js';
@@ -32,12 +32,12 @@ export function createTimeline(host) {
         host.refreshSegmentControls(record);
     }
 
-    // 实时播放的当前进度（秒）：暂停时停在暂停点，播放时从锚点按倍速线性推进
+    // 实时播放的当前进度（秒）：暂停时停在暂停点，播放时从锚点线性推进
     function livePosition(session) {
         if (session.paused) return session.pausedOffset || 0;
         if (session.timelineStart === null) return session.startOffset || 0;
         const elapsed = Math.max(0, session.context.currentTime - session.timelineStart);
-        const position = session.startOffset + elapsed * session.rate;
+        const position = session.startOffset + elapsed;
         return Math.min(session.receivedSeconds, Math.max(0, position));
     }
 
@@ -67,13 +67,13 @@ export function createTimeline(host) {
         record.timelineTicker = setInterval(tick, 250);
     }
 
-    // 结束定时器只在数据全部下完后才有意义；暂停、跳转、换速都要重算
+    // 结束定时器只在数据全部下完后才有意义；暂停、跳转都要重算
     function armTimelineEnd(record) {
         const session = record.session;
         clearTimeout(record.timelineTimer);
         record.timelineTimer = null;
         if (!session || record.state !== 'playing') return;
-        const remaining = Math.max(0, session.receivedSeconds - livePosition(session)) / session.rate;
+        const remaining = Math.max(0, session.receivedSeconds - livePosition(session));
         record.timelineTimer = setTimeout(() => stopTimeline(record), remaining * 1000 + 120);
     }
 
@@ -97,7 +97,7 @@ export function createTimeline(host) {
         return out.subarray(0, written);
     }
 
-    // 暂停继续、进度跳转、换速都走「按 PCM 重排」：不保留每个块的 AudioBuffer，
+    // 暂停继续、进度跳转都走「按 PCM 重排」：不保留每个块的 AudioBuffer，
     // 否则长文本播放时会攒出上百兆的 Float32
     function rescheduleTimeline(record, offset) {
         const session = record.session;
@@ -122,7 +122,6 @@ export function createTimeline(host) {
         buffer.copyToChannel(pcmToSamples(pcm), 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
-        source.playbackRate.value = session.rate;
         source.connect(context.destination);
         const startAt = context.currentTime + 0.06;
         source.start(startAt);
@@ -134,7 +133,7 @@ export function createTimeline(host) {
         session.started = true;
         session.timelineStart = startAt;
         session.startOffset = offset;
-        session.playhead = startAt + buffer.duration / session.rate;
+        session.playhead = startAt + buffer.duration;
     }
 
     // 实时播放可能要好几分钟；暂停只停声音，合成照常继续，继续时从暂停点重排
@@ -217,8 +216,6 @@ export function createTimeline(host) {
         buffer.copyToChannel(pcmToSamples(bytes), 0);
         const source = context.createBufferSource();
         source.buffer = buffer;
-        // 实时播放只能用 Web Audio 变速（会连音高一起变）；分段 WAV 走 <audio> 保音高
-        source.playbackRate.value = session.rate;
         source.connect(context.destination);
         const startAt = Math.max(session.playhead, context.currentTime + 0.06);
         // 数据比实时慢时会晚于原计划起播，重锚一次进度，避免进度条跑到声音前面
@@ -227,7 +224,7 @@ export function createTimeline(host) {
             session.startOffset = audioStart;
         }
         source.start(startAt);
-        session.playhead = startAt + buffer.duration / session.rate;
+        session.playhead = startAt + buffer.duration;
         // 播完就从时间线里摘掉，避免长文本攒下成千上万个节点
         source.onended = () => {
             const index = session.sources.indexOf(source);

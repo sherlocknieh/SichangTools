@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1732
+// @version      2026.11.26.1736
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -18,18 +18,8 @@
 	var VOICE_STORE_KEY = "sichang-tts-voice";
 	var RATE_STORE_KEY = "sichang-tts-rate";
 	var FOLD_STORE_KEY = "sichang-tts-folded";
-	var PLAY_RATE_STORE_KEY = "sichang-tts-play-rate";
 	var DRAFT_STORE_KEY = "sichang-tts-draft";
 	var POS_STORE_KEY = "sichang-tts-pos";
-	var PLAY_RATES = [
-		.5,
-		.75,
-		1,
-		1.25,
-		1.5,
-		1.75,
-		2
-	];
 	var VOICE_GROUPS = [{
 		label: "中文",
 		voices: [
@@ -124,16 +114,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 11px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
-.head select {
-    height: 20px;
-    padding: 0 3px;
-    border: 0;
-    border-radius: 6px;
-    background: #2a2a32;
-    color: #a9a9b3;
-    font: 10px system-ui, -apple-system, 'Segoe UI', sans-serif;
-    cursor: pointer;
-}
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
 .compose textarea {
     box-sizing: border-box;
@@ -430,18 +410,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		}
 		const panel = document.createElement("div");
 		panel.className = "panel";
-		const groups = VOICE_GROUPS.map((group) => `
-        <optgroup label="${group.label}">
-            ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
-        </optgroup>
-    `).join("");
 		panel.innerHTML = `
         <div class="head" title="拖动移动，双击复位">
             <span class="grip" aria-hidden="true">⠿</span>
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
-            <select class="speed" aria-label="播放倍速" title="播放倍速（试听保持音高，实时播放会变调）">${PLAY_RATES.map((rate) => `<option value="${rate}">${rate}×</option>`).join("")}</select>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
@@ -452,7 +426,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
                 <button class="clearInput" aria-label="清空输入">清空</button>
             </div>
             <div class="row">
-                <select class="voice" aria-label="音色">${groups}</select>
+                <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
+        <optgroup label="${group.label}">
+            ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
+        </optgroup>
+    `).join("")}</select>
                 <input class="rate" type="number" min="0.5" max="2" step="0.1" value="1" aria-label="语速" title="语速">
                 <span class="rateUnit" aria-hidden="true">×</span>
                 <button class="go">合成</button>
@@ -475,7 +453,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			count: panel.querySelector(".count"),
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
-			speed: panel.querySelector(".speed"),
 			compose: panel.querySelector(".compose"),
 			input: panel.querySelector(".input"),
 			stats: panel.querySelector(".stats"),
@@ -1632,9 +1609,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		function ensureSegmentAudio(record, segment) {
 			if (!segment.audio) {
 				const audio = new Audio(ensureSegmentUrl(record, segment));
-				audio.preservesPitch = true;
-				audio.mozPreservesPitch = true;
-				audio.webkitPreservesPitch = true;
 				audio.addEventListener("pause", () => host.syncSegmentPlayState(segment));
 				audio.addEventListener("play", () => syncRecordPlayButton(record));
 				audio.addEventListener("ended", () => {
@@ -1650,7 +1624,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				});
 				segment.audio = audio;
 			}
-			segment.audio.playbackRate = host.playRate;
 			return segment.audio;
 		}
 		function toggleSegmentPlay(record, segment) {
@@ -1821,7 +1794,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (session.paused) return session.pausedOffset || 0;
 			if (session.timelineStart === null) return session.startOffset || 0;
 			const elapsed = Math.max(0, session.context.currentTime - session.timelineStart);
-			const position = session.startOffset + elapsed * session.rate;
+			const position = session.startOffset + elapsed;
 			return Math.min(session.receivedSeconds, Math.max(0, position));
 		}
 		function showLiveSegment(record, session, position) {
@@ -1852,7 +1825,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			clearTimeout(record.timelineTimer);
 			record.timelineTimer = null;
 			if (!session || record.state !== "playing") return;
-			const remaining = Math.max(0, session.receivedSeconds - livePosition(session)) / session.rate;
+			const remaining = Math.max(0, session.receivedSeconds - livePosition(session));
 			record.timelineTimer = setTimeout(() => stopTimeline(record), remaining * 1e3 + 120);
 		}
 		function pcmFromBytes(record, startByte) {
@@ -1893,7 +1866,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			buffer.copyToChannel(pcmToSamples(pcm), 0);
 			const source = context.createBufferSource();
 			source.buffer = buffer;
-			source.playbackRate.value = session.rate;
 			source.connect(context.destination);
 			const startAt = context.currentTime + .06;
 			source.start(startAt);
@@ -1905,7 +1877,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			session.started = true;
 			session.timelineStart = startAt;
 			session.startOffset = offset;
-			session.playhead = startAt + buffer.duration / session.rate;
+			session.playhead = startAt + buffer.duration;
 		}
 		function pauseTimeline(record) {
 			const session = record.session;
@@ -1977,7 +1949,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			buffer.copyToChannel(pcmToSamples(bytes), 0);
 			const source = context.createBufferSource();
 			source.buffer = buffer;
-			source.playbackRate.value = session.rate;
 			source.connect(context.destination);
 			const startAt = Math.max(session.playhead, context.currentTime + .06);
 			if (session.timelineStart === null || startAt > session.playhead + .005) {
@@ -1985,7 +1956,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				session.startOffset = audioStart;
 			}
 			source.start(startAt);
-			session.playhead = startAt + buffer.duration / session.rate;
+			session.playhead = startAt + buffer.duration;
 			source.onended = () => {
 				const index = session.sources.indexOf(source);
 				if (index >= 0) session.sources.splice(index, 1);
@@ -2124,7 +2095,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 				timelineStart: null,
 				startOffset: 0,
 				receivedSeconds: 0,
-				rate: 1,
 				paused: false,
 				pausedOffset: 0,
 				context: null,
@@ -2377,7 +2347,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 		};
 	}
 	function createRegenerator(host) {
-		const { records, selection, input, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, openSegmentPanel, playChainSegment, flashSegmentRegenButton } = host;
+		const { records, selection, input, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, openSegmentPanel, playChainSegment, flashSegmentRegenButton, currentTts } = host;
 		async function regenerateSegment(record, segment, options = {}) {
 			const { text: textOverride, autoPlay = true, keepLock = false, allowEmpty = false, deferRebuild = false } = options;
 			if (!segment || !records.includes(record) || segment.busy) return false;
@@ -2405,7 +2375,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			try {
 				const { chunks, bytes, sampleRate } = await requestSegmentAudio({
 					text,
-					voice: record.tts.voice,
+					voice: currentTts?.().voice || record.tts.voice,
 					rate: record.tts.rate,
 					format: record.tts.format
 				});
@@ -2506,7 +2476,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			activeSession: null,
 			activeTimeline: null,
 			audioContext: null,
-			playRate: 1,
 			inputTyping: false
 		};
 		function applySelection(record, segment) {
@@ -2574,36 +2543,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			stopChain: host.stopChain,
 			openSegmentPanel: host.openSegmentPanel,
 			playChainSegment: host.playChainSegment,
-			flashSegmentRegenButton: host.flashSegmentRegenButton
+			flashSegmentRegenButton: host.flashSegmentRegenButton,
+			currentTts: host.currentTts
 		}));
 		adopt(createSynthesis(host));
 		adopt(createPanelLayout(host));
-		try {
-			const savedPlayRate = Number(localStorage.getItem(PLAY_RATE_STORE_KEY));
-			if (PLAY_RATES.includes(savedPlayRate)) host.playRate = savedPlayRate;
-		} catch {}
-		ui.speed.value = String(host.playRate);
-		ui.speed.addEventListener("change", () => {
-			const value = Number(ui.speed.value);
-			if (!PLAY_RATES.includes(value)) return;
-			host.playRate = value;
-			try {
-				localStorage.setItem(PLAY_RATE_STORE_KEY, String(value));
-			} catch {}
-			for (const record of host.records) {
-				for (const segment of record.segments) if (segment.audio) segment.audio.playbackRate = value;
-				const session = record.session;
-				if (!session) continue;
-				if (!(record.state === "playing" || record.state === "paused" || record.state === "capturing")) continue;
-				const position = host.livePosition(session);
-				session.rate = value;
-				session.pausedOffset = position;
-				if (!session.paused) {
-					host.rescheduleTimeline(record, position);
-					if (record.state === "playing") host.armTimelineEnd(record);
-				}
-			}
-		});
 		return () => {
 			for (const dispose of disposers.splice(0).reverse()) try {
 				dispose();

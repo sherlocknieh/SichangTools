@@ -24,6 +24,7 @@ export function createRegenerator(host) {
         openSegmentPanel,
         playChainSegment,
         flashSegmentRegenButton,
+        currentTts,
     } = host;
 
     // 单独重生成一段：替换它的 PCM，再重建整条 WAV。合成中也可以替换已完成的段，
@@ -67,9 +68,11 @@ export function createRegenerator(host) {
         let failed = false;
         let ok = false;
         try {
+            // 音色跟随面板当前选择；语速与格式沿用这条记录创建时的设置
+            const voice = currentTts?.().voice || record.tts.voice;
             const { chunks, bytes, sampleRate } = await requestSegmentAudio({
                 text,
-                voice: record.tts.voice,
+                voice,
                 rate: record.tts.rate,
                 format: record.tts.format,
             });

@@ -26,10 +26,3 @@
 
 **规避**：按 `features/sichang.md` 的「接口契约」逐项核对；只改 `constants.js` 顶部与 `synthesis.js` 的请求/接管实现，不要把新契约散落到业务代码里。
 
-## 实时播放换速会变调
-
-**现象**：合成还没播完时切换播放倍速，人声音高跟着一起变。
-
-**原因**：实时时间线用 Web Audio 的 `AudioBufferSourceNode.playbackRate`，它没有 `preservesPitch`；保音高只有 `<audio>` 能做，但 `<audio>` 播不了还在到达的 PCM 流。
-
-**规避**：需要保音高时，等实时时间线播完或用分段顺序播放（`<audio>`）再换速；实时时间线播放期间的倍速按变调处理。

@@ -2,7 +2,6 @@
 // 这里只负责装配：共享状态、选中逻辑和模块接线；具体职责见同目录各模块。
 // 面板以分段为播放单位：点哪段就从哪段开始顺序播放，播到谁谁展开控制面板。
 
-import { PLAY_RATES, PLAY_RATE_STORE_KEY } from './constants.js';
 import { createPanel, copyText } from './panel.js';
 import { createPanelLayout } from './panel-layout.js';
 import { createCompose } from './compose.js';
@@ -27,7 +26,6 @@ export default function initSichangHandler() {
         activeSession: null,
         activeTimeline: null,
         audioContext: null,
-        playRate: 1,
         // 输入框里是否有用户尚未提交的手动改动：播放自动跟随遇到它就停下，不覆盖草稿
         inputTyping: false,
     };
@@ -106,43 +104,12 @@ export default function initSichangHandler() {
         openSegmentPanel: host.openSegmentPanel,
         playChainSegment: host.playChainSegment,
         flashSegmentRegenButton: host.flashSegmentRegenButton,
+        // 重生成跟随面板当前音色，而不是记录创建时的旧音色
+        currentTts: host.currentTts,
     }));
     // 合成要覆盖 window.fetch；放在最后装配，确保开始新朗读时所有回调都已就位
     adopt(createSynthesis(host));
     adopt(createPanelLayout(host));
-
-    try {
-        const savedPlayRate = Number(localStorage.getItem(PLAY_RATE_STORE_KEY));
-        if (PLAY_RATES.includes(savedPlayRate)) host.playRate = savedPlayRate;
-    } catch {}
-    ui.speed.value = String(host.playRate);
-    ui.speed.addEventListener('change', () => {
-        const value = Number(ui.speed.value);
-        if (!PLAY_RATES.includes(value)) return;
-        host.playRate = value;
-        try {
-            localStorage.setItem(PLAY_RATE_STORE_KEY, String(value));
-        } catch {}
-        // 正在播放的分段立即换速；实时时间线按当前位置重排
-        for (const record of host.records) {
-            for (const segment of record.segments) {
-                if (segment.audio) segment.audio.playbackRate = value;
-            }
-            // 实时时间线没有 preservesPitch，换速会连音高一起变；按当前位置重排
-            const session = record.session;
-            if (!session) continue;
-            const live = record.state === 'playing' || record.state === 'paused' || record.state === 'capturing';
-            if (!live) continue;
-            const position = host.livePosition(session);
-            session.rate = value;
-            session.pausedOffset = position;
-            // 切到分段播放后时间线保持暂停，换速只影响分段 <audio>，不再重排时间线
-            if (!session.paused) {
-                host.rescheduleTimeline(record, position);
-                if (record.state === 'playing') host.armTimelineEnd(record);
-            }
-        }
-    });
 
     return () => {
         for (const dispose of disposers.splice(0).reverse()) {

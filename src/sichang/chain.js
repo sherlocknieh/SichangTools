@@ -101,13 +101,10 @@ export function createChain(host) {
         host.syncSegmentPlayState(segment);
     }
 
-    // 第一次播放或拖动进度时才生成 WAV blob；变速保持不变调
+    // 第一次播放或拖动进度时才生成 WAV blob
     function ensureSegmentAudio(record, segment) {
         if (!segment.audio) {
             const audio = new Audio(ensureSegmentUrl(record, segment));
-            audio.preservesPitch = true;
-            audio.mozPreservesPitch = true;
-            audio.webkitPreservesPitch = true;
             audio.addEventListener('pause', () => host.syncSegmentPlayState(segment));
             audio.addEventListener('play', () => syncRecordPlayButton(record));
             audio.addEventListener('ended', () => {
@@ -124,7 +121,6 @@ export function createChain(host) {
             });
             segment.audio = audio;
         }
-        segment.audio.playbackRate = host.playRate;
         return segment.audio;
     }
 
