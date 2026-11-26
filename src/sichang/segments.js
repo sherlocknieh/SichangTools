@@ -3,6 +3,17 @@
 import { DEFAULT_SAMPLE_RATE } from './constants.js';
 import { formatSegmentDuration, previewText } from './text.js';
 
+// 分段控制按钮的字形统一放这里，文字说明由 title/aria-label 承担
+export const SEGMENT_ICONS = {
+    play: '▶',
+    pause: '⏸',
+    stop: '■',
+    replay: '↺',
+    download: '↓',
+    synthStop: '✕',
+    waiting: '…',
+};
+
 export function createSegments(host) {
     const { ui } = host;
 
@@ -105,7 +116,6 @@ export function createSegments(host) {
         for (const segment of record.segments) {
             segment.playButton.disabled = !playable || segment.busy || !segment.complete || !segment.bytes;
             syncSegmentRegenButton(record, segment);
-            segment.copyButton.disabled = !segment.text;
             segment.downloadButton.disabled = !segment.bytes || segment.busy;
             if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
         }
@@ -215,20 +225,21 @@ export function createSegments(host) {
         if (live) {
             segment.toggleButton.hidden = capturing;
             segment.toggleButton.disabled = false;
-            segment.toggleButton.textContent = paused ? '继续' : '暂停';
+            setAction(segment.toggleButton, paused ? SEGMENT_ICONS.play : SEGMENT_ICONS.pause,
+                paused ? '继续播放' : '暂停播放');
             segment.toggleButton.classList.toggle('playing', !capturing && !paused);
             segment.stopButton.hidden = false;
-            segment.stopButton.textContent = capturing ? '停止合成' : '停止';
+            setAction(segment.stopButton, SEGMENT_ICONS.stop, capturing ? '停止合成' : '停止播放');
             segment.stopButton.classList.toggle('synth', capturing);
             segment.synthButton.hidden = true;
             segment.replayButton.hidden = true;
         } else if (waiting) {
             segment.toggleButton.hidden = false;
             segment.toggleButton.disabled = true;
-            segment.toggleButton.textContent = '等待下一段';
+            setAction(segment.toggleButton, SEGMENT_ICONS.waiting, '等待下一段');
             segment.toggleButton.classList.remove('playing');
             segment.stopButton.hidden = false;
-            segment.stopButton.textContent = '停止';
+            setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
             segment.stopButton.classList.remove('synth');
             segment.synthButton.hidden = !synthesizing;
             segment.replayButton.hidden = false;
@@ -236,17 +247,23 @@ export function createSegments(host) {
         } else {
             segment.toggleButton.hidden = false;
             segment.toggleButton.disabled = !enabled;
-            segment.toggleButton.textContent = playing ? '暂停' : audio ? '继续' : '播放';
+            setAction(segment.toggleButton, playing ? SEGMENT_ICONS.pause : SEGMENT_ICONS.play,
+                playing ? '暂停播放' : audio ? '继续播放' : '播放本段');
             segment.toggleButton.classList.toggle('playing', playing);
             segment.stopButton.hidden = !audio;
-            segment.stopButton.textContent = '停止';
+            setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
             segment.stopButton.classList.remove('synth');
             segment.synthButton.hidden = !synthesizing;
             segment.replayButton.hidden = false;
             segment.replayButton.disabled = !enabled;
         }
-        segment.copyButton.disabled = !segment.text;
         segment.downloadButton.disabled = !segment.bytes || segment.busy;
+    }
+
+    function setAction(button, icon, label) {
+        button.textContent = icon;
+        button.title = label;
+        button.setAttribute('aria-label', label);
     }
 
     function syncSegmentPlayState(segment) {

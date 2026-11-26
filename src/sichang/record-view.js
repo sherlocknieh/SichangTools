@@ -1,6 +1,7 @@
 // 记录条目：列表行、摘要、菜单、下载与删除。
 // 记录头只做收纳，播放/重生成逻辑都通过 host 注入的回调触发。
 import { DEFAULT_SAMPLE_RATE, MAX_RECORDS } from './constants.js';
+import { SEGMENT_ICONS } from './segments.js';
 import { VOICE_LABELS } from './voices.js';
 import { formatDuration, formatRate, previewText } from './text.js';
 import { joinedPcm, pcmToWav } from './audio.js';
@@ -8,7 +9,28 @@ import { joinedPcm, pcmToWav } from './audio.js';
 export function createRecordView(host) {
     const { ui, records } = host;
 
+    // 清空全部记录不再弹系统确认框：第一次点击把按钮改成「确认清空」，
+    // 3 秒内再点一次才真正删除；点别处或超时都回到普通状态
+    let clearTimer = null;
+    function resetClearConfirm() {
+        clearTimeout(clearTimer);
+        clearTimer = null;
+        ui.clear.classList.remove('confirm');
+        ui.clear.textContent = '清空';
+        ui.clear.title = '清空全部记录';
+        ui.clear.setAttribute('aria-label', '清空全部记录');
+    }
+    function armClearConfirm() {
+        ui.clear.classList.add('confirm');
+        ui.clear.textContent = '确认清空';
+        ui.clear.title = '再次点击确认清空全部记录';
+        ui.clear.setAttribute('aria-label', '再次点击确认清空全部记录');
+        clearTimeout(clearTimer);
+        clearTimer = setTimeout(resetClearConfirm, 3000);
+    }
+
     function updateCount() {
+        resetClearConfirm();
         ui.count.textContent = String(records.length);
         ui.clear.hidden = records.length === 0;
         ui.empty.style.display = records.length ? 'none' : '';
@@ -121,27 +143,34 @@ export function createRecordView(host) {
         timeEl.textContent = '0:00 / 0:00';
         const toggleButton = document.createElement('button');
         toggleButton.className = 'segAction';
-        toggleButton.textContent = '播放';
+        toggleButton.textContent = SEGMENT_ICONS.play;
+        toggleButton.title = '播放本段';
+        toggleButton.setAttribute('aria-label', '播放本段');
         const stopButton = document.createElement('button');
         stopButton.className = 'segAction';
-        stopButton.textContent = '停止';
+        stopButton.textContent = SEGMENT_ICONS.stop;
+        stopButton.title = '停止播放';
+        stopButton.setAttribute('aria-label', '停止播放');
         stopButton.hidden = true;
         const synthButton = document.createElement('button');
         synthButton.className = 'segAction synth';
-        synthButton.textContent = '停止合成';
+        synthButton.textContent = SEGMENT_ICONS.synthStop;
+        synthButton.title = '停止合成';
+        synthButton.setAttribute('aria-label', '停止合成');
         synthButton.hidden = true;
         const replayButton = document.createElement('button');
         replayButton.className = 'segAction';
-        replayButton.textContent = '重播';
-        const copyButton = document.createElement('button');
-        copyButton.className = 'segAction';
-        copyButton.textContent = '复制';
+        replayButton.textContent = SEGMENT_ICONS.replay;
+        replayButton.title = '重播本段';
+        replayButton.setAttribute('aria-label', '重播本段');
         const downloadButton = document.createElement('button');
         downloadButton.className = 'segAction';
-        downloadButton.textContent = '下载';
+        downloadButton.textContent = SEGMENT_ICONS.download;
+        downloadButton.title = '下载本段';
+        downloadButton.setAttribute('aria-label', '下载本段');
         downloadButton.disabled = true;
-        controls.append(timeEl, toggleButton, stopButton, synthButton, replayButton, copyButton, downloadButton);
-        panel.append(bar, controls);
+        controls.append(toggleButton, timeEl, bar, stopButton, replayButton, downloadButton, synthButton);
+        panel.append(controls);
 
         row.append(idx, label, segDuration, playButton, regenButton, caret);
         box.append(row, panel);
@@ -150,7 +179,7 @@ export function createRecordView(host) {
         Object.assign(segment, {
             box, row, idx, label, durationEl: segDuration, playButton, regenButton, caret,
             panel, bar, fill, timeEl, toggleButton, stopButton, synthButton, replayButton,
-            copyButton, downloadButton,
+            downloadButton,
         });
         host.setSegmentLabel(segment, text);
         host.renumberSegments(record);
@@ -210,7 +239,6 @@ export function createRecordView(host) {
             }
             host.playChainSegment(record, segment);
         });
-        copyButton.addEventListener('click', () => host.copyText(segment.text, copyButton, '复制'));
         downloadButton.addEventListener('click', () => host.downloadSegment(record, segment));
         // 分段进度条自己跳转；还没播过时按需建 audio，停在目标位置
         bar.addEventListener('click', event => {
@@ -431,6 +459,8 @@ export function createRecordView(host) {
 
     const onDocumentPointerDown = event => {
         const path = event.composedPath();
+        // 点了清空按钮以外的地方就撤销二次确认
+        if (ui.clear.classList.contains('confirm') && !path.includes(ui.clear)) resetClearConfirm();
         for (const record of records) {
             if (!record.menu || record.menu.hidden) continue;
             if (path.includes(record.menu) || path.includes(record.moreButton)) continue;
@@ -444,7 +474,11 @@ export function createRecordView(host) {
 
     ui.clear.addEventListener('click', () => {
         if (!records.length) return;
-        if (!window.confirm(`确定清空全部 ${records.length} 条语音记录？此操作不可撤销。`)) return;
+        if (!ui.clear.classList.contains('confirm')) {
+            armClearConfirm();
+            return;
+        }
+        resetClearConfirm();
         for (const record of [...records]) removeRecord(record);
         host.activeAudio = null;
     });
@@ -468,6 +502,7 @@ export function createRecordView(host) {
             rebuildRecord,
         },
         dispose: () => {
+            clearTimeout(clearTimer);
             document.removeEventListener('pointerdown', onDocumentPointerDown, true);
             window.removeEventListener('scroll', onWindowScroll, true);
             ui.body.removeEventListener('scroll', onWindowScroll);

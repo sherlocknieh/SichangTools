@@ -47,6 +47,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 11px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
+.head .clear.confirm { background: #3a2226; color: #ff9a9a; }
+.head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
 .compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-top: 1px solid #232329; }
 .compose .inputWrap { position: relative; }
 .compose textarea {
@@ -293,37 +295,43 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segBox.expanded .segCaret { transform: rotate(90deg); color: #8a8a94; }
 .segPanel { display: none; padding: 0 0 5px; }
 .segBox.expanded .segPanel { display: block; }
+.segControls {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 3px;
+    padding: 2px 0 0 18px;
+}
 .segBar {
-    height: 3px;
-    margin: 0 2px 4px 18px;
+    flex: 1 1 auto;
+    min-width: 24px;
+    height: 4px;
+    margin: 0 2px;
     border-radius: 2px;
     background: #2a2a32;
     overflow: hidden;
     cursor: pointer;
 }
 .segBar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .1s linear; }
-.segControls {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 3px;
-    padding-left: 18px;
-}
 .segTime {
     flex: none;
-    margin-right: 2px;
+    margin-right: 1px;
     color: #80808a;
     font-size: 10px;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 .segAction {
     flex: none;
-    height: 19px;
-    padding: 0 5px;
+    width: 20px;
+    height: 18px;
+    padding: 0;
     border-radius: 5px;
     background: #2a2a32;
     color: #c9c9d1;
     font-size: 10px;
+    line-height: 18px;
+    text-align: center;
 }
 .segAction:hover { background: #35353f; color: #fff; }
 .segAction.playing { background: #2d4a33; color: #a9e6b8; }
