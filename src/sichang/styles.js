@@ -122,7 +122,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     min-height: 18px;
     color: #80808a;
     font-size: 11px;
@@ -139,12 +139,13 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .item:not(.folded) .itemCaret { transform: rotate(90deg); }
 .item:hover .itemCaret { color: #8a8a94; }
-.itemHead .meta { color: #80808a; font-variant-numeric: tabular-nums; }
-.itemHead .dur { color: #b9b9c2; font-variant-numeric: tabular-nums; }
+.itemHead .meta { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
+.itemHead .dur { flex: none; color: #b9b9c2; font-variant-numeric: tabular-nums; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-.itemHead .segCount { color: #6f6f79; font-size: 10px; }
+.itemHead .segCount { flex: none; color: #6f6f79; font-size: 10px; }
 .itemHead .more {
+    flex: none;
     width: 20px;
     height: 18px;
     line-height: 18px;
@@ -156,6 +157,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .item:hover .more, .item.menuOpen .more, .more:focus-visible { opacity: 1; }
 .itemHead .more:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay {
+    flex: none;
     width: 20px;
     height: 18px;
     padding: 0;
@@ -167,6 +169,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
 /* 整条重生成：原地逐段重合成，和逐段图标同一套旋转反馈 */
 .itemHead .itemRegen {
+    flex: none;
     width: 20px;
     height: 18px;
     padding: 0;
@@ -213,8 +216,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .menu button:hover { background: #2a2a32; color: #fff; }
 .menu button.danger { color: #d98a8a; }
 .menu button.danger:hover { background: #3a2226; color: #ff9a9a; }
-.txt {
-    margin-top: 2px;
+.itemHead .txt {
+    flex: 1 1 auto;
+    min-width: 0;
     color: #b9b9c2;
     font-size: 12px;
     display: -webkit-box;

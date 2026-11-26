@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1759
+// @version      2026.11.26.1802
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -189,7 +189,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     min-height: 18px;
     color: #80808a;
     font-size: 11px;
@@ -206,12 +206,13 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .item:not(.folded) .itemCaret { transform: rotate(90deg); }
 .item:hover .itemCaret { color: #8a8a94; }
-.itemHead .meta { color: #80808a; font-variant-numeric: tabular-nums; }
-.itemHead .dur { color: #b9b9c2; font-variant-numeric: tabular-nums; }
+.itemHead .meta { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
+.itemHead .dur { flex: none; color: #b9b9c2; font-variant-numeric: tabular-nums; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-.itemHead .segCount { color: #6f6f79; font-size: 10px; }
+.itemHead .segCount { flex: none; color: #6f6f79; font-size: 10px; }
 .itemHead .more {
+    flex: none;
     width: 20px;
     height: 18px;
     line-height: 18px;
@@ -223,6 +224,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .item:hover .more, .item.menuOpen .more, .more:focus-visible { opacity: 1; }
 .itemHead .more:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemPlay {
+    flex: none;
     width: 20px;
     height: 18px;
     padding: 0;
@@ -234,6 +236,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
 /* 整条重生成：原地逐段重合成，和逐段图标同一套旋转反馈 */
 .itemHead .itemRegen {
+    flex: none;
     width: 20px;
     height: 18px;
     padding: 0;
@@ -280,8 +283,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .menu button:hover { background: #2a2a32; color: #fff; }
 .menu button.danger { color: #d98a8a; }
 .menu button.danger:hover { background: #3a2226; color: #ff9a9a; }
-.txt {
-    margin-top: 2px;
+.itemHead .txt {
+    flex: 1 1 auto;
+    min-width: 0;
     color: #b9b9c2;
     font-size: 12px;
     display: -webkit-box;
@@ -1425,8 +1429,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const duration = document.createElement("span");
 			duration.className = "dur";
 			duration.textContent = "捕获中";
-			const spacer = document.createElement("span");
-			spacer.className = "spacer";
+			const txt = document.createElement("div");
+			txt.className = "txt";
+			txt.textContent = previewText(text) || "（无文本）";
+			txt.title = "点击选中整条文本";
 			const segCount = document.createElement("span");
 			segCount.className = "segCount";
 			segCount.textContent = "0 段";
@@ -1461,15 +1467,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			deleteButton.className = "danger";
 			deleteButton.textContent = "删除";
 			menu.append(menuInfo, copyButton, downloadButton, deleteButton);
-			head.append(caret, meta, duration, spacer, segCount, playButton, regenAllButton, moreButton);
+			head.append(caret, meta, duration, txt, segCount, playButton, regenAllButton, moreButton);
 			ui.panel.getRootNode().appendChild(menu);
-			const txt = document.createElement("div");
-			txt.className = "txt";
-			txt.textContent = previewText(text) || "（无文本）";
-			txt.title = "点击选中整条文本";
 			const segList = document.createElement("div");
 			segList.className = "segList";
-			row.append(head, txt, segList);
+			row.append(head, segList);
 			ui.list.insertBefore(row, ui.list.firstChild);
 			Object.assign(record, {
 				row,
@@ -1508,7 +1510,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			row.addEventListener("click", (event) => {
 				if (event.target.closest(".segBox, button")) return;
 				host.selectRecord(record);
-				if (event.target.closest(".itemHead")) toggleRecordFold(record);
+				if (event.target.closest(".itemHead") && !event.target.closest(".txt")) toggleRecordFold(record);
 			});
 			records.push(record);
 			while (records.length > 20) removeRecord(records[0]);

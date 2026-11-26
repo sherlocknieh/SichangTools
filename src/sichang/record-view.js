@@ -300,8 +300,11 @@ export function createRecordView(host) {
         const duration = document.createElement('span');
         duration.className = 'dur';
         duration.textContent = '捕获中';
-        const spacer = document.createElement('span');
-        spacer.className = 'spacer';
+        const txt = document.createElement('div');
+        txt.className = 'txt';
+        const preview = previewText(text) || '（无文本）';
+        txt.textContent = preview;
+        txt.title = '点击选中整条文本';
         const segCount = document.createElement('span');
         segCount.className = 'segCount';
         segCount.textContent = '0 段';
@@ -339,20 +342,15 @@ export function createRecordView(host) {
         deleteButton.className = 'danger';
         deleteButton.textContent = '删除';
         menu.append(menuInfo, copyButton, downloadButton, deleteButton);
-        head.append(caret, meta, duration, spacer, segCount, playButton, regenAllButton, moreButton);
+        // 记录头一行放完摘要与整条操作，摘要占据中间剩余宽度并单行截断
+        head.append(caret, meta, duration, txt, segCount, playButton, regenAllButton, moreButton);
         // 挂到 shadow root 而不是面板内，菜单才能盖出滚动区
         ui.panel.getRootNode().appendChild(menu);
-
-        const txt = document.createElement('div');
-        txt.className = 'txt';
-        const preview = previewText(text) || '（无文本）';
-        txt.textContent = preview;
-        txt.title = '点击选中整条文本';
 
         const segList = document.createElement('div');
         segList.className = 'segList';
 
-        row.append(head, txt, segList);
+        row.append(head, segList);
         ui.list.insertBefore(row, ui.list.firstChild);
 
         Object.assign(record, {
@@ -378,12 +376,12 @@ export function createRecordView(host) {
         copyButton.addEventListener('click', () => host.copyText(record.text, copyButton, '复制原文'));
         downloadButton.addEventListener('click', () => downloadRecord(record));
         deleteButton.addEventListener('click', () => removeRecord(record));
-        // 点记录头或摘要都算选中整条；记录头额外负责折叠分段列表。
-        // 分段区域有自己的选中逻辑，按钮只做自己的事
+        // 点记录头或摘要都算选中整条；记录头其余区域负责折叠分段列表。
+        // 摘要点击保持“选中”，不顺手折叠，分段区域和按钮只做自己的事
         row.addEventListener('click', event => {
             if (event.target.closest('.segBox, button')) return;
             host.selectRecord(record);
-            if (event.target.closest('.itemHead')) toggleRecordFold(record);
+            if (event.target.closest('.itemHead') && !event.target.closest('.txt')) toggleRecordFold(record);
         });
 
         records.push(record);
