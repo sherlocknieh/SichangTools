@@ -65,15 +65,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     scrollbar-width: none;
 }
 .compose textarea::-webkit-scrollbar { display: none; }
-.compose .counter {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    color: #6f6f79;
-    font-size: 10px;
-}
-.compose .counter .stats { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compose .clearInput {
     position: absolute;
     top: 5px;

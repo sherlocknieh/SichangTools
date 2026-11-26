@@ -43,9 +43,6 @@ export function createPanel() {
                 <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
                 <button class="clearInput" hidden aria-label="清空输入" title="清空输入">×</button>
             </div>
-            <div class="counter">
-                <span class="stats">0 字 · 0 段</span>
-            </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${groups}</select>
                 <input class="rate" type="number" min="0.5" max="2" step="0.1" value="1" aria-label="语速" title="语速">
@@ -68,7 +65,6 @@ export function createPanel() {
         fold: panel.querySelector('.fold'),
         compose: panel.querySelector('.compose'),
         input: panel.querySelector('.input'),
-        stats: panel.querySelector('.stats'),
         clearInput: panel.querySelector('.clearInput'),
         voice: panel.querySelector('.voice'),
         rate: panel.querySelector('.rate'),

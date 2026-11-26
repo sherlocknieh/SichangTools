@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1752
+// @version      2026.11.26.1753
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -132,15 +132,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     scrollbar-width: none;
 }
 .compose textarea::-webkit-scrollbar { display: none; }
-.compose .counter {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    color: #6f6f79;
-    font-size: 10px;
-}
-.compose .counter .stats { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compose .clearInput {
     position: absolute;
     top: 5px;
@@ -447,9 +438,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
                 <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
                 <button class="clearInput" hidden aria-label="清空输入" title="清空输入">×</button>
             </div>
-            <div class="counter">
-                <span class="stats">0 字 · 0 段</span>
-            </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
         <optgroup label="${group.label}">
@@ -476,7 +464,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			fold: panel.querySelector(".fold"),
 			compose: panel.querySelector(".compose"),
 			input: panel.querySelector(".input"),
-			stats: panel.querySelector(".stats"),
 			clearInput: panel.querySelector(".clearInput"),
 			voice: panel.querySelector(".voice"),
 			rate: panel.querySelector(".rate"),
@@ -640,51 +627,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			dispose: () => window.removeEventListener("resize", onResize)
 		};
 	}
-	function formatDuration(seconds) {
-		const total = Math.max(0, Math.round(seconds));
-		return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-	}
-	function formatSegmentDuration(seconds) {
-		if (seconds < 10) return `${seconds.toFixed(1)}s`;
-		return formatDuration(seconds);
-	}
-	function formatRate(rate) {
-		const value = Number(rate);
-		if (!Number.isFinite(value) || value <= 0) return "1×";
-		return `${Math.round(value * 10) / 10}×`;
-	}
-	function previewText(text) {
-		return text.replace(/\[[^\]]{1,10}\]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
-	}
-	function splitText(text) {
-		const normalized = String(text || "").replace(/\r/g, "").trim();
-		if (!normalized) return [];
-		const parts = normalized.split(/(?<=[。！？!?；;…\n])/).filter((part) => part.trim());
-		const chunks = [];
-		let current = "";
-		const flush = () => {
-			if (current.trim()) chunks.push(current.trim());
-			current = "";
-		};
-		for (let part of parts) {
-			while (part.length > 160) {
-				flush();
-				chunks.push(part.slice(0, 160));
-				part = part.slice(160);
-			}
-			if (current.length + part.length > 160) flush();
-			current += part;
-		}
-		flush();
-		return chunks;
-	}
-	function splitInHalf(text) {
-		if (text.length < 40) return null;
-		const middle = Math.floor(text.length / 2);
-		const before = text.lastIndexOf("，", middle);
-		const cut = before > text.length * .3 ? before + 1 : middle;
-		return [text.slice(0, cut), text.slice(cut)];
-	}
 	function createCompose(host) {
 		const { ui } = host;
 		ui.voice.addEventListener("change", () => {
@@ -748,17 +690,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			saveDraft();
 		}
 		function updateComposeMeta() {
-			const text = ui.input.value.trim();
-			const chars = text.replace(/\s/g, "").length;
-			const segments = splitText(text).length;
-			let hint = "";
-			if (host.selection.record) {
-				if (host.selection.segment) {
-					const index = host.selection.record.segments.indexOf(host.selection.segment);
-					if (index >= 0) hint = ` · 编辑第 ${index + 1} 段`;
-				} else hint = " · 整条";
-			}
-			ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
 			ui.clearInput.hidden = inputIsDefault || !ui.input.value;
 			syncGoButton();
 		}
@@ -873,6 +804,51 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			activeSynthesis,
 			syncGoButton
 		} };
+	}
+	function formatDuration(seconds) {
+		const total = Math.max(0, Math.round(seconds));
+		return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+	}
+	function formatSegmentDuration(seconds) {
+		if (seconds < 10) return `${seconds.toFixed(1)}s`;
+		return formatDuration(seconds);
+	}
+	function formatRate(rate) {
+		const value = Number(rate);
+		if (!Number.isFinite(value) || value <= 0) return "1×";
+		return `${Math.round(value * 10) / 10}×`;
+	}
+	function previewText(text) {
+		return text.replace(/\[[^\]]{1,10}\]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
+	}
+	function splitText(text) {
+		const normalized = String(text || "").replace(/\r/g, "").trim();
+		if (!normalized) return [];
+		const parts = normalized.split(/(?<=[。！？!?；;…\n])/).filter((part) => part.trim());
+		const chunks = [];
+		let current = "";
+		const flush = () => {
+			if (current.trim()) chunks.push(current.trim());
+			current = "";
+		};
+		for (let part of parts) {
+			while (part.length > 160) {
+				flush();
+				chunks.push(part.slice(0, 160));
+				part = part.slice(160);
+			}
+			if (current.length + part.length > 160) flush();
+			current += part;
+		}
+		flush();
+		return chunks;
+	}
+	function splitInHalf(text) {
+		if (text.length < 40) return null;
+		const middle = Math.floor(text.length / 2);
+		const before = text.lastIndexOf("，", middle);
+		const cut = before > text.length * .3 ? before + 1 : middle;
+		return [text.slice(0, cut), text.slice(cut)];
 	}
 	function pcmToWav(pcm, sampleRate) {
 		const dataLength = pcm.byteLength;

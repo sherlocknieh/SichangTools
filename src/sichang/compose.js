@@ -1,4 +1,4 @@
-// 输入区：草稿、预填试听文本、字数/分段统计与「合成」入口。
+// 输入区：草稿、预填试听文本与「合成」入口。
 // 选中记录或分段后由 selection 侧调用 setInputText 把文本填进来。
 import {
     DEFAULT_INPUT_TEXT,
@@ -7,7 +7,6 @@ import {
     VOICE_STORE_KEY,
 } from './constants.js';
 import { DEFAULT_VOICE } from './voices.js';
-import { splitText } from './text.js';
 
 export function createCompose(host) {
     const { ui } = host;
@@ -85,22 +84,7 @@ export function createCompose(host) {
         saveDraft();
     }
 
-    // 字数和分段数就是这次会发出的请求数，提前给个心理预期；
-    // 选中记录或分段时再补一个来源提示，说明「重生成」会用这里的文本
     function updateComposeMeta() {
-        const text = ui.input.value.trim();
-        const chars = text.replace(/\s/g, '').length;
-        const segments = splitText(text).length;
-        let hint = '';
-        if (host.selection.record) {
-            if (host.selection.segment) {
-                const index = host.selection.record.segments.indexOf(host.selection.segment);
-                if (index >= 0) hint = ` · 编辑第 ${index + 1} 段`;
-            } else {
-                hint = ' · 整条';
-            }
-        }
-        ui.stats.textContent = `${chars} 字 · ${segments} 段${hint}`;
         // 预填的试听文本不是用户内容，不显示清空入口；空框也无需清空
         ui.clearInput.hidden = inputIsDefault || !ui.input.value;
         syncGoButton();

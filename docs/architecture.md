@@ -20,7 +20,7 @@ src/
     handler.js         # 装配：共享状态、选中逻辑、模块接线与清理
     panel.js           # 面板骨架（Shadow DOM）与剪贴板兜底
     panel-layout.js    # 折叠、拖动、贴底避让与窗口尺寸变化
-    compose.js         # 输入区：草稿、预填试听、字数统计、合成/暂停入口
+    compose.js         # 输入区：草稿、预填试听、合成/暂停入口
     record-view.js     # 记录条目与分段条目的 DOM、折叠、菜单、下载、删除
     segments.js        # 分段状态/时长/展开面板与按钮可用性
     chain.js           # 分段顺序播放与记录头播放按钮
@@ -40,7 +40,7 @@ src/
 - `src/sichang/` 其余文件：按职责分文件，改哪块只读哪块。新增功能先判断属于哪个已有模块，不要往 handler 里堆。
   - 模块统一导出 `createX(host)`，返回 `{ api, dispose }`；handler 用 `adopt()` 合并到 `host`，创建顺序为 compose → record-view → segments → chain → timeline → regenerate → synthesis → panel-layout。跨模块调用一律 `host.fn()`，共享状态读写 `host.records` 等字段。
   - `panel.js` / `panel-layout.js`：面板骨架与位置/折叠，不碰记录和播放状态。
-  - `compose.js`：输入区草稿、预填试听、字数/分段统计与「合成/暂停」入口。
+  - `compose.js`：输入区草稿、预填试听与「合成/暂停」入口。
   - `record-view.js`：记录条目与分段条目的 DOM、记录折叠、菜单、下载、删除。
   - `segments.js`：分段状态文案、时长进度、展开面板与按钮可用性。
   - `chain.js`：分段顺序播放（自动接段、等待下一段）与记录头整条播放按钮。
