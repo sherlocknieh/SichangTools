@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1802
+// @version      2026.11.26.1803
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -1467,7 +1467,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			deleteButton.className = "danger";
 			deleteButton.textContent = "删除";
 			menu.append(menuInfo, copyButton, downloadButton, deleteButton);
-			head.append(caret, meta, duration, txt, segCount, playButton, regenAllButton, moreButton);
+			head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, moreButton);
 			ui.panel.getRootNode().appendChild(menu);
 			const segList = document.createElement("div");
 			segList.className = "segList";

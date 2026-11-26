@@ -343,7 +343,7 @@ export function createRecordView(host) {
         deleteButton.textContent = '删除';
         menu.append(menuInfo, copyButton, downloadButton, deleteButton);
         // 记录头一行放完摘要与整条操作，摘要占据中间剩余宽度并单行截断
-        head.append(caret, meta, duration, txt, segCount, playButton, regenAllButton, moreButton);
+        head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, moreButton);
         // 挂到 shadow root 而不是面板内，菜单才能盖出滚动区
         ui.panel.getRootNode().appendChild(menu);
 
