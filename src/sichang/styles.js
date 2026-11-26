@@ -144,18 +144,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .itemHead .segCount { flex: none; color: #6f6f79; font-size: 10px; }
-.itemHead .more {
+.itemHead .itemDownload, .itemHead .itemDelete {
     flex: none;
     width: 20px;
     height: 18px;
-    line-height: 18px;
+    padding: 0;
     border-radius: 5px;
-    color: #7f7f89;
-    font-size: 14px;
-    opacity: .65;
+    color: #a9a9b3;
+    font-size: 13px;
+    line-height: 18px;
+    text-align: center;
 }
-.item:hover .more, .item.menuOpen .more, .more:focus-visible { opacity: 1; }
-.itemHead .more:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemDownload:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemDelete { font-size: 11px; color: #8a8a94; }
+.itemHead .itemDelete:hover { background: #3a2226; color: #ff9a9a; }
 .itemHead .itemPlay {
     flex: none;
     width: 20px;
@@ -181,41 +183,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemRegen.busy { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
-.menu {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 2147483647;
-    display: flex;
-    flex-direction: column;
-    min-width: 132px;
-    padding: 4px;
-    border: 1px solid #2c2c33;
-    border-radius: 8px;
-    background: #1d1d22;
-    color: #e8e8ea;
-    font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
-}
-.menu[hidden] { display: none; }
-.menu .menuInfo {
-    padding: 4px 7px 6px;
-    margin-bottom: 3px;
-    border-bottom: 1px solid #2a2a30;
-    color: #6f6f79;
-    font-size: 10px;
-}
-.menu button {
-    height: 24px;
-    padding: 0 8px;
-    border-radius: 5px;
-    text-align: left;
-    color: #d5d5dd;
-    font-size: 11px;
-}
-.menu button:hover { background: #2a2a32; color: #fff; }
-.menu button.danger { color: #d98a8a; }
-.menu button.danger:hover { background: #3a2226; color: #ff9a9a; }
 .itemHead .txt {
     flex: 1 1 auto;
     min-width: 0;
@@ -324,6 +291,15 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 10px;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+.segVoice {
+    flex: none;
+    max-width: 40px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #8a8a94;
+    font-size: 9px;
 }
 .segAction {
     flex: none;

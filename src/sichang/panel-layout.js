@@ -72,7 +72,6 @@ export function createPanelLayout(host) {
     let ignoreClick = false;
     ui.head.addEventListener('pointerdown', event => {
         if (event.button !== 0 || event.target.closest('button, select')) return;
-        host.closeMenus();
         const rect = ui.host.getBoundingClientRect();
         drag = {
             dx: event.clientX - rect.left,
@@ -125,7 +124,6 @@ export function createPanelLayout(host) {
     });
 
     const onResize = () => {
-        host.closeMenus();
         if (!manualPosition) {
             placePanel();
             return;

@@ -1,9 +1,9 @@
-// 记录条目：列表行、摘要、菜单、下载与删除。
+// 记录条目：列表行、摘要、下载与删除。
 // 记录头只做收纳，播放/重生成逻辑都通过 host 注入的回调触发。
 import { DEFAULT_SAMPLE_RATE, MAX_RECORDS } from './constants.js';
 import { SEGMENT_ICONS } from './segments.js';
-import { VOICE_LABELS } from './voices.js';
-import { formatDuration, formatRate, previewText } from './text.js';
+import { voiceName } from './voices.js';
+import { formatDuration, previewText } from './text.js';
 import { joinedPcm, pcmToWav } from './audio.js';
 
 export function createRecordView(host) {
@@ -34,41 +34,6 @@ export function createRecordView(host) {
         ui.count.textContent = String(records.length);
         ui.clear.hidden = records.length === 0;
         ui.empty.style.display = records.length ? 'none' : '';
-    }
-
-    // 「更多」菜单同一时间只开一个；菜单挂在 shadow root 上，避免被面板滚动区裁掉
-    function closeMenus(keep) {
-        for (const record of records) {
-            if (!record.menu || record.menu === keep || record.menu.hidden) continue;
-            hideMenu(record);
-        }
-    }
-    function hideMenu(record) {
-        record.menu.hidden = true;
-        record.row.classList.remove('menuOpen');
-    }
-    function placeMenu(record) {
-        const anchor = record.moreButton.getBoundingClientRect();
-        const box = record.menu.getBoundingClientRect();
-        const margin = 6;
-        let left = anchor.right - box.width;
-        let top = anchor.bottom + 3;
-        // 下方放不下就翻到按钮上方；水平靠右对齐，再夹在视口内
-        if (top + box.height > window.innerHeight - margin) top = anchor.top - box.height - 3;
-        left = Math.max(margin, Math.min(window.innerWidth - box.width - margin, left));
-        top = Math.max(margin, Math.min(window.innerHeight - box.height - margin, top));
-        record.menu.style.left = `${Math.round(left)}px`;
-        record.menu.style.top = `${Math.round(top)}px`;
-    }
-    function openMenu(record) {
-        closeMenus(record.menu);
-        record.menu.hidden = false;
-        record.row.classList.add('menuOpen');
-        placeMenu(record);
-    }
-    function toggleMenu(record) {
-        if (record.menu.hidden) openMenu(record);
-        else hideMenu(record);
     }
 
     // 记录头「整条重生成」：只做原地重合成，不允许和逐段重生成同时跑
@@ -141,6 +106,10 @@ export function createRecordView(host) {
         const timeEl = document.createElement('span');
         timeEl.className = 'segTime';
         timeEl.textContent = '0:00 / 0:00';
+        // 进度条左侧标出这一段实际使用的音色
+        const voiceEl = document.createElement('span');
+        voiceEl.className = 'segVoice';
+        voiceEl.textContent = voiceName(record.tts.voice);
         const toggleButton = document.createElement('button');
         toggleButton.className = 'segAction';
         toggleButton.textContent = SEGMENT_ICONS.play;
@@ -169,7 +138,7 @@ export function createRecordView(host) {
         downloadButton.title = '下载本段';
         downloadButton.setAttribute('aria-label', '下载本段');
         downloadButton.disabled = true;
-        controls.append(toggleButton, timeEl, bar, stopButton, replayButton, downloadButton, synthButton);
+        controls.append(toggleButton, timeEl, voiceEl, bar, stopButton, replayButton, downloadButton, synthButton);
         panel.append(controls);
 
         row.append(idx, label, segDuration, playButton, regenButton, caret);
@@ -178,9 +147,10 @@ export function createRecordView(host) {
         else record.segList.appendChild(box);
         Object.assign(segment, {
             box, row, idx, label, durationEl: segDuration, playButton, regenButton, caret,
-            panel, bar, fill, timeEl, toggleButton, stopButton, synthButton, replayButton,
+            panel, bar, fill, timeEl, voiceEl, toggleButton, stopButton, synthButton, replayButton,
             downloadButton,
         });
+        host.setSegmentVoice(segment, record.tts.voice);
         host.setSegmentLabel(segment, text);
         host.renumberSegments(record);
 
@@ -321,31 +291,19 @@ export function createRecordView(host) {
         regenAllButton.title = '重生成整条（逐段复用）';
         regenAllButton.setAttribute('aria-label', '重生成整条');
         regenAllButton.disabled = true;
-        const moreButton = document.createElement('button');
-        moreButton.className = 'more';
-        moreButton.textContent = '⋯';
-        moreButton.setAttribute('aria-label', '更多操作');
-
-        const menu = document.createElement('div');
-        menu.className = 'menu';
-        menu.hidden = true;
-        const menuInfo = document.createElement('div');
-        menuInfo.className = 'menuInfo';
-        // 音色和语速只在这里露出，记录头保持精简
-        menuInfo.textContent = `${VOICE_LABELS.get(tts.voice) || tts.voice || '默认音色'} · ${formatRate(tts.rate)}`;
-        const copyButton = document.createElement('button');
-        copyButton.textContent = '复制原文';
         const downloadButton = document.createElement('button');
-        downloadButton.textContent = '下载 WAV';
+        downloadButton.className = 'itemDownload';
+        downloadButton.textContent = '↓';
+        downloadButton.title = '下载整条 WAV';
+        downloadButton.setAttribute('aria-label', '下载整条 WAV');
         downloadButton.disabled = true;
         const deleteButton = document.createElement('button');
-        deleteButton.className = 'danger';
-        deleteButton.textContent = '删除';
-        menu.append(menuInfo, copyButton, downloadButton, deleteButton);
+        deleteButton.className = 'itemDelete';
+        deleteButton.textContent = '✕';
+        deleteButton.title = '删除这条记录';
+        deleteButton.setAttribute('aria-label', '删除这条记录');
         // 记录头一行放完摘要与整条操作，摘要占据中间剩余宽度并单行截断
-        head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, moreButton);
-        // 挂到 shadow root 而不是面板内，菜单才能盖出滚动区
-        ui.panel.getRootNode().appendChild(menu);
+        head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, downloadButton, deleteButton);
 
         const segList = document.createElement('div');
         segList.className = 'segList';
@@ -355,7 +313,7 @@ export function createRecordView(host) {
 
         Object.assign(record, {
             row, head, caret, txt, duration, segCount, playButton, regenAllButton,
-            moreButton, menu, downloadButton, segList,
+            downloadButton, deleteButton, segList,
         });
 
         playButton.addEventListener('click', event => {
@@ -366,16 +324,14 @@ export function createRecordView(host) {
             event.stopPropagation();
             host.regenerateRecord(record);
         });
-        moreButton.addEventListener('click', event => {
+        downloadButton.addEventListener('click', event => {
             event.stopPropagation();
-            toggleMenu(record);
+            downloadRecord(record);
         });
-        for (const button of [copyButton, downloadButton, deleteButton]) {
-            button.addEventListener('click', () => hideMenu(record));
-        }
-        copyButton.addEventListener('click', () => host.copyText(record.text, copyButton, '复制原文'));
-        downloadButton.addEventListener('click', () => downloadRecord(record));
-        deleteButton.addEventListener('click', () => removeRecord(record));
+        deleteButton.addEventListener('click', event => {
+            event.stopPropagation();
+            removeRecord(record);
+        });
         // 点记录头（含摘要标题）都算选中整条，并折叠/展开分段列表；
         // 分段区域和按钮只做自己的事
         row.addEventListener('click', event => {
@@ -409,7 +365,6 @@ export function createRecordView(host) {
         }
         if (host.activeSession?.record === record) host.activeSession = null;
         if (record.url) URL.revokeObjectURL(record.url);
-        record.menu?.remove();
         record.row.remove();
         updateCount();
     }
@@ -456,19 +411,12 @@ export function createRecordView(host) {
     }
 
     const onDocumentPointerDown = event => {
-        const path = event.composedPath();
         // 点了清空按钮以外的地方就撤销二次确认
-        if (ui.clear.classList.contains('confirm') && !path.includes(ui.clear)) resetClearConfirm();
-        for (const record of records) {
-            if (!record.menu || record.menu.hidden) continue;
-            if (path.includes(record.menu) || path.includes(record.moreButton)) continue;
-            hideMenu(record);
+        if (ui.clear.classList.contains('confirm') && !event.composedPath().includes(ui.clear)) {
+            resetClearConfirm();
         }
     };
     document.addEventListener('pointerdown', onDocumentPointerDown, true);
-    const onWindowScroll = () => closeMenus();
-    window.addEventListener('scroll', onWindowScroll, true);
-    ui.body.addEventListener('scroll', onWindowScroll, { passive: true });
 
     ui.clear.addEventListener('click', () => {
         if (!records.length) return;
@@ -486,11 +434,6 @@ export function createRecordView(host) {
     return {
         api: {
             updateCount,
-            closeMenus,
-            hideMenu,
-            placeMenu,
-            openMenu,
-            toggleMenu,
             syncRecordRegenButton,
             beginRecord,
             createSegment,
@@ -502,8 +445,6 @@ export function createRecordView(host) {
         dispose: () => {
             clearTimeout(clearTimer);
             document.removeEventListener('pointerdown', onDocumentPointerDown, true);
-            window.removeEventListener('scroll', onWindowScroll, true);
-            ui.body.removeEventListener('scroll', onWindowScroll);
         },
     };
 }

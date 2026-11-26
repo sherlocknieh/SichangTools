@@ -66,6 +66,24 @@ export function createSynthesis(host) {
         setSynthesisPaused(session, !session.synthesisPaused);
     }
 
+    // 还没发请求的段跟着面板当前音色走；已经发出请求的段由 segment.voiceLocked 固定
+    function currentVoice() {
+        return ui.voice.value || DEFAULT_VOICE;
+    }
+
+    function syncPendingVoices() {
+        const session = host.activeSession;
+        const record = session?.record;
+        if (!record || record.state !== 'capturing') return;
+        const voice = currentVoice();
+        for (const segment of record.segments) {
+            if (segment.voiceLocked || segment.status !== 'pending') continue;
+            host.setSegmentVoice(segment, voice);
+        }
+    }
+
+    ui.voice.addEventListener('change', syncPendingVoices);
+
     function updateProgress(record, done, total) {
         if (!records.includes(record)) return;
         record.duration.textContent = total > 1 ? `${done}/${total}` : '合成中';
@@ -188,10 +206,10 @@ export function createSynthesis(host) {
         host.startTimelineTicker(record, session);
         host.syncRecordPlayButton(record);
 
-        const requestSegment = segmentText => window.fetch(TTS_PATH, {
+        const requestSegment = (segmentText, segmentVoice) => window.fetch(TTS_PATH, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', [SEGMENT_HEADER]: '1' },
-            body: JSON.stringify({ text: segmentText, voice, rate, format }),
+            body: JSON.stringify({ text: segmentText, voice: segmentVoice, rate, format }),
             signal: session.controller.signal,
         }).then(response => {
             if (!response.ok) throw new Error(`tts ${response.status}`);
@@ -205,17 +223,21 @@ export function createSynthesis(host) {
         let prefetch = null;
         const startPrefetch = piece => {
             if (prefetch || session.synthesisPaused || session.stopped) return;
-            const promise = requestSegment(piece.text);
+            // 预取即视为这一段已经开始生成，音色在此刻固定
+            const voice = piece.voice || currentVoice();
+            piece.voice = voice;
+            host.setSegmentVoice(piece.segment, voice, true);
+            const promise = requestSegment(piece.text, voice);
             promise.catch(() => {});
             prefetch = { piece, promise };
         };
-        const takePrefetch = piece => {
+        const takePrefetch = (piece, voice) => {
             if (prefetch && prefetch.piece === piece) {
                 const { promise } = prefetch;
                 prefetch = null;
                 return promise;
             }
-            return requestSegment(piece.text);
+            return requestSegment(piece.text, voice);
         };
 
         const consume = async (response, piece) => {
@@ -270,7 +292,10 @@ export function createSynthesis(host) {
                 try {
                     await waitWhilePaused(session);
                     if (session.stopped) return 'done';
-                    const response = await takePrefetch(piece);
+                    const voice = piece.voice || currentVoice();
+                    piece.voice = voice;
+                    host.setSegmentVoice(segment, voice, true);
+                    const response = await takePrefetch(piece, voice);
                     await waitWhilePaused(session);
                     if (session.stopped) return 'done';
                     // 当前段开始播时就把下一段发出去，缩短段间等待
@@ -294,7 +319,9 @@ export function createSynthesis(host) {
             // 保证列表顺序、请求顺序与 WAV 拼接顺序一致
             host.setSegmentLabel(segment, halves[0]);
             host.setSegmentState(record, segment, 'pending');
+            host.setSegmentVoice(segment, currentVoice());
             const second = host.createSegment(record, halves[1], segment);
+            host.setSegmentVoice(second, currentVoice());
             tasks.unshift({ text: halves[0], segment }, { text: halves[1], segment: second });
             session.total += halves.length - 1;
             updateProgress(record, session.done, session.total);
@@ -397,6 +424,7 @@ export function createSynthesis(host) {
         api: { startSession, updateProgress, markFailed, finalizeRecord, toggleSynthesisPause },
         dispose: () => {
             window.fetch = originalFetch;
+            ui.voice.removeEventListener('change', syncPendingVoices);
         },
     };
 }

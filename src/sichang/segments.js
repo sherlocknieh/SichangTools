@@ -2,6 +2,7 @@
 // 记录级播放/合成流程通过 host 注入的回调完成，这里只负责把状态映射到 DOM。
 import { DEFAULT_SAMPLE_RATE } from './constants.js';
 import { formatSegmentDuration, previewText } from './text.js';
+import { VOICE_LABELS, voiceName } from './voices.js';
 
 // 分段控制按钮的字形统一放这里，文字说明由 title/aria-label 承担
 export const SEGMENT_ICONS = {
@@ -129,6 +130,14 @@ export function createSegments(host) {
         segment.text = text;
         segment.label.textContent = previewText(text).slice(0, 24) || '（无文本）';
         segment.label.title = text;
+    }
+
+    // 记录这一段实际使用的音色；locked 表示请求已经发出，之后切换音色不再改它
+    function setSegmentVoice(segment, voice, locked = false) {
+        segment.voice = voice;
+        if (locked) segment.voiceLocked = true;
+        segment.voiceEl.textContent = voiceName(voice);
+        segment.voiceEl.title = `音色：${VOICE_LABELS.get(voice) || voice || '默认音色'}`;
     }
 
     // 某段文本被改过后，整条摘要、复制原文和「重新合成」都要跟着用新文本
@@ -286,6 +295,7 @@ export function createSegments(host) {
             idleSegmentTime,
             refreshSegmentControls,
             setSegmentLabel,
+            setSegmentVoice,
             refreshRecordText,
             setSegmentState,
             renumberSegments,

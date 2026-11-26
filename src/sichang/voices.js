@@ -22,3 +22,9 @@ export const VOICE_GROUPS = [
 ];
 export const DEFAULT_VOICE = 'mimo_default';
 export const VOICE_LABELS = new Map(VOICE_GROUPS.flatMap(group => group.voices.map(voice => [voice.id, voice.label])));
+
+// 分段行空间有限，只显示音色名，去掉「（女声）」这类括注；完整名称放 title
+export function voiceName(voice) {
+    const label = VOICE_LABELS.get(voice) || voice || '默认';
+    return label.replace(/（.*?）/g, '').replace(/\(.*?\)/g, '') || label;
+}

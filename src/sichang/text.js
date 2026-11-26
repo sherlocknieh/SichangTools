@@ -11,12 +11,6 @@ export function formatSegmentDuration(seconds) {
     return formatDuration(seconds);
 }
 
-export function formatRate(rate) {
-    const value = Number(rate);
-    if (!Number.isFinite(value) || value <= 0) return '1×';
-    return `${Math.round(value * 10) / 10}×`;
-}
-
 export function previewText(text) {
     return text.replace(/\[[^\]]{1,10}\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
 }

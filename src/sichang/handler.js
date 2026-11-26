@@ -2,7 +2,7 @@
 // 这里只负责装配：共享状态、选中逻辑和模块接线；具体职责见同目录各模块。
 // 面板以分段为播放单位：点哪段就从哪段开始顺序播放，播到谁谁展开控制面板。
 
-import { createPanel, copyText } from './panel.js';
+import { createPanel } from './panel.js';
 import { createPanelLayout } from './panel-layout.js';
 import { createCompose } from './compose.js';
 import { createRecordView } from './record-view.js';
@@ -68,7 +68,6 @@ export default function initSichangHandler() {
         selectRecord,
         selectSegment,
         mirrorPlayingText,
-        copyText,
     });
 
     // 模块按依赖顺序装配；dispose 逆序执行，fetch 包装与全局监听都能撤销

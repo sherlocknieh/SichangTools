@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1804
+// @version      2026.11.26.1811
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -66,6 +66,10 @@
 		]
 	}];
 	var VOICE_LABELS = new Map(VOICE_GROUPS.flatMap((group) => group.voices.map((voice) => [voice.id, voice.label])));
+	function voiceName(voice) {
+		const label = VOICE_LABELS.get(voice) || voice || "默认";
+		return label.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "") || label;
+	}
 	var PANEL_CSS = `
 :host { all: initial; }
 .panel {
@@ -211,18 +215,20 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .itemHead .segCount { flex: none; color: #6f6f79; font-size: 10px; }
-.itemHead .more {
+.itemHead .itemDownload, .itemHead .itemDelete {
     flex: none;
     width: 20px;
     height: 18px;
-    line-height: 18px;
+    padding: 0;
     border-radius: 5px;
-    color: #7f7f89;
-    font-size: 14px;
-    opacity: .65;
+    color: #a9a9b3;
+    font-size: 13px;
+    line-height: 18px;
+    text-align: center;
 }
-.item:hover .more, .item.menuOpen .more, .more:focus-visible { opacity: 1; }
-.itemHead .more:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemDownload:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemDelete { font-size: 11px; color: #8a8a94; }
+.itemHead .itemDelete:hover { background: #3a2226; color: #ff9a9a; }
 .itemHead .itemPlay {
     flex: none;
     width: 20px;
@@ -248,41 +254,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
 .itemHead .itemRegen.busy { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
-.menu {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 2147483647;
-    display: flex;
-    flex-direction: column;
-    min-width: 132px;
-    padding: 4px;
-    border: 1px solid #2c2c33;
-    border-radius: 8px;
-    background: #1d1d22;
-    color: #e8e8ea;
-    font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
-}
-.menu[hidden] { display: none; }
-.menu .menuInfo {
-    padding: 4px 7px 6px;
-    margin-bottom: 3px;
-    border-bottom: 1px solid #2a2a30;
-    color: #6f6f79;
-    font-size: 10px;
-}
-.menu button {
-    height: 24px;
-    padding: 0 8px;
-    border-radius: 5px;
-    text-align: left;
-    color: #d5d5dd;
-    font-size: 11px;
-}
-.menu button:hover { background: #2a2a32; color: #fff; }
-.menu button.danger { color: #d98a8a; }
-.menu button.danger:hover { background: #3a2226; color: #ff9a9a; }
 .itemHead .txt {
     flex: 1 1 auto;
     min-width: 0;
@@ -392,6 +363,15 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
+.segVoice {
+    flex: none;
+    max-width: 40px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #8a8a94;
+    font-size: 9px;
+}
 .segAction {
     flex: none;
     width: 20px;
@@ -482,30 +462,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			go: panel.querySelector(".go")
 		};
 	}
-	function copyText(text, button, idle = "复制") {
-		const done = () => {
-			button.textContent = "已复制";
-			clearTimeout(button.copyTimer);
-			button.copyTimer = setTimeout(() => {
-				button.textContent = idle;
-			}, 1200);
-		};
-		const fallback = () => {
-			const area = document.createElement("textarea");
-			area.value = text;
-			area.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none;";
-			document.body.appendChild(area);
-			area.select();
-			let copied = false;
-			try {
-				copied = document.execCommand("copy");
-			} catch {}
-			area.remove();
-			if (copied) done();
-		};
-		if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, fallback);
-		else fallback();
-	}
 	function createPanelLayout(host) {
 		const { ui } = host;
 		function applyFold(folded) {
@@ -567,7 +523,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		let ignoreClick = false;
 		ui.head.addEventListener("pointerdown", (event) => {
 			if (event.button !== 0 || event.target.closest("button, select")) return;
-			host.closeMenus();
 			const rect = ui.host.getBoundingClientRect();
 			drag = {
 				dx: event.clientX - rect.left,
@@ -621,7 +576,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			resetPosition();
 		});
 		const onResize = () => {
-			host.closeMenus();
 			if (!manualPosition) {
 				placePanel();
 				return;
@@ -825,11 +779,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		if (seconds < 10) return `${seconds.toFixed(1)}s`;
 		return formatDuration(seconds);
 	}
-	function formatRate(rate) {
-		const value = Number(rate);
-		if (!Number.isFinite(value) || value <= 0) return "1×";
-		return `${Math.round(value * 10) / 10}×`;
-	}
 	function previewText(text) {
 		return text.replace(/\[[^\]]{1,10}\]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 	}
@@ -966,6 +915,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			segment.label.textContent = previewText(text).slice(0, 24) || "（无文本）";
 			segment.label.title = text;
 		}
+		function setSegmentVoice(segment, voice, locked = false) {
+			segment.voice = voice;
+			if (locked) segment.voiceLocked = true;
+			segment.voiceEl.textContent = voiceName(voice);
+			segment.voiceEl.title = `音色：${VOICE_LABELS.get(voice) || voice || "默认音色"}`;
+		}
 		function refreshRecordText(record) {
 			record.text = record.segments.map((segment) => segment.text || "").join("");
 			record.txt.textContent = previewText(record.text) || "（无文本）";
@@ -1095,6 +1050,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			idleSegmentTime,
 			refreshSegmentControls,
 			setSegmentLabel,
+			setSegmentVoice,
 			refreshRecordText,
 			setSegmentState,
 			renumberSegments,
@@ -1172,38 +1128,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			ui.clear.hidden = records.length === 0;
 			ui.empty.style.display = records.length ? "none" : "";
 		}
-		function closeMenus(keep) {
-			for (const record of records) {
-				if (!record.menu || record.menu === keep || record.menu.hidden) continue;
-				hideMenu(record);
-			}
-		}
-		function hideMenu(record) {
-			record.menu.hidden = true;
-			record.row.classList.remove("menuOpen");
-		}
-		function placeMenu(record) {
-			const anchor = record.moreButton.getBoundingClientRect();
-			const box = record.menu.getBoundingClientRect();
-			const margin = 6;
-			let left = anchor.right - box.width;
-			let top = anchor.bottom + 3;
-			if (top + box.height > window.innerHeight - margin) top = anchor.top - box.height - 3;
-			left = Math.max(margin, Math.min(window.innerWidth - box.width - margin, left));
-			top = Math.max(margin, Math.min(window.innerHeight - box.height - margin, top));
-			record.menu.style.left = `${Math.round(left)}px`;
-			record.menu.style.top = `${Math.round(top)}px`;
-		}
-		function openMenu(record) {
-			closeMenus(record.menu);
-			record.menu.hidden = false;
-			record.row.classList.add("menuOpen");
-			placeMenu(record);
-		}
-		function toggleMenu(record) {
-			if (record.menu.hidden) openMenu(record);
-			else hideMenu(record);
-		}
 		function syncRecordRegenButton(record) {
 			const button = record.regenAllButton;
 			if (!button) return;
@@ -1267,6 +1191,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const timeEl = document.createElement("span");
 			timeEl.className = "segTime";
 			timeEl.textContent = "0:00 / 0:00";
+			const voiceEl = document.createElement("span");
+			voiceEl.className = "segVoice";
+			voiceEl.textContent = voiceName(record.tts.voice);
 			const toggleButton = document.createElement("button");
 			toggleButton.className = "segAction";
 			toggleButton.textContent = SEGMENT_ICONS.play;
@@ -1295,7 +1222,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			downloadButton.title = "下载本段";
 			downloadButton.setAttribute("aria-label", "下载本段");
 			downloadButton.disabled = true;
-			controls.append(toggleButton, timeEl, bar, stopButton, replayButton, downloadButton, synthButton);
+			controls.append(toggleButton, timeEl, voiceEl, bar, stopButton, replayButton, downloadButton, synthButton);
 			panel.append(controls);
 			row.append(idx, label, segDuration, playButton, regenButton, caret);
 			box.append(row, panel);
@@ -1314,12 +1241,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				bar,
 				fill,
 				timeEl,
+				voiceEl,
 				toggleButton,
 				stopButton,
 				synthButton,
 				replayButton,
 				downloadButton
 			});
+			host.setSegmentVoice(segment, record.tts.voice);
 			host.setSegmentLabel(segment, text);
 			host.renumberSegments(record);
 			row.addEventListener("click", (event) => {
@@ -1448,27 +1377,18 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			regenAllButton.title = "重生成整条（逐段复用）";
 			regenAllButton.setAttribute("aria-label", "重生成整条");
 			regenAllButton.disabled = true;
-			const moreButton = document.createElement("button");
-			moreButton.className = "more";
-			moreButton.textContent = "⋯";
-			moreButton.setAttribute("aria-label", "更多操作");
-			const menu = document.createElement("div");
-			menu.className = "menu";
-			menu.hidden = true;
-			const menuInfo = document.createElement("div");
-			menuInfo.className = "menuInfo";
-			menuInfo.textContent = `${VOICE_LABELS.get(tts.voice) || tts.voice || "默认音色"} · ${formatRate(tts.rate)}`;
-			const copyButton = document.createElement("button");
-			copyButton.textContent = "复制原文";
 			const downloadButton = document.createElement("button");
-			downloadButton.textContent = "下载 WAV";
+			downloadButton.className = "itemDownload";
+			downloadButton.textContent = "↓";
+			downloadButton.title = "下载整条 WAV";
+			downloadButton.setAttribute("aria-label", "下载整条 WAV");
 			downloadButton.disabled = true;
 			const deleteButton = document.createElement("button");
-			deleteButton.className = "danger";
-			deleteButton.textContent = "删除";
-			menu.append(menuInfo, copyButton, downloadButton, deleteButton);
-			head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, moreButton);
-			ui.panel.getRootNode().appendChild(menu);
+			deleteButton.className = "itemDelete";
+			deleteButton.textContent = "✕";
+			deleteButton.title = "删除这条记录";
+			deleteButton.setAttribute("aria-label", "删除这条记录");
+			head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, downloadButton, deleteButton);
 			const segList = document.createElement("div");
 			segList.className = "segList";
 			row.append(head, segList);
@@ -1482,9 +1402,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				segCount,
 				playButton,
 				regenAllButton,
-				moreButton,
-				menu,
 				downloadButton,
+				deleteButton,
 				segList
 			});
 			playButton.addEventListener("click", (event) => {
@@ -1495,18 +1414,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				event.stopPropagation();
 				host.regenerateRecord(record);
 			});
-			moreButton.addEventListener("click", (event) => {
+			downloadButton.addEventListener("click", (event) => {
 				event.stopPropagation();
-				toggleMenu(record);
+				downloadRecord(record);
 			});
-			for (const button of [
-				copyButton,
-				downloadButton,
-				deleteButton
-			]) button.addEventListener("click", () => hideMenu(record));
-			copyButton.addEventListener("click", () => host.copyText(record.text, copyButton, "复制原文"));
-			downloadButton.addEventListener("click", () => downloadRecord(record));
-			deleteButton.addEventListener("click", () => removeRecord(record));
+			deleteButton.addEventListener("click", (event) => {
+				event.stopPropagation();
+				removeRecord(record);
+			});
 			row.addEventListener("click", (event) => {
 				if (event.target.closest(".segBox, button")) return;
 				host.selectRecord(record);
@@ -1536,7 +1451,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			if (host.activeSession?.record === record) host.activeSession = null;
 			if (record.url) URL.revokeObjectURL(record.url);
-			record.menu?.remove();
 			record.row.remove();
 			updateCount();
 		}
@@ -1577,18 +1491,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.downloadButton.disabled = false;
 		}
 		const onDocumentPointerDown = (event) => {
-			const path = event.composedPath();
-			if (ui.clear.classList.contains("confirm") && !path.includes(ui.clear)) resetClearConfirm();
-			for (const record of records) {
-				if (!record.menu || record.menu.hidden) continue;
-				if (path.includes(record.menu) || path.includes(record.moreButton)) continue;
-				hideMenu(record);
-			}
+			if (ui.clear.classList.contains("confirm") && !event.composedPath().includes(ui.clear)) resetClearConfirm();
 		};
 		document.addEventListener("pointerdown", onDocumentPointerDown, true);
-		const onWindowScroll = () => closeMenus();
-		window.addEventListener("scroll", onWindowScroll, true);
-		ui.body.addEventListener("scroll", onWindowScroll, { passive: true });
 		ui.clear.addEventListener("click", () => {
 			if (!records.length) return;
 			if (!ui.clear.classList.contains("confirm")) {
@@ -1603,11 +1508,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		return {
 			api: {
 				updateCount,
-				closeMenus,
-				hideMenu,
-				placeMenu,
-				openMenu,
-				toggleMenu,
 				syncRecordRegenButton,
 				beginRecord,
 				createSegment,
@@ -1619,8 +1519,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			dispose: () => {
 				clearTimeout(clearTimer);
 				document.removeEventListener("pointerdown", onDocumentPointerDown, true);
-				window.removeEventListener("scroll", onWindowScroll, true);
-				ui.body.removeEventListener("scroll", onWindowScroll);
 			}
 		};
 	}
@@ -2160,6 +2058,19 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!session || session.stopped || session.record?.state !== "capturing") return;
 			setSynthesisPaused(session, !session.synthesisPaused);
 		}
+		function currentVoice() {
+			return ui.voice.value || "mimo_default";
+		}
+		function syncPendingVoices() {
+			const record = host.activeSession?.record;
+			if (!record || record.state !== "capturing") return;
+			const voice = currentVoice();
+			for (const segment of record.segments) {
+				if (segment.voiceLocked || segment.status !== "pending") continue;
+				host.setSegmentVoice(segment, voice);
+			}
+		}
+		ui.voice.addEventListener("change", syncPendingVoices);
 		function updateProgress(record, done, total) {
 			if (!records.includes(record)) return;
 			record.duration.textContent = total > 1 ? `${done}/${total}` : "合成中";
@@ -2261,7 +2172,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			updateProgress(record, 0, session.total);
 			host.startTimelineTicker(record, session);
 			host.syncRecordPlayButton(record);
-			const requestSegment = (segmentText) => window.fetch(TTS_PATH, {
+			const requestSegment = (segmentText, segmentVoice) => window.fetch(TTS_PATH, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -2269,7 +2180,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				},
 				body: JSON.stringify({
 					text: segmentText,
-					voice,
+					voice: segmentVoice,
 					rate,
 					format
 				}),
@@ -2284,20 +2195,23 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			let prefetch = null;
 			const startPrefetch = (piece) => {
 				if (prefetch || session.synthesisPaused || session.stopped) return;
-				const promise = requestSegment(piece.text);
+				const voice = piece.voice || currentVoice();
+				piece.voice = voice;
+				host.setSegmentVoice(piece.segment, voice, true);
+				const promise = requestSegment(piece.text, voice);
 				promise.catch(() => {});
 				prefetch = {
 					piece,
 					promise
 				};
 			};
-			const takePrefetch = (piece) => {
+			const takePrefetch = (piece, voice) => {
 				if (prefetch && prefetch.piece === piece) {
 					const { promise } = prefetch;
 					prefetch = null;
 					return promise;
 				}
-				return requestSegment(piece.text);
+				return requestSegment(piece.text, voice);
 			};
 			const consume = async (response, piece) => {
 				const reader = response.body.getReader();
@@ -2344,7 +2258,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				for (let attempt = 0; attempt < 2; attempt++) try {
 					await waitWhilePaused(session);
 					if (session.stopped) return "done";
-					const response = await takePrefetch(piece);
+					const voice = piece.voice || currentVoice();
+					piece.voice = voice;
+					host.setSegmentVoice(segment, voice, true);
+					const response = await takePrefetch(piece, voice);
 					await waitWhilePaused(session);
 					if (session.stopped) return "done";
 					if (tasks.length) startPrefetch(tasks[0]);
@@ -2362,7 +2279,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				}
 				host.setSegmentLabel(segment, halves[0]);
 				host.setSegmentState(record, segment, "pending");
+				host.setSegmentVoice(segment, currentVoice());
 				const second = host.createSegment(record, halves[1], segment);
+				host.setSegmentVoice(second, currentVoice());
 				tasks.unshift({
 					text: halves[0],
 					segment
@@ -2471,6 +2390,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			},
 			dispose: () => {
 				window.fetch = originalFetch;
+				ui.voice.removeEventListener("change", syncPendingVoices);
 			}
 		};
 	}
@@ -2677,8 +2597,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			applySelection,
 			selectRecord,
 			selectSegment,
-			mirrorPlayingText,
-			copyText
+			mirrorPlayingText
 		});
 		const disposers = [];
 		const adopt = ({ api, dispose }) => {

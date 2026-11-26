@@ -48,9 +48,9 @@ src/
   - `synthesis.js`：按句分段请求 `/api/tts`、边收边播、整条 WAV 落盘与 `fetch` 接管。
   - `regenerate.js`：单段重生成与整条重生成流程；整条重生成原地复用逐段流程，不新建记录。记录/播放/UI 的读写通过 `createRegenerator(host)` 注入。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
-  - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长/语速格式化，纯函数。
+  - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长格式化，纯函数。
   - `constants.js`：接口路径 `TTS_PATH`、分段阈值、`localStorage` key 等契约常量。
-  - `voices.js`：站点音色列表 `VOICE_GROUPS` 与 `VOICE_LABELS`。
+  - `voices.js`：站点音色列表 `VOICE_GROUPS`、`VOICE_LABELS` 与短名称 `voiceName`。
   - `styles.js`：面板 `PANEL_CSS`，Shadow DOM 里注入的全部样式。
   - `audio.js`：PCM16/WAV 转换与拼接（`pcmToWav`、`pcmToSamples`、`joinedPcm`），纯函数。
 - `vite.config.js`：userscript 元数据、匹配域名与构建产物配置；`@icon` 直接指向站点 favicon（`https://sichang.xyz/favicon.ico`），不在仓库里维护本地图标资源。

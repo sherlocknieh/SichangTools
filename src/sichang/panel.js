@@ -71,32 +71,3 @@ export function createPanel() {
         go: panel.querySelector('.go'),
     };
 }
-
-// 剪贴板 API 在非安全上下文或权限被拒时不可用，退回临时 textarea
-export function copyText(text, button, idle = '复制') {
-    const done = () => {
-        button.textContent = '已复制';
-        clearTimeout(button.copyTimer);
-        button.copyTimer = setTimeout(() => {
-            button.textContent = idle;
-        }, 1200);
-    };
-    const fallback = () => {
-        const area = document.createElement('textarea');
-        area.value = text;
-        area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;';
-        document.body.appendChild(area);
-        area.select();
-        let copied = false;
-        try {
-            copied = document.execCommand('copy');
-        } catch {}
-        area.remove();
-        if (copied) done();
-    };
-    if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text).then(done, fallback);
-    } else {
-        fallback();
-    }
-}
