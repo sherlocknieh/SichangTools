@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1701
+// @version      2026.11.26.1732
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -204,6 +204,16 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     user-select: none;
     cursor: pointer;
 }
+.itemHead .itemCaret {
+    flex: none;
+    width: 8px;
+    color: #5a5a64;
+    font-size: 10px;
+    text-align: center;
+    transition: transform .12s;
+}
+.item:not(.folded) .itemCaret { transform: rotate(90deg); }
+.item:hover .itemCaret { color: #8a8a94; }
 .itemHead .meta { color: #80808a; font-variant-numeric: tabular-nums; }
 .itemHead .dur { color: #b9b9c2; font-variant-numeric: tabular-nums; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
@@ -289,6 +299,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     cursor: pointer;
 }
 .segList { margin-top: 4px; }
+.item.folded .segList { display: none; }
 .segBox {
     border-left: 2px solid transparent;
     padding-left: 2px;
@@ -1064,6 +1075,14 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			});
 			return segment;
 		}
+		function setRecordFold(record, folded) {
+			record.row.classList.toggle("folded", folded);
+			record.head.setAttribute("aria-expanded", String(!folded));
+			record.head.title = folded ? "点击展开分段" : "点击收起分段";
+		}
+		function toggleRecordFold(record) {
+			setRecordFold(record, !record.row.classList.contains("folded"));
+		}
 		function beginRecord(text, tts) {
 			const record = {
 				text,
@@ -1084,6 +1103,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			row.setAttribute("data-live", "");
 			const head = document.createElement("div");
 			head.className = "itemHead";
+			head.setAttribute("aria-expanded", "true");
+			head.title = "点击收起分段";
+			const caret = document.createElement("span");
+			caret.className = "itemCaret";
+			caret.textContent = "›";
+			caret.setAttribute("aria-hidden", "true");
 			const meta = document.createElement("span");
 			meta.className = "meta";
 			meta.textContent = new Date(record.time).toLocaleTimeString("zh-CN", {
@@ -1129,7 +1154,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			deleteButton.className = "danger";
 			deleteButton.textContent = "删除";
 			menu.append(menuInfo, copyButton, downloadButton, deleteButton);
-			head.append(meta, duration, spacer, segCount, playButton, regenAllButton, moreButton);
+			head.append(caret, meta, duration, spacer, segCount, playButton, regenAllButton, moreButton);
 			ui.panel.getRootNode().appendChild(menu);
 			const txt = document.createElement("div");
 			txt.className = "txt";
@@ -1142,6 +1167,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			Object.assign(record, {
 				row,
 				head,
+				caret,
 				txt,
 				duration,
 				segCount,
@@ -1175,6 +1201,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			row.addEventListener("click", (event) => {
 				if (event.target.closest(".segBox, button")) return;
 				host.selectRecord(record);
+				if (event.target.closest(".itemHead")) toggleRecordFold(record);
 			});
 			records.push(record);
 			while (records.length > 20) removeRecord(records[0]);
@@ -1432,6 +1459,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 			if (record.expandedSegment === segment) record.expandedSegment = null;
 		}
 		function keepSegmentVisible(segment) {
+			if (!segment.box.getClientRects().length) return;
 			const body = ui.body;
 			const bodyRect = body.getBoundingClientRect();
 			const boxRect = segment.box.getBoundingClientRect();

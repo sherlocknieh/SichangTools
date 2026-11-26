@@ -127,6 +127,16 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     user-select: none;
     cursor: pointer;
 }
+.itemHead .itemCaret {
+    flex: none;
+    width: 8px;
+    color: #5a5a64;
+    font-size: 10px;
+    text-align: center;
+    transition: transform .12s;
+}
+.item:not(.folded) .itemCaret { transform: rotate(90deg); }
+.item:hover .itemCaret { color: #8a8a94; }
 .itemHead .meta { color: #80808a; font-variant-numeric: tabular-nums; }
 .itemHead .dur { color: #b9b9c2; font-variant-numeric: tabular-nums; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
@@ -212,6 +222,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     cursor: pointer;
 }
 .segList { margin-top: 4px; }
+.item.folded .segList { display: none; }
 .segBox {
     border-left: 2px solid transparent;
     padding-left: 2px;

@@ -190,8 +190,10 @@ export function createSegments(host) {
         if (record.expandedSegment === segment) record.expandedSegment = null;
     }
 
-    // 让正在播放的分段留在列表可视区里，但不打断用户自己滚动
+    // 让正在播放的分段留在列表可视区里，但不打断用户自己滚动。
+    // 记录被折叠时分段没有布局尺寸，跳过，避免把面板滚到看不见的位置
     function keepSegmentVisible(segment) {
+        if (!segment.box.getClientRects().length) return;
         const body = ui.body;
         const bodyRect = body.getBoundingClientRect();
         const boxRect = segment.box.getBoundingClientRect();

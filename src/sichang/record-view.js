@@ -223,6 +223,18 @@ export function createRecordView(host) {
         return segment;
     }
 
+    // 记录头同时是折叠开关：点一下收起或展开该条下方的分段列表，
+    // 摘要仍留一行，折叠后整条记录只占头部和摘要两行
+    function setRecordFold(record, folded) {
+        record.row.classList.toggle('folded', folded);
+        record.head.setAttribute('aria-expanded', String(!folded));
+        record.head.title = folded ? '点击展开分段' : '点击收起分段';
+    }
+
+    function toggleRecordFold(record) {
+        setRecordFold(record, !record.row.classList.contains('folded'));
+    }
+
     // 记录头只做收纳：时间、时长/合成进度、段数、整条播放和单段重生成入口。
     // 每段播放与控制挂在分段子条目上
     function beginRecord(text, tts) {
@@ -247,6 +259,13 @@ export function createRecordView(host) {
 
         const head = document.createElement('div');
         head.className = 'itemHead';
+        head.setAttribute('aria-expanded', 'true');
+        head.title = '点击收起分段';
+        // 折叠箭头放在最前面，和分段行的小箭头保持同一套视觉
+        const caret = document.createElement('span');
+        caret.className = 'itemCaret';
+        caret.textContent = '›';
+        caret.setAttribute('aria-hidden', 'true');
         const meta = document.createElement('span');
         meta.className = 'meta';
         meta.textContent = new Date(record.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -292,7 +311,7 @@ export function createRecordView(host) {
         deleteButton.className = 'danger';
         deleteButton.textContent = '删除';
         menu.append(menuInfo, copyButton, downloadButton, deleteButton);
-        head.append(meta, duration, spacer, segCount, playButton, regenAllButton, moreButton);
+        head.append(caret, meta, duration, spacer, segCount, playButton, regenAllButton, moreButton);
         // 挂到 shadow root 而不是面板内，菜单才能盖出滚动区
         ui.panel.getRootNode().appendChild(menu);
 
@@ -309,7 +328,7 @@ export function createRecordView(host) {
         ui.list.insertBefore(row, ui.list.firstChild);
 
         Object.assign(record, {
-            row, head, txt, duration, segCount, playButton, regenAllButton,
+            row, head, caret, txt, duration, segCount, playButton, regenAllButton,
             moreButton, menu, downloadButton, segList,
         });
 
@@ -331,10 +350,12 @@ export function createRecordView(host) {
         copyButton.addEventListener('click', () => host.copyText(record.text, copyButton, '复制原文'));
         downloadButton.addEventListener('click', () => downloadRecord(record));
         deleteButton.addEventListener('click', () => removeRecord(record));
-        // 点记录头或摘要都算选中整条；分段区域有自己的选中逻辑
+        // 点记录头或摘要都算选中整条；记录头额外负责折叠分段列表。
+        // 分段区域有自己的选中逻辑，按钮只做自己的事
         row.addEventListener('click', event => {
             if (event.target.closest('.segBox, button')) return;
             host.selectRecord(record);
+            if (event.target.closest('.itemHead')) toggleRecordFold(record);
         });
 
         records.push(record);
