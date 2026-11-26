@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1749
+// @version      2026.11.26.1752
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -114,7 +114,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 11px;
 }
 .head button:hover { background: #2c2c33; color: #fff; }
-.compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-bottom: 1px solid #232329; }
+.compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-top: 1px solid #232329; }
 .compose .inputWrap { position: relative; }
 .compose textarea {
     box-sizing: border-box;
@@ -438,6 +438,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
+        <div class="body">
+            <div class="empty">点消息下的「朗读」，或在下方输入文本合成</div>
+            <div class="list"></div>
+        </div>
         <div class="compose">
             <div class="inputWrap">
                 <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
@@ -456,10 +460,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
                 <span class="rateUnit" aria-hidden="true">×</span>
                 <button class="go">合成</button>
             </div>
-        </div>
-        <div class="body">
-            <div class="empty">点消息下的「朗读」，或在上方输入文本合成</div>
-            <div class="list"></div>
         </div>
     `;
 		root.appendChild(panel);

@@ -34,6 +34,10 @@ export function createPanel() {
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
         </div>
+        <div class="body">
+            <div class="empty">点消息下的「朗读」，或在下方输入文本合成</div>
+            <div class="list"></div>
+        </div>
         <div class="compose">
             <div class="inputWrap">
                 <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
@@ -48,10 +52,6 @@ export function createPanel() {
                 <span class="rateUnit" aria-hidden="true">×</span>
                 <button class="go">合成</button>
             </div>
-        </div>
-        <div class="body">
-            <div class="empty">点消息下的「朗读」，或在上方输入文本合成</div>
-            <div class="list"></div>
         </div>
     `;
     root.appendChild(panel);
