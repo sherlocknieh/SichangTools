@@ -131,21 +131,17 @@ export default function initSichangHandler() {
         } catch {}
         syncPlaybackRateButton();
         // 只改已下载完成的音频：分段 <audio>，以及下载结束后仍在播的时间线；
-        // 合成中的实时流保持原速
+        // 合成中的实时流保持原速。时间线要换速时切到分段 <audio>，避免 Web Audio 变速变调
         for (const record of host.records) {
             for (const segment of record.segments) {
                 if (segment.audio) segment.audio.playbackRate = host.playbackRate;
             }
+            if (host.activeTimeline !== record) continue;
             if (record.state !== 'playing' && record.state !== 'paused') continue;
             const session = record.session;
             if (!session) continue;
             const position = host.livePosition(session);
-            session.rate = host.playbackRate;
-            session.pausedOffset = position;
-            if (!session.paused) {
-                host.rescheduleTimeline(record, position);
-                if (record.state === 'playing') host.armTimelineEnd(record);
-            }
+            host.switchToChainAt(record, position, record.state === 'playing');
         }
         if (host.activeAudio) host.activeAudio.playbackRate = host.playbackRate;
     });

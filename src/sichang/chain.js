@@ -149,7 +149,8 @@ export function createChain(host) {
         stopOtherChains(record);
     }
 
-    function playChainSegment(record, segment) {
+    function playChainSegment(record, segment, options = {}) {
+        const { offset = 0, autoPlay = true } = options;
         if (!segment || !segment.complete || !segment.bytes || segment.busy) return;
         if (!record.chain) prepareRecordPlayback(record);
         // 顺序播放只有一个当前段：换段时把上一段的位置归零，避免按钮显示「继续」却从头播
@@ -168,10 +169,45 @@ export function createChain(host) {
         host.openSegmentPanel(record, segment, 'segment');
         host.mirrorPlayingText(record, segment);
         syncRecordPlayButton(record);
-        audio.play().then(
-            () => { host.syncSegmentPlayState(segment); syncRecordPlayButton(record); },
-            () => { host.syncSegmentPlayState(segment); syncRecordPlayButton(record); },
-        );
+
+        const applyOffset = () => {
+            if (!(offset > 0)) return;
+            const duration = Number.isFinite(audio.duration) ? audio.duration : offset;
+            try { audio.currentTime = Math.min(offset, duration); } catch {}
+            host.updateSegmentTime(record, segment, audio.currentTime, duration);
+        };
+        const begin = () => {
+            applyOffset();
+            audio.play().then(
+                () => { host.syncSegmentPlayState(segment); syncRecordPlayButton(record); },
+                () => { host.syncSegmentPlayState(segment); syncRecordPlayButton(record); },
+            );
+        };
+        if (offset > 0 && audio.readyState < 1) {
+            audio.addEventListener('loadedmetadata', autoPlay ? begin : applyOffset, { once: true });
+            if (!autoPlay) {
+                host.syncSegmentPlayState(segment);
+                syncRecordPlayButton(record);
+            }
+            return;
+        }
+        if (autoPlay) begin();
+        else {
+            applyOffset();
+            host.syncSegmentPlayState(segment);
+            syncRecordPlayButton(record);
+        }
+    }
+
+    // 下载结束的时间线要换速时，从当前整条位置切到对应的分段 <audio>，
+    // 用 preservesPitch 保持音高；暂停状态只把音频停在对应位置，不自动播
+    function switchToChainAt(record, position, autoPlay) {
+        const info = host.segmentAt(record, position);
+        if (!info) return false;
+        const offset = Math.max(0, Math.min(info.duration, position - info.start));
+        host.stopTimeline(record);
+        playChainSegment(record, info.segment, { offset, autoPlay });
+        return true;
     }
 
     // 当前段播完，按列表顺序找下一段；还没合成完且仍在合成，就停在等待状态
@@ -273,6 +309,7 @@ export function createChain(host) {
             toggleSegmentPlay,
             prepareRecordPlayback,
             playChainSegment,
+            switchToChainAt,
             advanceChain,
             pauseChain,
             resumeChain,
