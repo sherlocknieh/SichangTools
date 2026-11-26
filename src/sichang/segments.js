@@ -135,7 +135,7 @@ export function createSegments(host) {
     function refreshRecordText(record) {
         record.text = record.segments.map(segment => segment.text || '').join('');
         record.txt.textContent = previewText(record.text) || '（无文本）';
-        record.txt.title = '点击选中整条文本';
+        record.txt.title = '点击选中整条并收起/展开分段';
     }
 
     // 每段的状态直接写进子条目：待合成 → 合成中（时长随数据增长）→ 完成/失败

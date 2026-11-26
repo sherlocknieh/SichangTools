@@ -304,7 +304,7 @@ export function createRecordView(host) {
         txt.className = 'txt';
         const preview = previewText(text) || '（无文本）';
         txt.textContent = preview;
-        txt.title = '点击选中整条文本';
+        txt.title = '点击选中整条并收起/展开分段';
         const segCount = document.createElement('span');
         segCount.className = 'segCount';
         segCount.textContent = '0 段';
@@ -376,12 +376,12 @@ export function createRecordView(host) {
         copyButton.addEventListener('click', () => host.copyText(record.text, copyButton, '复制原文'));
         downloadButton.addEventListener('click', () => downloadRecord(record));
         deleteButton.addEventListener('click', () => removeRecord(record));
-        // 点记录头或摘要都算选中整条；记录头其余区域负责折叠分段列表。
-        // 摘要点击保持“选中”，不顺手折叠，分段区域和按钮只做自己的事
+        // 点记录头（含摘要标题）都算选中整条，并折叠/展开分段列表；
+        // 分段区域和按钮只做自己的事
         row.addEventListener('click', event => {
             if (event.target.closest('.segBox, button')) return;
             host.selectRecord(record);
-            if (event.target.closest('.itemHead') && !event.target.closest('.txt')) toggleRecordFold(record);
+            if (event.target.closest('.itemHead')) toggleRecordFold(record);
         });
 
         records.push(record);

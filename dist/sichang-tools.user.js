@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.26.1803
+// @version      2026.11.26.1804
 // @description  接管思畅 AI 朗读，分段合成、边下边播并保存 WAV
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -969,7 +969,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function refreshRecordText(record) {
 			record.text = record.segments.map((segment) => segment.text || "").join("");
 			record.txt.textContent = previewText(record.text) || "（无文本）";
-			record.txt.title = "点击选中整条文本";
+			record.txt.title = "点击选中整条并收起/展开分段";
 		}
 		function setSegmentState(record, segment, state) {
 			segment.status = state;
@@ -1432,7 +1432,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const txt = document.createElement("div");
 			txt.className = "txt";
 			txt.textContent = previewText(text) || "（无文本）";
-			txt.title = "点击选中整条文本";
+			txt.title = "点击选中整条并收起/展开分段";
 			const segCount = document.createElement("span");
 			segCount.className = "segCount";
 			segCount.textContent = "0 段";
@@ -1510,7 +1510,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			row.addEventListener("click", (event) => {
 				if (event.target.closest(".segBox, button")) return;
 				host.selectRecord(record);
-				if (event.target.closest(".itemHead") && !event.target.closest(".txt")) toggleRecordFold(record);
+				if (event.target.closest(".itemHead")) toggleRecordFold(record);
 			});
 			records.push(record);
 			while (records.length > 20) removeRecord(records[0]);
