@@ -61,7 +61,10 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     color: #e8e8ea;
     font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
     resize: none;
+    outline: none;
+    scrollbar-width: none;
 }
+.compose textarea::-webkit-scrollbar { display: none; }
 .compose .counter {
     display: flex;
     align-items: center;
@@ -85,7 +88,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .compose .clearInput:hover { background: #2c2c33; color: #fff; }
 .compose .clearInput[hidden] { display: none; }
-.compose textarea:focus, .compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
+.compose textarea:focus { outline: none; border-color: #4a4a56; }
+.compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose textarea::placeholder { color: #6f6f79; }
 .compose textarea.is-default { color: #6f6f79; }
 .compose .row { display: flex; align-items: center; gap: 6px; }
@@ -337,7 +341,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
 }
-button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+button:focus-visible, select:focus-visible, input:focus-visible {
     outline: 2px solid #5a9e6b;
     outline-offset: 1px;
 }
