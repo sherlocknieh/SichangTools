@@ -48,7 +48,7 @@ src/
   - `timeline.js`：实时时间线的 Web Audio 调度、暂停继续与跳转。
   - `synthesis.js`：按句分段请求 `/api/tts`、边收边播、整条 WAV 落盘与 `fetch` 接管。
   - `regenerate.js`：单段重生成与整条重生成流程；整条重生成原地复用逐段流程，不新建记录。记录/播放/UI 的读写通过 `createRegenerator(host)` 注入。
-  - `delete-message.js`：在 `window` 捕获阶段接管官方「删除消息」按钮，阻止官方原生“从这条起全部删除”，按官方消息文档顺序安全映射消息 ID。官方没有单条删除接口，模块用「从目标消息 DELETE 截断 + `/api/conversations/import` 补回尾部」只删一条提问或回答；重导入保留 id/seq/role/content/model/createdAt，会丢掉 variants/thinking/图片建议/网页来源/附件。删除成功后通过官方 React context 的 `upsertConversation` 写回剩余消息，让官方页面立即更新；拿不到官方状态时回退整页刷新。映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。
+  - `delete-message.js`：在 `window` 捕获阶段接管官方「删除消息」按钮，阻止官方原生“从这条起全部删除”，按官方消息文档顺序安全映射消息 ID。官方没有单条删除接口，模块用「从目标消息 DELETE 截断 + `/api/conversations/import` 补回尾部」只删一条提问或回答；重导入保留 id/seq/role/content/model/createdAt，会丢掉 variants/thinking/图片建议/网页来源/附件。删除成功后通过官方 React context 的 `upsertConversation` 写回剩余消息，让官方页面立即更新；拿不到官方状态时回退整页刷新。映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。接口契约、恢复流程和 React 同步细节见 `logic/message-delete.md`。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
   - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长格式化，纯函数。
   - `constants.js`：接口路径 `TTS_PATH`、分段阈值、`localStorage` key 等契约常量。

@@ -64,6 +64,8 @@
 
 ## 单条消息删除
 
+实现、完整接口契约、失败恢复和 React 状态同步见 `docs/logic/message-delete.md`。
+
 - 入口：直接点官方消息上的「删除消息」按钮；没有脚本面板或额外管理 UI。只对登录后的云端对话生效，匿名/本地 `conv__anonymous__` 对话仍然走官方原有删除。
 - 官方 API 没有单条消息删除接口，官方界面默认会从这条起全部删除。脚本用官方迁移接口 `/api/conversations/import` 补回后面的消息：
   - 先读取官方最新消息，按 `DELETE /api/conversations/{id}/messages/{messageId}` 截断到目标消息。
