@@ -1,5 +1,6 @@
 // 面板外壳：Shadow DOM 里的骨架与剪贴板兜底。这里只关心 DOM，不碰播放和合成状态。
 import { PANEL_ID } from './constants.js';
+import { ICONS } from './icons.js';
 import { VOICE_GROUPS } from './voices.js';
 import { PANEL_CSS } from './styles.js';
 
@@ -36,7 +37,7 @@ export function createPanel() {
             <button class="fold" aria-label="收起">−</button>
             <span class="title">语音合成</span>
             <span class="spacer"></span>
-            <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">⏸</button>
+            <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>
             <button class="rateCycle" hidden aria-label="播放倍速" title="播放倍速">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
             <button class="go" title="读取官方输入框文字合成语音">合成</button>

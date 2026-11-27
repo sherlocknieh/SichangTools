@@ -1,6 +1,8 @@
 // 标题栏播放控件：只要有一路声音在响（实时时间线、顺序播放、单段播放），
 // 就在顶栏给出统一的播放/暂停和倍速入口；完全空闲时两者隐藏，顶栏保持精简。
 // 这里只做「找当前声音 → 转调各模块的暂停/继续」，不自己持有播放状态。
+import { ICONS } from './icons.js';
+
 export function createPlaybackBar(host) {
     const { ui } = host;
 
@@ -40,7 +42,7 @@ export function createPlaybackBar(host) {
         ui.rateCycle.hidden = !visible;
         if (!visible) return;
         const playing = current.playing;
-        ui.playToggle.textContent = playing ? '⏸' : '▶';
+        ui.playToggle.innerHTML = playing ? ICONS.pause : ICONS.play;
         ui.playToggle.classList.toggle('playing', playing);
         const label = playing ? '暂停播放' : '继续播放';
         ui.playToggle.title = label;

@@ -1,6 +1,7 @@
 // 分段顺序播放：从某一段开始连播、自动接下一段、暂停继续与停止，以及记录头的整条播放按钮。
 // 实时时间线由 timeline.js 负责，这里只在切换时调用它。
 import { joinedPcm, pcmToWav } from './audio.js';
+import { ICONS } from './icons.js';
 
 export function createChain(host) {
     const { records } = host;
@@ -33,14 +34,14 @@ export function createChain(host) {
         const segmentReady = record.segments.some(segment => segment.complete && segment.bytes && !segment.busy);
         button.disabled = record.state === 'failed' || waiting || (!liveReady && !chainReady && !segmentReady);
         if (waiting) {
-            button.textContent = '▶';
+            button.innerHTML = ICONS.play;
             button.classList.remove('playing');
             button.title = '等待下一段';
             button.setAttribute('aria-label', '等待下一段');
             button.setAttribute('aria-pressed', 'false');
             return;
         }
-        button.textContent = playing ? '⏸' : '▶';
+        button.innerHTML = playing ? ICONS.pause : ICONS.play;
         button.classList.toggle('playing', playing);
         button.title = playing ? '暂停整条' : '播放整条';
         button.setAttribute('aria-label', button.title);

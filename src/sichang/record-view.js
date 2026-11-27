@@ -1,6 +1,7 @@
 // 记录条目：列表行、摘要、下载与删除。
 // 记录头只做收纳，播放/重生成逻辑都通过 host 注入的回调触发。
 import { DEFAULT_SAMPLE_RATE, MAX_RECORDS } from './constants.js';
+import { ICONS } from './icons.js';
 import { SEGMENT_ICONS } from './segments.js';
 import { voiceName } from './voices.js';
 import { formatDuration, previewText } from './text.js';
@@ -82,14 +83,14 @@ export function createRecordView(host) {
         // 单段重生成紧挨该段的播放键，用图标避免挤占文本宽度
         const regenButton = document.createElement('button');
         regenButton.className = 'segRegen';
-        regenButton.textContent = '↻';
+        regenButton.innerHTML = SEGMENT_ICONS.replay;
         regenButton.title = '重生成这一段';
         regenButton.setAttribute('aria-label', '重生成这一段');
         regenButton.disabled = true;
         // 删除这一段：合成中删掉还没轮到的段就不再发请求，被删的跳过
         const deleteButton = document.createElement('button');
         deleteButton.className = 'segDelete';
-        deleteButton.textContent = '✕';
+        deleteButton.innerHTML = ICONS.close;
         deleteButton.title = '删除这一段';
         deleteButton.setAttribute('aria-label', '删除这一段');
         // 进度条就在行里：播放时替掉预览文字，不展开任何面板
@@ -102,13 +103,13 @@ export function createRecordView(host) {
         // 播放/暂停与停止按钮常驻行内，不用展开面板就能控制当前播放
         const toggleButton = document.createElement('button');
         toggleButton.className = 'segAction';
-        toggleButton.textContent = SEGMENT_ICONS.play;
+        toggleButton.innerHTML = SEGMENT_ICONS.play;
         toggleButton.title = '播放本段';
         toggleButton.setAttribute('aria-label', '播放本段');
         toggleButton.disabled = true;
         const stopButton = document.createElement('button');
         stopButton.className = 'segAction';
-        stopButton.textContent = SEGMENT_ICONS.stop;
+        stopButton.innerHTML = SEGMENT_ICONS.stop;
         stopButton.title = '停止播放';
         stopButton.setAttribute('aria-label', '停止播放');
         stopButton.hidden = true;
@@ -308,26 +309,26 @@ export function createRecordView(host) {
         segCount.textContent = '0 段';
         const playButton = document.createElement('button');
         playButton.className = 'itemPlay';
-        playButton.textContent = '▶';
+        playButton.innerHTML = ICONS.play;
         playButton.title = '播放整条';
         playButton.setAttribute('aria-label', '播放整条');
         playButton.disabled = true;
         // 整条重生成：复用逐段重生成，原地替换所有分段，不再新建记录
         const regenAllButton = document.createElement('button');
         regenAllButton.className = 'itemRegen';
-        regenAllButton.textContent = '↻';
+        regenAllButton.innerHTML = ICONS.regen;
         regenAllButton.title = '重生成整条（逐段复用）';
         regenAllButton.setAttribute('aria-label', '重生成整条');
         regenAllButton.disabled = true;
         const downloadButton = document.createElement('button');
         downloadButton.className = 'itemDownload';
-        downloadButton.textContent = '↓';
+        downloadButton.innerHTML = ICONS.download;
         downloadButton.title = '下载整条 WAV';
         downloadButton.setAttribute('aria-label', '下载整条 WAV');
         downloadButton.disabled = true;
         const deleteButton = document.createElement('button');
         deleteButton.className = 'itemDelete';
-        deleteButton.textContent = '✕';
+        deleteButton.innerHTML = ICONS.close;
         deleteButton.title = '删除这条记录';
         deleteButton.setAttribute('aria-label', '删除这条记录');
         // 记录头一行放完摘要与整条操作，摘要占据中间剩余宽度并单行截断

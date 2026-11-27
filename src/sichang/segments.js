@@ -1,17 +1,18 @@
 // 分段视图与状态：时长时间、状态文案、展开面板、按钮可用性。
 // 记录级播放/合成流程通过 host 注入的回调完成，这里只负责把状态映射到 DOM。
 import { DEFAULT_SAMPLE_RATE } from './constants.js';
+import { ICONS } from './icons.js';
 import { formatSegmentDuration, previewText } from './text.js';
 import { VOICE_LABELS, voiceName } from './voices.js';
 
-// 分段控制按钮的字形统一放这里，文字说明由 title/aria-label 承担
+// 分段控制按钮的图标统一放这里，文字说明由 title/aria-label 承担
 export const SEGMENT_ICONS = {
-    play: '▶',
-    pause: '⏸',
-    stop: '■',
-    replay: '↺',
-    synthStop: '✕',
-    waiting: '…',
+    play: ICONS.play,
+    pause: ICONS.pause,
+    stop: ICONS.stop,
+    replay: ICONS.regen,
+    synthStop: ICONS.close,
+    waiting: ICONS.waiting,
 };
 
 export function createSegments(host) {
@@ -36,7 +37,7 @@ export function createSegments(host) {
             || !segment.complete || !segment.bytes;
         // 失败/空文本的短暂反馈优先显示，不要被中途的刷新覆盖
         if (button.classList.contains('failed')) return;
-        button.textContent = '↻';
+        button.innerHTML = SEGMENT_ICONS.replay;
         button.classList.toggle('busy', Boolean(record.regenerating && segment.busy));
         if (record.regenerating && segment.busy) {
             button.title = `正在重生成第 ${index} 段`;
@@ -232,7 +233,7 @@ export function createSegments(host) {
     }
 
     function setAction(button, icon, label) {
-        button.textContent = icon;
+        button.innerHTML = icon;
         button.title = label;
         button.setAttribute('aria-label', label);
     }
