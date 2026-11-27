@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2331
+// @version      2026.11.27.2335
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -30,6 +30,8 @@
 	var OFFICIAL_COPY_SELECTOR = "button[aria-label=\"复制消息\"], button[title=\"复制消息\"], button[aria-label=\"Copy message\"], button[title=\"Copy message\"]";
 	var FORK_BUTTON_SELECTOR = "button[data-sichang-fork]";
 	var FORK_BUTTON_LABEL = "复刻到这条消息";
+	var INSERT_BUBBLE_BUTTON_SELECTOR = "button[data-sichang-insert-bubble]";
+	var INSERT_BUBBLE_BUTTON_LABEL = "在下方插入消息";
 	var PANEL_ID = "sichang-tts-capture";
 	var DEFAULT_SAMPLE_RATE = 24e3;
 	var SEGMENT_HEADER = "X-Sichang-Segment";
@@ -3482,19 +3484,37 @@ button[${BUSY_ATTR}]::before {
 		const text = String(content || "").trim();
 		return text ? `${text.slice(0, 30)}${text.length > 30 ? "…" : ""}` : "新对话";
 	}
+	function copyButtons$1() {
+		return Array.from(document.querySelectorAll(OFFICIAL_COPY_SELECTOR));
+	}
+	function sameOrder(actual, expected) {
+		if (actual.length !== expected.length) return false;
+		for (let index = 0; index < actual.length; index += 1) {
+			if (actual[index].id !== expected[index].id) return false;
+			if (actual[index].content !== expected[index].content) return false;
+			if (actual[index].role !== expected[index].role) return false;
+		}
+		return true;
+	}
 	function createAddBubble() {
 		const state = {
 			busy: false,
 			observer: null,
 			timer: 0,
-			menu: null
+			menu: null,
+			anchor: null,
+			target: null,
+			activeButton: null
 		};
 		let button = null;
-		function setBusy(busy) {
+		function setBusy(busy, active = null) {
 			state.busy = busy;
-			if (!button) return;
-			button.disabled = busy;
-			setBusyIcon(button, busy);
+			state.activeButton = busy ? active : null;
+			const buttons = [...button ? [button] : [], ...document.querySelectorAll(INSERT_BUBBLE_BUTTON_SELECTOR)];
+			for (const item of buttons) {
+				item.disabled = busy;
+				setBusyIcon(item, busy && item === state.activeButton);
+			}
 			for (const option of state.menu?.querySelectorAll(ROLE_SELECTOR) ?? []) option.disabled = busy;
 		}
 		function ensureMenuStyle() {
@@ -3507,34 +3527,43 @@ button[${BUSY_ATTR}]::before {
 		function closeMenu() {
 			state.menu?.remove();
 			state.menu = null;
+			state.anchor = null;
+			state.target = null;
 		}
 		function positionMenu() {
-			if (!state.menu || !button?.isConnected) return;
-			const rect = button.getBoundingClientRect();
-			state.menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
-			state.menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
-		}
-		function openMenu() {
-			ensureMenuStyle();
-			if (state.menu) {
-				positionMenu();
-				return;
+			if (!state.menu || !state.anchor?.isConnected) return;
+			const rect = state.anchor.getBoundingClientRect();
+			const menuHeight = state.menu.offsetHeight;
+			if (rect.top < menuHeight + 12) {
+				state.menu.style.top = `${rect.bottom + 8}px`;
+				state.menu.style.bottom = "";
+			} else {
+				state.menu.style.top = "";
+				state.menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
 			}
+			state.menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+		}
+		function openMenu(anchor, target) {
+			ensureMenuStyle();
+			closeMenu();
+			const insert = target.kind === "insert";
 			const menu = document.createElement("div");
 			menu.setAttribute("data-sichang-add-menu", "");
 			menu.className = "sichang-add-menu";
 			menu.setAttribute("role", "menu");
 			menu.innerHTML = `
-            <button type="button" role="menuitem" data-sichang-add-role="user"${state.busy ? " disabled" : ""}>添加提问</button>
-            <button type="button" role="menuitem" data-sichang-add-role="assistant"${state.busy ? " disabled" : ""}>添加回答</button>
+            <button type="button" role="menuitem" data-sichang-add-role="user"${state.busy ? " disabled" : ""}>${insert ? "在下方插入提问" : "添加提问"}</button>
+            <button type="button" role="menuitem" data-sichang-add-role="assistant"${state.busy ? " disabled" : ""}>${insert ? "在下方插入回答" : "添加回答"}</button>
         `;
 			document.body.appendChild(menu);
 			state.menu = menu;
+			state.anchor = anchor;
+			state.target = target;
 			positionMenu();
 		}
-		function ensureButton() {
+		function ensureComposerButton() {
 			if (button?.isConnected) {
-				setBusy(state.busy);
+				setBusy(state.busy, state.activeButton);
 				return;
 			}
 			const composer = findComposer();
@@ -3556,13 +3585,32 @@ button[${BUSY_ATTR}]::before {
 			button = next;
 			setBusy(state.busy);
 		}
+		function ensureMessageButtons() {
+			for (const copy of copyButtons$1()) {
+				const span = copy.parentElement;
+				const row = span?.parentElement;
+				if (!span || !row || row.querySelector("button[data-sichang-insert-bubble]")) continue;
+				if (!canMutate(row)) continue;
+				const wrapper = span.cloneNode(true);
+				const insert = wrapper.querySelector("button");
+				if (!insert) continue;
+				insert.setAttribute("data-sichang-insert-bubble", "");
+				insert.setAttribute("aria-label", INSERT_BUBBLE_BUTTON_LABEL);
+				insert.title = `${INSERT_BUBBLE_BUTTON_LABEL}（选择插入提问或回答）`;
+				insert.setAttribute("aria-haspopup", "menu");
+				insert.innerHTML = PLUS_ICON;
+				insert.disabled = state.busy;
+				row.insertBefore(wrapper, span);
+			}
+		}
 		function scheduleEnsure() {
 			if (state.timer) return;
 			state.timer = window.setTimeout(() => {
 				state.timer = 0;
-				ensureButton();
+				ensureComposerButton();
+				ensureMessageButtons();
 				if (state.menu) {
-					if (button?.isConnected) positionMenu();
+					if (state.anchor?.isConnected) positionMenu();
 					else closeMenu();
 				}
 			}, 120);
@@ -3573,14 +3621,22 @@ button[${BUSY_ATTR}]::before {
 			if (content.length > 2e4) throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断。`);
 			return content;
 		}
-		async function addBubble(role) {
+		function readTarget(cid) {
 			const composer = findComposer();
 			if (!composer?.send) throw new Error("AI 正在回复或输入区不可用，请等当前回复结束后再添加。");
 			const content = readInput(composer.textarea);
-			const cid = readConversationId();
 			const owner = conversationOwner(cid);
 			if (!cid || !owner) throw new Error("当前还没有云端会话，先正常发送一条消息创建会话。");
 			if (owner === "anonymous") throw new Error("当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。");
+			return {
+				composer,
+				content,
+				owner
+			};
+		}
+		async function addBubble(role) {
+			const cid = readConversationId();
+			const { composer, content, owner } = readTarget(cid);
 			const [meta, messages] = await Promise.all([loadConversation(cid), loadMessages(cid)]);
 			const title = !messages.length && role === "user" ? deriveTitle(content) : meta.title;
 			const message = {
@@ -3617,14 +3673,125 @@ button[${BUSY_ATTR}]::before {
 			setNativeValue(composer.textarea, "");
 			return synced;
 		}
-		async function runAdd(role) {
+		function syncOfficialPage(context, conversation, after, inserted, targetId) {
+			if (!context || !conversation) return false;
+			const latest = new Map(after.map((message) => [message.id, message]));
+			const next = [];
+			let insertedFound = false;
+			for (const message of conversation.messages) {
+				const server = latest.get(message.id);
+				if (!server) continue;
+				next.push(server.seq === message.seq ? message : {
+					...message,
+					seq: server.seq
+				});
+				if (message.id === targetId) {
+					next.push({ ...inserted });
+					insertedFound = true;
+				}
+			}
+			if (!insertedFound) return false;
+			try {
+				context.upsertConversation({
+					...conversation,
+					messages: next,
+					updatedAt: inserted.createdAt
+				});
+				return true;
+			} catch {
+				return false;
+			}
+		}
+		function downloadBackup(meta, messages) {
+			const blob = new Blob([JSON.stringify({
+				conversation: meta,
+				messages
+			}, null, 2)], { type: "application/json" });
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement("a");
+			anchor.href = url;
+			anchor.download = `sichang-message-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+			anchor.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1e3);
+		}
+		async function insertBubble(role, target) {
+			const cid = readConversationId();
+			const { composer, content, owner } = readTarget(cid);
+			const context = officialContext(target.copy);
+			const conversation = context?.activeConversation;
+			if (!conversation || conversation.id !== cid) throw new Error("无法读取官方当前会话，请等消息加载完成。");
+			const buttonsNow = copyButtons$1();
+			if (!(buttonsNow.length === target.buttonsAtClick.length && buttonsNow.every((item, index) => item === target.buttonsAtClick[index])) || conversation.messages.length !== target.buttonsAtClick.length || target.indexAtClick < 0 || target.indexAtClick >= conversation.messages.length) throw new Error("消息列表已变化，请等页面稳定后重试。");
+			const local = conversation.messages[target.indexAtClick];
+			const [meta, fresh] = await Promise.all([loadConversation(cid), loadMessages(cid)]);
+			let index = fresh.findIndex((message) => message.id === local.id);
+			if (index < 0 && typeof local.seq === "number") index = fresh.findIndex((message) => message.seq === local.seq);
+			if (index < 0) throw new Error("在会话里找不到这条消息，请刷新后重试。");
+			const insertSeq = fresh[index + 1] ? fresh[index + 1].seq : nextSeq(fresh);
+			const message = {
+				id: `msg__${owner}__${newId()}`,
+				seq: insertSeq,
+				role,
+				content: messageText(content),
+				createdAt: Date.now(),
+				state: "complete"
+			};
+			const originalTail = fresh.slice(index + 1);
+			const tail = originalTail.map((item, offset) => ({
+				...item,
+				seq: insertSeq + 1 + offset,
+				content: messageText(item.content)
+			}));
+			const tooLong = tail.find((item) => String(item.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
+			if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
+			const expected = [
+				...fresh.slice(0, index + 1),
+				message,
+				...tail
+			];
+			let deleted = false;
+			try {
+				if (originalTail.length) {
+					deleted = true;
+					await request(`/api/conversations/${encodeURIComponent(cid)}/messages/${encodeURIComponent(originalTail[0].id)}`, { method: "DELETE" });
+				}
+				await importMessages(cid, meta, [message, ...tail]);
+				const after = await loadMessages(cid);
+				if (!sameOrder(after, expected)) throw new Error("写入后校验失败：官方消息顺序与预期不一致，可能被其他窗口改动了。");
+				const inserted = after.find((item) => item.id === message.id) || message;
+				setNativeValue(composer.textarea, "");
+				return syncOfficialPage(context, conversation, after, inserted, local.id);
+			} catch (error) {
+				if (!deleted) throw error;
+				try {
+					const restoredTail = originalTail.map((item, offset) => ({
+						...item,
+						seq: originalTail[0].seq + offset,
+						content: messageText(item.content)
+					}));
+					if (restoredTail.length) await importMessages(cid, meta, restoredTail);
+					if (!sameOrder(await loadMessages(cid), fresh.map((item) => ({
+						...item,
+						content: messageText(item.content)
+					})))) throw new Error("补回后校验失败");
+				} catch (restoreError) {
+					downloadBackup(meta, fresh);
+					throw new Error(`插入失败：${errorMessage(error)}；自动补回也失败：${errorMessage(restoreError)}。已自动下载备份，刷新前请保留。`);
+				}
+				throw new Error(`插入失败：${errorMessage(error)}。已尝试补回原消息，请确认页面内容。`);
+			}
+		}
+		async function runRole(role) {
+			const target = state.target;
 			closeMenu();
 			if (state.busy) return;
-			setBusy(true);
+			const active = target?.kind === "insert" ? target.button : button;
+			const inserting = target?.kind === "insert";
+			setBusy(true, active);
 			try {
-				if (!await addBubble(role)) window.location.reload();
+				if (!(inserting ? await insertBubble(role, target) : await addBubble(role))) window.location.reload();
 			} catch (error) {
-				console.warn(`[SichangTools] 添加消息失败：${errorMessage(error)}`);
+				console.warn(`[SichangTools] ${inserting ? "插入" : "添加"}消息失败：${errorMessage(error)}`);
 			} finally {
 				setBusy(false);
 			}
@@ -3637,16 +3804,50 @@ button[${BUSY_ATTR}]::before {
 				event.preventDefault();
 				event.stopPropagation();
 				event.stopImmediatePropagation();
-				runAdd(option.getAttribute("data-sichang-add-role") === "assistant" ? "assistant" : "user");
+				runRole(option.getAttribute("data-sichang-add-role") === "assistant" ? "assistant" : "user");
 				return;
 			}
-			if (target.closest("button[data-sichang-add-bubble]")) {
+			const insert = target.closest(INSERT_BUBBLE_BUTTON_SELECTOR);
+			if (insert) {
 				event.preventDefault();
 				event.stopPropagation();
 				event.stopImmediatePropagation();
 				if (state.busy) return;
-				if (state.menu) closeMenu();
-				else openMenu();
+				if (state.menu && state.anchor === insert) {
+					closeMenu();
+					return;
+				}
+				const copy = (insert.parentElement?.parentElement)?.querySelector(OFFICIAL_COPY_SELECTOR);
+				if (!copy) return;
+				const buttonsAtClick = copyButtons$1();
+				const indexAtClick = buttonsAtClick.indexOf(copy);
+				if (indexAtClick < 0) {
+					console.warn("[SichangTools] 官方消息列表已变化，已取消插入，请刷新后重试。");
+					return;
+				}
+				openMenu(insert, {
+					kind: "insert",
+					button: insert,
+					copy,
+					buttonsAtClick,
+					indexAtClick
+				});
+				return;
+			}
+			const plus = target.closest(ADD_BUBBLE_BUTTON_SELECTOR);
+			if (plus) {
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
+				if (state.busy) return;
+				if (state.menu && state.anchor === plus) {
+					closeMenu();
+					return;
+				}
+				openMenu(plus, {
+					kind: "append",
+					button: plus
+				});
 				return;
 			}
 			if (state.menu && !target.closest(MENU_SELECTOR)) closeMenu();
@@ -3654,7 +3855,8 @@ button[${BUSY_ATTR}]::before {
 		function onMenuKeyDown(event) {
 			if (event.key === "Escape" && state.menu) closeMenu();
 		}
-		ensureButton();
+		ensureComposerButton();
+		ensureMessageButtons();
 		document.addEventListener("click", onAddClick, { capture: true });
 		window.addEventListener("keydown", onMenuKeyDown, true);
 		window.addEventListener("scroll", closeMenu, true);
@@ -3681,6 +3883,8 @@ button[${BUSY_ATTR}]::before {
 				state.timer = 0;
 				button?.remove();
 				button = null;
+				for (const item of document.querySelectorAll(INSERT_BUBBLE_BUTTON_SELECTOR)) item.parentElement?.remove();
+				clearBusyIcons();
 			}
 		};
 	}

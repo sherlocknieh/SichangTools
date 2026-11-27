@@ -35,7 +35,7 @@ src/
     busy-icon.js       # 共享「操作中」按钮动画：旋转箭头
     delete-message.js  # 接管官方删除按钮：菜单选择单条删除或删后续，同步官方视图
     clone-conversation.js # 顶栏「克隆会话」按钮：新建副本并导入全部消息
-    add-bubble.js      # 输入框右侧「添加消息气泡」：把输入文字写成用户消息
+    add-bubble.js      # 加号添加/插入消息：输入区旁追加、每条消息操作行在下方插入
     fork-message.js    # 每条消息的 fork 按钮：复刻会话到该条为止
     tts.js             # 单段一次性 TTS 请求（重生成用）
     text.js            # 文本切分与展示格式化（纯函数）
@@ -65,7 +65,7 @@ src/
   - `official-page.js`：官方 React 页面的共享工具（从 DOM fiber 找 context、`findComposer()` 定位输入卡片、通过原生 setter 改受控 textarea）。删除、加气泡和语音面板共用。
   - `hydration.js`：站点水合门禁。`canMutate(element)` 判断目标节点是否已经水合完成（`readyState === 'complete'` 且有 `__reactFiber$`），`onSettled(cb)` 在水合完成或 5 秒兜底放行后回调一次。面板、加号、克隆和 fork 按钮的插入都先过这里，避免水合期多出的节点让 React 整页重渲染、清掉其它脚本挂的节点。
   - `busy-icon.js`：共享的操作中按钮动画。通过 `data-sichang-busy` 和伪元素把按钮内容替换成旋转箭头，删除、加气泡、克隆和 fork 共用。
-  - `add-bubble.js`：在官方输入区「发送消息」左侧注入加号按钮；点击后把输入框文字（可为空，用零宽空格占位）作为一条 `user` 消息经 import 写入当前云端会话，不请求 AI 回复。写入成功后用官方 context 立即插入气泡并清空输入框。细节见 `logic/add-bubble.md`。
+  - `add-bubble.js`：注入两个加号入口：官方输入区「发送消息」左侧的加号把输入框文字追加到会话末尾；每条消息操作行里的加号把文字插入到该条消息下方。两者都弹出「添加提问 / 添加回答」，经 import 持久化且不请求 AI 回复；插入中间位置时先 DELETE 截断原尾部，再 import 新消息和重排后的尾部。写入成功后用官方 context 立即更新气泡并清空输入框。细节见 `logic/add-bubble.md`。
   - `fork-message.js`：在每条官方消息的操作行注入 fork 按钮；按按钮文档顺序映射到消息，截取到该条为止后复用 `conversation-copy.js` 新建副本。映射数量不一致时安全拒绝。细节见 `logic/fork-message.md`。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
   - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长格式化，纯函数。
