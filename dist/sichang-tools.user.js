@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2044
-// @description  接管思畅 AI 朗读，分段合成、边下边播；支持对话结构管理与 WAV 保存
+// @version      2026.11.27.2111
+// @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条消息删除与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
 // @grant        none
@@ -400,244 +400,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segAction.playing { background: #2d4a33; color: #a9e6b8; }
 .segAction.synth { color: #d8b46a; }
 .segAction.synth:hover { background: #3a3022; color: #f0cd8a; }
-/* 对话结构管理：覆盖层单独挂在 Shadow DOM 里，宽度不受 300px 面板限制 */
-.convOverlay {
-    position: fixed;
-    inset: 0;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-    background: rgba(0, 0, 0, .55);
-}
-.convOverlay[hidden] { display: none; }
-.convBox {
-    box-sizing: border-box;
-    width: min(760px, calc(100vw - 32px));
-    max-height: min(84vh, 760px);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    border: 1px solid #2c2c33;
-    border-radius: 14px;
-    background: #16161a;
-    color: #e8e8ea;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, .6);
-    font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-}
-.convBox *, .convBox *::before, .convBox *::after { box-sizing: border-box; }
-.convHead {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: none;
-    padding: 9px 12px;
-    background: #1d1d22;
-    border-bottom: 1px solid #2c2c33;
-}
-.convTitle { font-size: 13px; font-weight: 600; }
-.convSub {
-    max-width: 42%;
-    overflow: hidden;
-    color: #8a8a94;
-    font-size: 11px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.convSpacer { flex: 1; }
-.convHead button {
-    height: 24px;
-    padding: 0 8px;
-    border-radius: 6px;
-    color: #a9a9b3;
-    font-size: 11px;
-}
-.convHead button:hover { background: #2c2c33; color: #fff; }
-.convNote {
-    flex: none;
-    padding: 8px 12px;
-    border-bottom: 1px solid #232329;
-    background: #141418;
-    color: #a9a9b3;
-    font-size: 11px;
-}
-.convNote b { color: #e0b96a; font-weight: 600; }
-.convStatus {
-    flex: none;
-    min-height: 29px;
-    padding: 6px 12px;
-    border-bottom: 1px solid #232329;
-    color: #a9a9b3;
-    font-size: 12px;
-    white-space: pre-wrap;
-}
-.convStatus[data-kind="error"] { background: #2a1a1d; color: #ff9a9a; }
-.convStatus[data-kind="success"] { background: #16231a; color: #a9e6b8; }
-.convRecovery {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: none;
-    padding: 6px 12px;
-    border-bottom: 1px solid #3a2226;
-    background: #2a1a1d;
-    color: #ffb3b3;
-    font-size: 11px;
-}
-.convRecovery[hidden] { display: none; }
-.convRecovery button {
-    height: 24px;
-    padding: 0 8px;
-    border-radius: 6px;
-    background: #3a2226;
-    color: #ffb3b3;
-    font-size: 11px;
-}
-.convRecovery button:hover { background: #4a2a30; color: #fff; }
-.convList { flex: 1; min-height: 90px; overflow: auto; }
-.convEmpty { padding: 24px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
-.convRow {
-    position: relative;
-    display: flex;
-    align-items: flex-start;
-    gap: 7px;
-    padding: 6px 12px;
-    border-bottom: 1px solid #202026;
-    cursor: grab;
-}
-.convRow:hover { background: #1b1b20; }
-.convRow.selected { background: #243027; }
-.convRow.selStart { box-shadow: inset 3px 0 #5a9e6b; }
-.convRow.selEnd { box-shadow: inset -3px 0 #5a9e6b; }
-.convRow.selStart.selEnd { box-shadow: inset 3px 0 #5a9e6b, inset -3px 0 #5a9e6b; }
-.convRow.dragging { opacity: .45; cursor: grabbing; }
-.convRow.dropBefore::after,
-.convRow.dropAfter::after {
-    content: "";
-    position: absolute;
-    left: 10px;
-    right: 10px;
-    height: 2px;
-    border-radius: 2px;
-    background: #5a9e6b;
-    pointer-events: none;
-}
-.convRow.dropBefore::after { top: -1px; }
-.convRow.dropAfter::after { bottom: -1px; }
-.convIdx {
-    flex: none;
-    width: 34px;
-    padding-top: 2px;
-    color: #6f6f79;
-    font-size: 10px;
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-}
-.convRole {
-    flex: none;
-    width: 34px;
-    border-radius: 5px;
-    background: #2a2a32;
-    color: #c9c9d1;
-    font-size: 10px;
-    line-height: 18px;
-    text-align: center;
-}
-.convRole.user { background: #26364a; color: #9dc8ff; }
-.convRole.assistant { background: #2d3a2f; color: #a9e6b8; }
-.convRole.system { background: #3a3022; color: #e0b96a; }
-.convText {
-    flex: 1;
-    min-width: 0;
-    color: #c9c9d1;
-    font-size: 12px;
-    word-break: break-word;
-}
-.convBadges {
-    flex: none;
-    max-width: 38%;
-    color: #8a8a94;
-    font-size: 10px;
-    text-align: right;
-    word-break: break-word;
-}
-.convBadges.warn { color: #e0b96a; }
-.convForm {
-    flex: none;
-    padding: 8px 12px 10px;
-    border-top: 1px solid #2c2c33;
-    background: #141418;
-}
-.convForm[hidden] { display: none; }
-.convFormRow {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-bottom: 6px;
-    color: #a9a9b3;
-    font-size: 11px;
-}
-.convForm select, .convForm textarea {
-    border: 1px solid #2c2c33;
-    border-radius: 6px;
-    background: #101014;
-    color: #e8e8ea;
-    font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    outline: none;
-}
-.convForm select { height: 26px; padding: 0 6px; background: #1d1d22; color: #d5d5dd; }
-.convForm textarea {
-    display: block;
-    width: 100%;
-    min-height: 72px;
-    max-height: 160px;
-    padding: 7px 8px;
-    resize: vertical;
-}
-.convForm select:focus, .convForm textarea:focus { border-color: #4a4a56; }
-.convForm button {
-    height: 24px;
-    padding: 0 9px;
-    border-radius: 6px;
-    background: #2a2a32;
-    color: #d5d5dd;
-    font-size: 11px;
-}
-.convForm button:hover { background: #35353f; color: #fff; }
-.convForm button.primary { background: #2d4a33; color: #a9e6b8; }
-.convForm button.primary:hover { background: #3a5f43; color: #fff; }
-.convBar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: none;
-    flex-wrap: wrap;
-    padding: 8px 12px;
-    border-top: 1px solid #2c2c33;
-    background: #1d1d22;
-}
-.convSel {
-    min-width: 0;
-    color: #8a8a94;
-    font-size: 11px;
-}
-.convBar button {
-    height: 26px;
-    padding: 0 9px;
-    border-radius: 6px;
-    background: #2a2a32;
-    color: #d5d5dd;
-    font-size: 11px;
-}
-.convBar button:hover { background: #35353f; color: #fff; }
-.convBar button.primary { background: #2d4a33; color: #a9e6b8; }
-.convBar button.primary:hover { background: #3a5f43; color: #fff; }
-@media (max-width: 560px) {
-    .convBadges { display: none; }
-    .convBar button { padding: 0 7px; }
-}
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
 }
@@ -668,7 +430,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
-            <button class="conv" aria-label="对话结构管理" title="对话结构管理（同步到官方）">管理</button>
             <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
@@ -703,7 +464,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			list: panel.querySelector(".list"),
 			empty: panel.querySelector(".empty"),
 			count: panel.querySelector(".count"),
-			conv: panel.querySelector(".conv"),
 			rateCycle: panel.querySelector(".rateCycle"),
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
@@ -2838,84 +2598,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		assistant: "AI",
 		system: "系统"
 	};
-	var MAX_HISTORY = 5;
-	function createConversation(host) {
-		const { ui } = host;
+	function createMessageDelete(host) {
 		const state = {
-			open: false,
 			busy: false,
-			cid: "",
-			meta: null,
-			messages: [],
-			startId: null,
-			endId: null,
-			pendingMove: false,
-			form: "",
-			formRendered: "",
-			insertRole: "user",
-			insertPosition: "after",
-			insertText: "",
-			status: "",
-			statusKind: "info",
-			dirty: false,
-			history: [],
-			recovery: "",
-			scrollToId: ""
+			cid: ""
 		};
-		const overlay = document.createElement("div");
-		overlay.className = "convOverlay";
-		overlay.hidden = true;
-		overlay.innerHTML = `
-        <div class="convBox" role="dialog" aria-modal="true" aria-label="对话结构管理">
-            <div class="convHead">
-                <span class="convTitle">对话结构管理</span>
-                <span class="convSub" data-role="sub"></span>
-                <span class="convSpacer"></span>
-                <button type="button" data-action="refresh" title="重新读取官方消息">刷新</button>
-                <button type="button" data-action="close" title="关闭">×</button>
-            </div>
-            <div class="convNote">
-                修改直接写入官方。结构修改会从分歧点截断并重建尾部：文本、角色、模型、时间和 ID 保留，
-                <b>变体、思考、图片建议、网页来源和附件会丢失</b>。
-            </div>
-            <div class="convStatus" data-role="status" data-kind="info"></div>
-            <div class="convRecovery" data-role="recovery" hidden>
-                <span>自动恢复失败，修改前的消息已保存在页面内。</span>
-                <button type="button" data-action="download-recovery">下载备份 JSON</button>
-            </div>
-            <div class="convList" data-role="list" role="listbox" aria-label="消息列表" aria-multiselectable="true"></div>
-            <div class="convForm" data-role="form" hidden></div>
-            <div class="convBar">
-                <span class="convSel" data-role="selection"></span>
-                <span class="convSpacer"></span>
-                <button type="button" data-action="insert-before">插入到此前</button>
-                <button type="button" data-action="insert-after">插入到此后</button>
-                <button type="button" data-action="delete">删除选中</button>
-                <button type="button" data-action="delete-turn">删除整轮</button>
-                <button type="button" data-action="move">移动整轮</button>
-                <button type="button" data-action="move-end" hidden>移到末尾</button>
-                <button type="button" data-action="undo" hidden>撤销</button>
-                <button type="button" data-action="reload" class="primary" hidden>刷新页面</button>
-            </div>
-        </div>
-    `;
-		ui.root.appendChild(overlay);
-		const dom = {
-			sub: overlay.querySelector("[data-role=\"sub\"]"),
-			status: overlay.querySelector("[data-role=\"status\"]"),
-			recovery: overlay.querySelector("[data-role=\"recovery\"]"),
-			list: overlay.querySelector("[data-role=\"list\"]"),
-			form: overlay.querySelector("[data-role=\"form\"]"),
-			selection: overlay.querySelector("[data-role=\"selection\"]"),
-			undo: overlay.querySelector("[data-action=\"undo\"]"),
-			reload: overlay.querySelector("[data-action=\"reload\"]"),
-			moveEnd: overlay.querySelector("[data-action=\"move-end\"]"),
-			move: overlay.querySelector("[data-action=\"move\"]")
-		};
-		const events = new AbortController();
-		const read = new AbortController();
-		let formFocus = false;
-		let dragState = null;
 		function readConversationId() {
 			const match = CHAT_PATH_RE.exec(window.location.pathname);
 			return match ? decodeURIComponent(match[1]) : "";
@@ -2940,8 +2627,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		async function requestJson(url, options = {}) {
 			return (await request(url, options)).json();
 		}
-		async function loadMeta(cid) {
-			return requestJson(`/api/conversations/${encodeURIComponent(cid)}`, { signal: read.signal });
+		function loadMeta(cid) {
+			return requestJson(`/api/conversations/${encodeURIComponent(cid)}`);
 		}
 		async function loadMessages(cid) {
 			let before = "";
@@ -2952,7 +2639,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 					limit: String(500),
 					before
 				});
-				const data = await requestJson(`/api/conversations/${encodeURIComponent(cid)}/messages?${params.toString()}`, { signal: read.signal });
+				const data = await requestJson(`/api/conversations/${encodeURIComponent(cid)}/messages?${params.toString()}`);
 				const items = Array.isArray(data.items) ? data.items : [];
 				pages.push(items);
 				if (!data.prevCursor || items.length === 0) break;
@@ -2966,11 +2653,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function indexOfId(list, id) {
 			return list.findIndex((item) => item.id === id);
 		}
-		function newMessageId(cid) {
-			const owner = cid.split("__")[1] || "user";
-			const random = typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
-			return `msg__${owner}__${Date.now().toString(36)}-${random}`;
-		}
 		function sameOrder(actual, expected) {
 			if (actual.length !== expected.length) return false;
 			for (let index = 0; index < actual.length; index += 1) {
@@ -2980,23 +2662,13 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			return true;
 		}
-		function firstDifference(current, desired) {
-			const length = Math.max(current.length, desired.length);
-			for (let index = 0; index < length; index += 1) {
-				const a = current[index];
-				const b = desired[index];
-				if (!a || !b) return index;
-				if (a.id !== b.id || a.content !== b.content || a.role !== b.role) return index;
-			}
-			return -1;
-		}
-		function describeLoss(tail) {
+		function describeLoss(messages) {
 			let variants = 0;
 			let thinking = 0;
 			let suggestions = 0;
 			let sources = 0;
 			let attachments = 0;
-			for (const message of tail) {
+			for (const message of messages) {
 				if (message.meta?.variants?.length > 1) variants += 1;
 				if (message.meta?.thinking) thinking += 1;
 				if (message.meta?.imageSuggestions?.length) suggestions += 1;
@@ -3020,77 +2692,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				previous = role;
 			}
 			return false;
-		}
-		function turnRange(messages, from, to) {
-			let start = from;
-			while (start > 0 && messages[start].role !== "user") start -= 1;
-			let end = to;
-			while (end + 1 < messages.length && messages[end + 1].role !== "user") end += 1;
-			return {
-				start,
-				end
-			};
-		}
-		function expandedMoveRange(fresh, operation) {
-			const start = indexOfId(fresh, operation.startId);
-			const end = indexOfId(fresh, operation.endId || operation.startId);
-			if (start < 0 || end < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
-			const [from, to] = start <= end ? [start, end] : [end, start];
-			return turnRange(fresh, from, to);
-		}
-		function normalizedMoveTarget(fresh, operation) {
-			const target = indexOfId(fresh, operation.targetId);
-			if (target < 0) throw new Error("目标消息已不存在，请刷新后重试。");
-			const turn = turnRange(fresh, target, target);
-			return operation.position === "after" ? turn.end : turn.start;
-		}
-		function buildDesired(fresh, meta, operation) {
-			const idx = (id) => indexOfId(fresh, id);
-			if (operation.type === "restore") return operation.messages.map((message) => ({ ...message }));
-			if (operation.type === "insert") {
-				const anchor = idx(operation.anchorId);
-				if (anchor < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
-				const at = operation.position === "before" ? anchor : anchor + 1;
-				const message = {
-					id: newMessageId(state.cid),
-					seq: at,
-					role: operation.role,
-					content: operation.content,
-					createdAt: Date.now(),
-					...operation.role === "assistant" ? { model: meta.model } : {}
-				};
-				return [
-					...fresh.slice(0, at),
-					message,
-					...fresh.slice(at)
-				];
-			}
-			if (operation.type === "move" || operation.type === "move-end") {
-				const { start: from, end: to } = expandedMoveRange(fresh, operation);
-				const range = fresh.slice(from, to + 1);
-				const rest = [...fresh.slice(0, from), ...fresh.slice(to + 1)];
-				if (operation.type === "move-end") return [...rest, ...range];
-				const target = normalizedMoveTarget(fresh, operation);
-				if (target >= from && target <= to) throw new Error("目标不能落在被移动的整轮内。");
-				const at = target > to ? target - range.length : target;
-				const insertAt = operation.position === "after" ? at + 1 : at;
-				return [
-					...rest.slice(0, insertAt),
-					...range,
-					...rest.slice(insertAt)
-				];
-			}
-			let start = idx(operation.startId);
-			let end = idx(operation.endId || operation.startId);
-			if (start < 0 || end < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
-			if (start > end) [start, end] = [end, start];
-			if (operation.type === "delete-turn") {
-				while (start > 0 && fresh[start].role !== "user") start -= 1;
-				let next = end + 1;
-				while (next < fresh.length && fresh[next].role !== "user") next += 1;
-				end = next - 1;
-			}
-			return [...fresh.slice(0, start), ...fresh.slice(end + 1)];
 		}
 		function planBaseSeq(fresh, firstDiff) {
 			if (firstDiff < fresh.length) return fresh[firstDiff].seq;
@@ -3133,79 +2734,151 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				});
 			}
 		}
-		function operationLabel(operation, fresh, desired, firstDiff) {
-			const seqOf = (id) => {
-				const index = indexOfId(fresh, id);
-				return index >= 0 ? fresh[index].seq : "?";
-			};
-			if (operation.type === "insert") return `在 #${seqOf(operation.anchorId)} ${operation.position === "before" ? "之前" : "之后"}插入 1 条${ROLE_LABELS[operation.role] || "消息"}`;
-			if (operation.type === "delete") {
-				const a = seqOf(operation.startId);
-				const b = seqOf(operation.endId || operation.startId);
-				const label = a === b ? `删除 #${a}` : `删除 #${a}–#${b}`;
-				return operation.source === "official" ? `接管官方删除：${label}` : label;
-			}
-			if (operation.type === "delete-turn") return "删除选中消息所在的整轮";
-			if (operation.type === "move" || operation.type === "move-end") {
-				const { start, end } = expandedMoveRange(fresh, operation);
-				const range = start === end ? `#${fresh[start].seq}` : `#${fresh[start].seq}–#${fresh[end].seq}`;
-				if (operation.type === "move-end") return `把整轮 ${range} 移到末尾`;
-				const target = normalizedMoveTarget(fresh, operation);
-				const where = operation.position === "after" ? "之后" : "之前";
-				return `把整轮 ${range} 移到 #${fresh[target].seq} ${where}`;
-			}
-			if (operation.type === "restore") return "撤销到上一次结构修改之前";
-			return firstDiff < fresh.length ? `从 #${fresh[firstDiff].seq} 起重建` : `在末尾追加 ${desired.length - fresh.length} 条`;
+		function errorMessage(error) {
+			if (error?.status === 401) return "未登录或登录已失效，无法同步到官方。";
+			if (error?.status === 404) return "这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。";
+			return error?.message || String(error);
 		}
-		function confirmPlan(label, fresh, desired, firstDiff) {
-			const freshIds = new Set(fresh.map((message) => message.id));
-			const desiredIds = new Set(desired.slice(firstDiff).map((message) => message.id));
-			const removed = fresh.slice(firstDiff).filter((message) => !desiredIds.has(message.id));
-			const kept = fresh.slice(firstDiff).filter((message) => desiredIds.has(message.id));
-			const inserted = desired.slice(firstDiff).filter((message) => !freshIds.has(message.id));
-			const loss = describeLoss(kept);
-			const lines = [`${label}，修改后共 ${desired.length} 条消息。`];
-			if (firstDiff < fresh.length) {
-				const counts = [];
-				if (removed.length) counts.push(`删除 ${removed.length} 条`);
-				if (kept.length) counts.push(`保留 ${kept.length} 条`);
-				if (inserted.length) counts.push(`新增 ${inserted.length} 条`);
-				lines.push(`将从 #${fresh[firstDiff]?.seq ?? firstDiff} 起截断并重建：${counts.join("、")}。`);
-			} else if (inserted.length) lines.push(`在末尾新增 ${inserted.length} 条消息。`);
-			if (loss.length) lines.push(`以下内容会丢失：${loss.join("、")}。文本、角色、模型、时间和消息 ID 会保留。`);
-			if (hasAdjacentSameRole(desired)) lines.push("注意：修改后会出现连续的同角色消息，官方对话通常是用户/助手交替，模型可能表现异常。建议按「整轮」删除或插入。");
-			lines.push("修改直接写入官方，无法从官方界面恢复。继续？");
+		function downloadBackup(meta, messages) {
+			const blob = new Blob([JSON.stringify({
+				conversation: meta,
+				messages
+			}, null, 2)], { type: "application/json" });
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement("a");
+			anchor.href = url;
+			anchor.download = `sichang-message-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+			anchor.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1e3);
+		}
+		function confirmDelete(target, fresh, desired, newTail, index) {
+			const loss = describeLoss(newTail);
+			const lines = [`只删除 #${target.seq}（${ROLE_LABELS[target.role] || target.role}）：${previewText(String(target.content || "")) || "（空）"}`];
+			const tailCount = fresh.length - index - 1;
+			if (newTail.length) lines.push(`后面的 ${Math.max(tailCount, 0)} 条消息会保留；为保证顺序，会从这条起截断并重建尾部 ${newTail.length} 条。`);
+			else lines.push("这是最后一条，不会重建其他消息。");
+			if (loss.length) lines.push(`重建会丢失：${loss.join("、")}。文本、角色、模型、时间和消息 ID 会保留。`);
+			if (hasAdjacentSameRole(desired)) lines.push("注意：删除后会出现连续的同角色消息，官方对话通常用户/助手交替，模型表现可能异常。");
+			lines.push("修改直接写入官方，成功后当前页面会立即移除这条消息。继续？");
 			return window.confirm(lines.join("\n\n"));
+		}
+		async function applyDelete(resolveTarget) {
+			if (state.busy || !state.cid) return null;
+			state.busy = true;
+			let fresh = [];
+			let meta = null;
+			let firstDiff = -1;
+			let deleted = false;
+			try {
+				fresh = await loadMessages(state.cid);
+				meta = await loadMeta(state.cid);
+				const target = resolveTarget(fresh);
+				const index = indexOfId(fresh, target.id);
+				if (index < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
+				firstDiff = index;
+				const desired = [...fresh.slice(0, index), ...fresh.slice(index + 1)];
+				const baseSeq = planBaseSeq(fresh, firstDiff);
+				const newTail = desired.slice(firstDiff).map((message, offset) => ({
+					...message,
+					seq: baseSeq + offset
+				}));
+				const tooLong = newTail.find((message) => String(message.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
+				if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
+				const empty = newTail.find((message) => String(message.content || "").length === 0);
+				if (empty) throw new Error(`第 #${empty.seq} 条消息没有文本内容，官方导入接口无法补回，已取消。`);
+				if (!confirmDelete(target, fresh, desired, newTail, index)) return { cancelled: true };
+				deleted = true;
+				await request(`/api/conversations/${encodeURIComponent(state.cid)}/messages/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+				if (newTail.length) await importMessages(meta, newTail);
+				const after = await loadMessages(state.cid);
+				if (!sameOrder(after, desired)) throw new Error("写入后校验失败：官方消息顺序与预期不一致，可能被其他窗口改动了。");
+				return {
+					ok: true,
+					messages: after,
+					targetId: target.id
+				};
+			} catch (error) {
+				const message = errorMessage(error);
+				if (deleted) try {
+					const originalTail = fresh.slice(firstDiff).map((item, offset) => ({
+						...item,
+						seq: planBaseSeq(fresh, firstDiff) + offset
+					}));
+					if (originalTail.length) await importMessages(meta, originalTail);
+					if (!sameOrder(await loadMessages(state.cid), fresh)) throw new Error("补回后校验失败");
+					return {
+						ok: false,
+						message: `删除失败：${message}。已尝试补回原消息，请确认页面内容。`
+					};
+				} catch (restoreError) {
+					downloadBackup(meta, fresh);
+					return {
+						ok: false,
+						message: `删除失败：${message}；自动补回也失败：${errorMessage(restoreError)}。已自动下载备份，刷新前请保留。`
+					};
+				}
+				return {
+					ok: false,
+					message
+				};
+			} finally {
+				state.busy = false;
+			}
+		}
+		function officialContext(element) {
+			let fiber = null;
+			for (const key of Object.getOwnPropertyNames(element)) if (key.startsWith("__reactFiber$")) {
+				fiber = element[key];
+				break;
+			}
+			for (let depth = 0; fiber && depth < 500; depth += 1) {
+				const value = fiber.memoizedProps?.value;
+				if (value && typeof value.upsertConversation === "function" && typeof value.activeConversation === "object" && Array.isArray(value.conversations)) return value;
+				fiber = fiber.return;
+			}
+			return null;
+		}
+		function syncOfficialPage(context, conversation, messages, targetId) {
+			if (!context || !conversation || conversation.id !== state.cid) return false;
+			const byId = new Map(messages.map((message) => [message.id, message]));
+			const next = [];
+			for (const message of conversation.messages) {
+				const latest = byId.get(message.id);
+				if (!latest) continue;
+				next.push(latest.seq === message.seq ? message : {
+					...message,
+					seq: latest.seq
+				});
+			}
+			if (next.length === conversation.messages.length || next.some((message) => message.id === targetId)) return false;
+			try {
+				context.upsertConversation({
+					...conversation,
+					messages: next
+				});
+				return true;
+			} catch {
+				return false;
+			}
 		}
 		function officialDeleteButtons() {
 			return Array.from(document.querySelectorAll(OFFICIAL_MESSAGE_DELETE_SELECTOR));
 		}
-		function reportOfficialDeleteFailure(message) {
-			setStatus(message, "error");
-			if (!state.open) window.alert(`SichangTools：${message}`);
-		}
-		async function interceptOfficialDelete(button, buttonsAtClick, indexAtClick) {
-			try {
-				if (await applyOperation((fresh) => {
-					if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
-					const buttonsNow = officialDeleteButtons();
-					if (!(buttonsNow.length === buttonsAtClick.length && buttonsNow.every((item, index) => item === buttonsAtClick[index])) || buttonsNow[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
-					if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) throw new Error("无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。");
-					const target = fresh[indexAtClick];
-					return {
-						type: "delete",
-						startId: target.id,
-						endId: target.id,
-						source: "official"
-					};
-				})) {
-					window.location.reload();
-					return;
-				}
-				if (state.status !== "已取消。") reportOfficialDeleteFailure(state.status || "删除失败，已阻止官方原生删除。");
-			} catch (error) {
-				reportOfficialDeleteFailure(error?.message || String(error));
+		async function interceptOfficialDelete(button, buttonsAtClick, indexAtClick, context, conversation) {
+			const result = await applyDelete((fresh) => {
+				if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
+				const buttonsNow = officialDeleteButtons();
+				if (!(buttonsNow.length === buttonsAtClick.length && buttonsNow.every((item, index) => item === buttonsAtClick[index])) || buttonsNow[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
+				if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) throw new Error("无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。");
+				return fresh[indexAtClick];
+			});
+			if (!result || result.cancelled) return;
+			if (!result.ok) {
+				window.alert(`SichangTools：${result.message}`);
+				return;
 			}
+			if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
+			window.location.reload();
 		}
 		function onOfficialDeleteClick(event) {
 			const target = event.target;
@@ -3218,619 +2891,21 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			event.stopPropagation();
 			event.stopImmediatePropagation();
 			if (state.busy) {
-				reportOfficialDeleteFailure("正在处理上一次结构修改，请稍后再试。");
+				window.alert("SichangTools：正在删除上一条消息，请稍后再试。");
 				return;
 			}
 			const buttonsAtClick = officialDeleteButtons();
 			const indexAtClick = buttonsAtClick.indexOf(button);
+			const context = officialContext(button);
+			const conversation = context?.activeConversation ?? null;
 			state.cid = cid;
-			interceptOfficialDelete(button, buttonsAtClick, indexAtClick);
+			interceptOfficialDelete(button, buttonsAtClick, indexAtClick, context, conversation);
 		}
-		async function applyOperation(operationOrFactory, options = {}) {
-			if (state.busy || !state.cid) return false;
-			state.busy = true;
-			state.status = "读取最新消息…";
-			state.statusKind = "info";
-			render();
-			await new Promise((resolve) => setTimeout(resolve, 0));
-			let fresh = [];
-			let desired = [];
-			let firstDiff = -1;
-			let deleted = false;
-			let pushed = false;
-			try {
-				fresh = await loadMessages(state.cid);
-				const meta = await loadMeta(state.cid);
-				state.meta = meta;
-				const operation = typeof operationOrFactory === "function" ? operationOrFactory(fresh, meta) : operationOrFactory;
-				desired = buildDesired(fresh, meta, operation);
-				firstDiff = firstDifference(fresh, desired);
-				if (firstDiff < 0) {
-					state.status = "结构没有变化。";
-					state.statusKind = "info";
-					return false;
-				}
-				const baseSeq = planBaseSeq(fresh, firstDiff);
-				const newTail = desired.slice(firstDiff).map((message, index) => ({
-					...message,
-					seq: baseSeq + index
-				}));
-				const tooLong = newTail.find((message) => String(message.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
-				if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。请把修改点放到这条之后。`);
-				const empty = newTail.find((message) => String(message.content || "").length === 0);
-				if (empty) throw new Error(`第 #${empty.seq} 条消息没有文本内容，官方导入接口无法补回，已取消。请把修改点放到这条之后。`);
-				const label = operationLabel(operation, fresh, desired, firstDiff);
-				if (!confirmPlan(label, fresh, desired, firstDiff)) {
-					state.status = "已取消。";
-					state.statusKind = "info";
-					return false;
-				}
-				if (options.pushHistory !== false) {
-					state.history.push({
-						messages: fresh,
-						at: Date.now()
-					});
-					if (state.history.length > MAX_HISTORY) state.history.shift();
-					pushed = true;
-				}
-				if (firstDiff < fresh.length) {
-					await request(`/api/conversations/${encodeURIComponent(state.cid)}/messages/${encodeURIComponent(fresh[firstDiff].id)}`, { method: "DELETE" });
-					deleted = true;
-				}
-				if (newTail.length) await importMessages(meta, newTail);
-				const after = await loadMessages(state.cid);
-				if (!sameOrder(after, desired)) throw new Error("写入后校验失败：官方消息顺序与预期不一致，可能被其他窗口改动了。");
-				state.messages = after;
-				state.startId = null;
-				state.endId = null;
-				state.pendingMove = false;
-				state.form = "";
-				state.formRendered = "";
-				state.insertText = "";
-				state.recovery = "";
-				state.dirty = true;
-				state.status = `已同步到官方：${label}。刷新页面后官方聊天视图才会更新。`;
-				state.statusKind = "success";
-				return true;
-			} catch (error) {
-				const message = errorMessage(error);
-				if (deleted) {
-					try {
-						const originalTail = fresh.slice(firstDiff).map((item, index) => ({
-							...item,
-							seq: planBaseSeq(fresh, firstDiff) + index
-						}));
-						if (originalTail.length) await importMessages(state.meta, originalTail);
-						if (pushed) {
-							state.history.pop();
-							pushed = false;
-						}
-						state.status = `写入失败：${message}。已尝试把原来的尾部补回，请刷新页面确认。`;
-					} catch (restoreError) {
-						state.recovery = JSON.stringify({
-							conversation: state.meta,
-							messages: fresh
-						}, null, 2);
-						state.status = `写入失败：${message}；自动补回尾部也失败：${errorMessage(restoreError)}。备份已保存在页面内，请先下载备份并不要刷新。`;
-					}
-					state.statusKind = "error";
-					return false;
-				}
-				if (pushed) state.history.pop();
-				state.status = message;
-				state.statusKind = "error";
-				return false;
-			} finally {
-				state.busy = false;
-				render();
-			}
-		}
-		function errorMessage(error) {
-			if (error?.status === 401) return "未登录或登录已失效，无法同步到官方。";
-			if (error?.status === 404) return "这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。";
-			return error?.message || String(error);
-		}
-		function setStatus(message, kind = "info") {
-			state.status = message;
-			state.statusKind = kind;
-			render();
-		}
-		function selectionRange() {
-			const start = indexOfId(state.messages, state.startId);
-			const end = indexOfId(state.messages, state.endId || state.startId);
-			if (start < 0) return null;
-			const [from, to] = start <= end ? [start, end] : [end, start];
-			return {
-				from,
-				to
-			};
-		}
-		function metadataBadges(message) {
-			const parts = [];
-			if (message.meta?.variants?.length > 1) parts.push(`变体${message.meta.variants.length}`);
-			if (message.attachments?.length) parts.push(`附件${message.attachments.length}`);
-			if (message.meta?.thinking) parts.push("思考");
-			if (message.meta?.imageSuggestions?.length) parts.push(`图建议${message.meta.imageSuggestions.length}`);
-			if (message.meta?.webSources?.length) parts.push(`来源${message.meta.webSources.length}`);
-			return parts.join(" · ");
-		}
-		function renderList() {
-			const range = selectionRange();
-			const top = dom.list.scrollTop;
-			dom.list.textContent = "";
-			if (!state.messages.length) {
-				const empty = document.createElement("div");
-				empty.className = "convEmpty";
-				empty.textContent = state.busy ? "读取中…" : "没有读到消息。";
-				dom.list.appendChild(empty);
-				return;
-			}
-			const fragment = document.createDocumentFragment();
-			state.messages.forEach((message, index) => {
-				const row = document.createElement("div");
-				row.className = "convRow";
-				row.dataset.id = message.id;
-				row.tabIndex = 0;
-				row.draggable = true;
-				row.setAttribute("role", "option");
-				row.setAttribute("aria-selected", range && index >= range.from && index <= range.to ? "true" : "false");
-				row.title = `#${message.seq} ${ROLE_LABELS[message.role] || message.role}\n拖动按整轮排序：提问会带着对应回答一起移动\n${String(message.content || "").slice(0, 600)}`;
-				if (range && index >= range.from && index <= range.to) row.classList.add("selected");
-				if (range && index === range.from) row.classList.add("selStart");
-				if (range && index === range.to) row.classList.add("selEnd");
-				const idx = document.createElement("span");
-				idx.className = "convIdx";
-				idx.textContent = `#${message.seq}`;
-				const role = document.createElement("span");
-				role.className = `convRole ${message.role}`;
-				role.textContent = ROLE_LABELS[message.role] || message.role;
-				const text = document.createElement("span");
-				text.className = "convText";
-				text.textContent = previewText(String(message.content || "")) || "（空）";
-				const badges = document.createElement("span");
-				const badgeText = metadataBadges(message);
-				badges.className = badgeText ? "convBadges warn" : "convBadges";
-				badges.textContent = badgeText;
-				row.append(idx, role, text, badges);
-				fragment.appendChild(row);
-			});
-			dom.list.appendChild(fragment);
-			if (state.scrollToId) {
-				const target = dom.list.querySelector(`[data-id="${CSS.escape(state.scrollToId)}"]`);
-				if (target) target.scrollIntoView({ block: "nearest" });
-				state.scrollToId = "";
-			} else dom.list.scrollTop = top;
-		}
-		function renderSelection() {
-			if (state.pendingMove) {
-				dom.selection.textContent = "移动中：点击目标位置，或点「移到末尾」";
-				return;
-			}
-			const range = selectionRange();
-			if (!range) {
-				dom.selection.textContent = "先点一条；Shift+点选区间；拖动行按整轮排序";
-				return;
-			}
-			const from = state.messages[range.from];
-			const to = state.messages[range.to];
-			const selected = range.from === range.to ? `已选 #${from.seq} ${ROLE_LABELS[from.role] || from.role}` : `已选 #${from.seq}–#${to.seq}（${range.to - range.from + 1} 条）`;
-			dom.selection.textContent = `${selected}；拖动按整轮排序（回答随提问）`;
-		}
-		function renderForm() {
-			if (!state.form) {
-				dom.form.hidden = true;
-				dom.form.textContent = "";
-				state.formRendered = "";
-				return;
-			}
-			dom.form.hidden = false;
-			if (state.formRendered === state.form) return;
-			state.formRendered = state.form;
-			dom.form.innerHTML = `
-            <div class="convFormRow">
-                <span>位置</span>
-                <select data-field="position">
-                    <option value="before">选中消息之前</option>
-                    <option value="after">选中消息之后</option>
-                </select>
-                <span>角色</span>
-                <select data-field="role">
-                    <option value="user">用户</option>
-                    <option value="assistant">助手</option>
-                </select>
-                <span class="convSpacer"></span>
-                <button type="button" data-action="cancel-form">取消</button>
-                <button type="button" data-action="apply-insert" class="primary">插入</button>
-            </div>
-            <textarea data-field="text" rows="4" placeholder="输入要插入的消息内容"></textarea>
-        `;
-			const position = dom.form.querySelector("[data-field=\"position\"]");
-			const role = dom.form.querySelector("[data-field=\"role\"]");
-			const text = dom.form.querySelector("[data-field=\"text\"]");
-			position.value = state.insertPosition;
-			role.value = state.insertRole;
-			text.value = state.insertText;
-			if (formFocus) {
-				formFocus = false;
-				text.focus();
-			}
-		}
-		function render() {
-			overlay.hidden = !state.open;
-			if (!state.open) return;
-			dom.sub.textContent = state.meta ? `${state.meta.title || "未命名对话"} · ${state.messages.length} 条` : state.cid || "";
-			dom.status.textContent = state.status || (state.busy ? "处理中…" : "");
-			dom.status.dataset.kind = state.statusKind;
-			dom.recovery.hidden = !state.recovery;
-			dom.reload.hidden = !state.dirty;
-			dom.undo.hidden = state.history.length === 0;
-			dom.undo.textContent = state.history.length > 1 ? `撤销 (${state.history.length})` : "撤销";
-			dom.moveEnd.hidden = !state.pendingMove;
-			dom.move.textContent = state.pendingMove ? "取消移动" : "移动整轮";
-			const hasSelection = Boolean(selectionRange());
-			for (const button of overlay.querySelectorAll("button[data-action]")) {
-				const action = button.dataset.action;
-				if (action === "refresh" || action === "close") button.disabled = state.busy;
-				else if ([
-					"insert-before",
-					"insert-after",
-					"delete",
-					"delete-turn"
-				].includes(action)) button.disabled = state.busy || !hasSelection;
-				else if (action === "move") button.disabled = state.busy || !hasSelection && !state.pendingMove;
-				else if (action === "move-end") button.disabled = state.busy;
-				else if (action === "undo") button.disabled = state.busy || state.history.length === 0;
-				else if (action === "apply-insert") button.disabled = state.busy;
-			}
-			renderSelection();
-			renderList();
-			renderForm();
-		}
-		async function refresh(options = {}) {
-			if (!state.cid) {
-				setStatus("当前页面不是对话页，请先打开一个对话。", "error");
-				return;
-			}
-			state.busy = true;
-			setStatus("读取官方消息…");
-			try {
-				const [meta, messages] = await Promise.all([loadMeta(state.cid), loadMessages(state.cid)]);
-				state.meta = meta;
-				state.messages = messages;
-				if (!options.keepSelection) {
-					state.startId = null;
-					state.endId = null;
-				}
-				state.status = `已读取 ${messages.length} 条消息。`;
-				state.statusKind = "info";
-			} catch (error) {
-				state.status = errorMessage(error);
-				state.statusKind = "error";
-			} finally {
-				state.busy = false;
-				render();
-			}
-		}
-		function open() {
-			if (state.open) return;
-			state.open = true;
-			state.cid = readConversationId();
-			state.meta = null;
-			state.messages = [];
-			state.startId = null;
-			state.endId = null;
-			state.pendingMove = false;
-			state.form = "";
-			state.formRendered = "";
-			state.insertText = "";
-			state.status = "";
-			state.statusKind = "info";
-			state.dirty = false;
-			state.history = [];
-			state.recovery = "";
-			dragState = null;
-			overlay.hidden = false;
-			render();
-			if (state.cid) refresh();
-			else setStatus("当前页面不是对话页，请先打开一个对话。", "error");
-		}
-		function close() {
-			if (state.busy) return;
-			if (state.dirty) {
-				if (!window.confirm("结构修改已同步到官方，但当前页面还是旧视图。关闭后刷新页面显示最新内容？")) return;
-				window.location.reload();
-				return;
-			}
-			state.open = false;
-			state.form = "";
-			state.formRendered = "";
-			endDrag();
-			render();
-		}
-		function startInsert(position) {
-			if (!state.startId) return setStatus("先选中一条消息。", "error");
-			state.form = "insert";
-			state.formRendered = "";
-			state.insertPosition = position;
-			state.insertText = "";
-			state.pendingMove = false;
-			formFocus = true;
-			setStatus(position === "before" ? "在选中消息之前插入。" : "在选中消息之后插入。");
-		}
-		function applyInsert() {
-			const content = state.insertText.trim();
-			if (!content) return setStatus("插入内容不能为空。", "error");
-			if (!state.startId) return setStatus("先选中一条消息。", "error");
-			applyOperation({
-				type: "insert",
-				anchorId: state.startId,
-				position: state.insertPosition,
-				role: state.insertRole,
-				content
-			});
-		}
-		function deleteSelected() {
-			const range = selectionRange();
-			if (!range) return setStatus("先选中一条消息。", "error");
-			applyOperation({
-				type: "delete",
-				startId: state.messages[range.from].id,
-				endId: state.messages[range.to].id
-			});
-		}
-		function deleteTurn() {
-			const range = selectionRange();
-			if (!range) return setStatus("先选中一条消息。", "error");
-			applyOperation({
-				type: "delete-turn",
-				startId: state.messages[range.from].id,
-				endId: state.messages[range.to].id
-			});
-		}
-		function toggleMove() {
-			if (state.pendingMove) {
-				state.pendingMove = false;
-				setStatus("已取消移动。");
-				return;
-			}
-			if (!selectionRange()) return setStatus("先选中要移动的消息。", "error");
-			state.pendingMove = true;
-			state.form = "";
-			state.formRendered = "";
-			setStatus("点击目标位置：选中的整轮（提问及其后的回答）会插入到目标所在整轮之前。");
-		}
-		function moveEnd() {
-			const range = selectionRange();
-			if (!range) return setStatus("先选中要移动的消息。", "error");
-			applyOperation({
-				type: "move-end",
-				startId: state.messages[range.from].id,
-				endId: state.messages[range.to].id
-			});
-		}
-		async function handleRowClick(id, shiftKey) {
-			if (state.busy) return;
-			if (state.pendingMove) {
-				const range = selectionRange();
-				const target = indexOfId(state.messages, id);
-				if (!range || target < 0) return;
-				if (target >= range.from && target <= range.to) {
-					setStatus("目标不能落在被移动的区间内。", "error");
-					return;
-				}
-				state.scrollToId = id;
-				await applyOperation({
-					type: "move",
-					startId: state.messages[range.from].id,
-					endId: state.messages[range.to].id,
-					targetId: id
-				});
-				return;
-			}
-			if (shiftKey && state.startId) state.endId = id;
-			else {
-				state.startId = id;
-				state.endId = id;
-			}
-			state.form = "";
-			state.formRendered = "";
-			state.scrollToId = id;
-			setStatus("");
-		}
-		function clearDragMarks() {
-			for (const row of dom.list.querySelectorAll(".convRow")) row.classList.remove("dragging", "dropBefore", "dropAfter");
-		}
-		function endDrag() {
-			clearDragMarks();
-			dragState = null;
-			renderSelection();
-		}
-		function normalizedDropIndex(messages, index, after) {
-			const turn = turnRange(messages, index, index);
-			return after ? turn.end : turn.start;
-		}
-		function moveWouldChange(from, to, target, after) {
-			if (target >= from && target <= to) return false;
-			const size = to - from + 1;
-			const restIndex = target > to ? target - size : target;
-			return (after ? restIndex + 1 : restIndex) !== from;
-		}
-		function onDragStart(event) {
-			const target = event.target;
-			if (!(target instanceof Element) || state.busy) {
-				if (state.busy) event.preventDefault();
-				return;
-			}
-			const row = target.closest(".convRow");
-			if (!row || !dom.list.contains(row)) return;
-			const index = indexOfId(state.messages, row.dataset.id);
-			if (index < 0) return;
-			const range = selectionRange();
-			const dragsSelection = Boolean(range && index >= range.from && index <= range.to);
-			const rawFrom = dragsSelection ? range.from : index;
-			const rawTo = dragsSelection ? range.to : index;
-			const { start: from, end: to } = turnRange(state.messages, rawFrom, rawTo);
-			dragState = {
-				from,
-				to,
-				startId: state.messages[from].id,
-				endId: state.messages[to].id,
-				targetId: "",
-				after: false
-			};
-			if (event.dataTransfer) {
-				event.dataTransfer.effectAllowed = "move";
-				event.dataTransfer.setData("text/plain", `${from}-${to}`);
-			}
-			const rows = dom.list.querySelectorAll(".convRow");
-			for (let i = from; i <= to; i += 1) rows[i]?.classList.add("dragging");
-			dom.selection.textContent = `拖动中：整轮 ${to - from + 1} 条一起移动；落到上半区插到之前，下半区插到之后`;
-		}
-		function onDragOver(event) {
-			if (!dragState || state.busy) return;
-			const target = event.target;
-			if (!(target instanceof Element) || !dom.list.contains(target)) return;
-			event.preventDefault();
-			const row = target.closest(".convRow");
-			let targetIndex = -1;
-			let after = false;
-			if (row) {
-				targetIndex = indexOfId(state.messages, row.dataset.id);
-				if (targetIndex < 0) return;
-				const rect = row.getBoundingClientRect();
-				after = event.clientY >= rect.top + rect.height / 2;
-			} else if (target === dom.list) {
-				targetIndex = state.messages.length - 1;
-				after = true;
-			}
-			if (targetIndex < 0) {
-				clearDragMarks();
-				dragState.targetId = "";
-				return;
-			}
-			targetIndex = normalizedDropIndex(state.messages, targetIndex, after);
-			clearDragMarks();
-			const rows = dom.list.querySelectorAll(".convRow");
-			for (let i = dragState.from; i <= dragState.to; i += 1) rows[i]?.classList.add("dragging");
-			if (!moveWouldChange(dragState.from, dragState.to, targetIndex, after)) {
-				dragState.targetId = "";
-				return;
-			}
-			dragState.targetId = state.messages[targetIndex].id;
-			dragState.after = after;
-			rows[targetIndex]?.classList.add(after ? "dropAfter" : "dropBefore");
-			if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-		}
-		function onDrop(event) {
-			if (!dragState) return;
-			event.preventDefault();
-			const { startId, endId, targetId, after } = dragState;
-			endDrag();
-			if (!targetId) return;
-			applyOperation({
-				type: "move",
-				startId,
-				endId,
-				targetId,
-				position: after ? "after" : "before"
-			});
-		}
-		function downloadRecovery() {
-			if (!state.recovery) return;
-			const blob = new Blob([state.recovery], { type: "application/json" });
-			const url = URL.createObjectURL(blob);
-			const anchor = document.createElement("a");
-			anchor.href = url;
-			anchor.download = `sichang-conversation-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-			anchor.click();
-			setTimeout(() => URL.revokeObjectURL(url), 1e3);
-		}
-		async function undo() {
-			if (!state.history.length) return;
-			const snapshot = state.history[state.history.length - 1];
-			if (await applyOperation({
-				type: "restore",
-				messages: snapshot.messages
-			}, { pushHistory: false })) {
-				state.history.pop();
-				state.dirty = true;
-				render();
-			}
-		}
-		function onClick(event) {
-			const button = event.target.closest("button[data-action]");
-			if (button) {
-				const action = button.dataset.action;
-				if (state.busy && !["close"].includes(action)) return;
-				if (action === "refresh") refresh();
-				else if (action === "close") close();
-				else if (action === "insert-before") startInsert("before");
-				else if (action === "insert-after") startInsert("after");
-				else if (action === "delete") deleteSelected();
-				else if (action === "delete-turn") deleteTurn();
-				else if (action === "move") toggleMove();
-				else if (action === "move-end") moveEnd();
-				else if (action === "undo") undo();
-				else if (action === "download-recovery") downloadRecovery();
-				else if (action === "apply-insert") applyInsert();
-				else if (action === "cancel-form") {
-					state.form = "";
-					state.formRendered = "";
-					state.insertText = "";
-					render();
-				} else if (action === "reload") window.location.reload();
-				return;
-			}
-			const row = event.target.closest(".convRow");
-			if (row) {
-				handleRowClick(row.dataset.id, event.shiftKey);
-				return;
-			}
-			if (event.target === overlay) close();
-		}
-		function onInput(event) {
-			const field = event.target.closest("[data-field]");
-			if (field?.dataset.field === "text") state.insertText = field.value;
-		}
-		function onChange(event) {
-			const field = event.target.closest("[data-field]");
-			if (!field) return;
-			if (field.dataset.field === "role") state.insertRole = field.value;
-			if (field.dataset.field === "position") state.insertPosition = field.value;
-		}
-		function onKeydown(event) {
-			if (event.key === "Escape" && state.open) {
-				event.preventDefault();
-				close();
-			}
-		}
-		function onRowKeydown(event) {
-			if (event.key !== "Enter" && event.key !== " ") return;
-			const row = event.target.closest(".convRow");
-			if (!row) return;
-			event.preventDefault();
-			handleRowClick(row.dataset.id, event.shiftKey);
-		}
-		overlay.addEventListener("click", onClick, { signal: events.signal });
-		overlay.addEventListener("keydown", onRowKeydown, { signal: events.signal });
-		overlay.addEventListener("input", onInput, { signal: events.signal });
-		overlay.addEventListener("change", onChange, { signal: events.signal });
-		dom.list.addEventListener("dragstart", onDragStart, { signal: events.signal });
-		dom.list.addEventListener("dragover", onDragOver, { signal: events.signal });
-		dom.list.addEventListener("drop", onDrop, { signal: events.signal });
-		dom.list.addEventListener("dragend", endDrag, { signal: events.signal });
-		ui.conv.addEventListener("click", open, { signal: events.signal });
-		document.addEventListener("keydown", onKeydown, { signal: events.signal });
-		window.addEventListener("click", onOfficialDeleteClick, {
-			capture: true,
-			signal: events.signal
-		});
+		window.addEventListener("click", onOfficialDeleteClick, { capture: true });
 		return {
 			api: {},
 			dispose: () => {
-				events.abort();
-				read.abort();
-				overlay.remove();
+				window.removeEventListener("click", onOfficialDeleteClick, { capture: true });
 			}
 		};
 	}
@@ -3920,7 +2995,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		}));
 		adopt(createSynthesis(host));
 		adopt(createPanelLayout(host));
-		adopt(createConversation(host));
+		adopt(createMessageDelete(host));
 		function syncPlaybackRateButton() {
 			ui.rateCycle.textContent = `${host.playbackRate}×`;
 			ui.rateCycle.title = `播放倍速 ${host.playbackRate}×（仅已下载音频）`;

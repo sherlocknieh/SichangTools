@@ -12,7 +12,7 @@ import { createChain } from './sichang/chain.js';
 import { createTimeline } from './sichang/timeline.js';
 import { createSynthesis } from './sichang/synthesis.js';
 import { createRegenerator } from './sichang/regenerate.js';
-import { createConversation } from './sichang/conversation.js';
+import { createMessageDelete } from './sichang/delete-message.js';
 
 export default function initSichangHandler() {
     if (window.location.hostname !== 'sichang.xyz') return;
@@ -113,8 +113,8 @@ export default function initSichangHandler() {
     // 合成要覆盖 window.fetch；放在最后装配，确保开始新朗读时所有回调都已就位
     adopt(createSynthesis(host));
     adopt(createPanelLayout(host));
-    // 对话结构管理：只走官方 /api/conversations 接口，和朗读/播放互不依赖
-    adopt(createConversation(host));
+    // 官方删除按钮接管：只走官方 /api/conversations 接口，和朗读/播放互不依赖
+    adopt(createMessageDelete(host));
 
     function syncPlaybackRateButton() {
         ui.rateCycle.textContent = `${host.playbackRate}×`;

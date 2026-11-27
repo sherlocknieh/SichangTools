@@ -31,7 +31,6 @@ export function createPanel() {
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
-            <button class="conv" aria-label="对话结构管理" title="对话结构管理（同步到官方）">管理</button>
             <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
@@ -62,7 +61,6 @@ export function createPanel() {
         list: panel.querySelector('.list'),
         empty: panel.querySelector('.empty'),
         count: panel.querySelector('.count'),
-        conv: panel.querySelector('.conv'),
         rateCycle: panel.querySelector('.rateCycle'),
         clear: panel.querySelector('.clear'),
         fold: panel.querySelector('.fold'),
