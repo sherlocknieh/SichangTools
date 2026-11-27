@@ -2,7 +2,7 @@
 // 记录级播放/合成流程通过 host 注入的回调完成，这里只负责把状态映射到 DOM。
 import { DEFAULT_SAMPLE_RATE } from './constants.js';
 import { ICONS } from './icons.js';
-import { formatSegmentDuration, previewText } from './text.js';
+import { formatDuration, formatSegmentDuration, previewText } from './text.js';
 import { VOICE_LABELS, voiceName } from './voices.js';
 
 // 分段控制按钮的图标统一放这里，文字说明由 title/aria-label 承担
@@ -93,8 +93,7 @@ export function createSegments(host) {
         };
     }
 
-    function updateSegmentTime(record, segment, current, duration) {
-        const active = record.chain?.segment === segment || playbackModeFor(record, segment) === 'live';
+    function updateSegmentTime(record, segment, current, duration) {        const active = record.chain?.segment === segment || playbackModeFor(record, segment) === 'live';
         segment.row.classList.toggle('showProgress', active);
         if (!Number.isFinite(duration) || duration <= 0) {
             segment.fill.style.width = '0%';
@@ -109,6 +108,27 @@ export function createSegments(host) {
                 ? `${formatSegmentDuration(current)} / ${formatSegmentDuration(duration)}`
                 : formatSegmentDuration(duration);
         }
+    }
+
+    // 整条实际时长按当前分段字节累计，合成中也能随数据增长
+    function recordSeconds(record) {
+        let bytes = 0;
+        for (const segment of record.segments) bytes += segment.bytes;
+        return bytes / 2 / sampleRateOf(record);
+    }
+
+    // 记录头播放时和分段行一致显示「已播 / 总长」，暂停后保留暂停位置
+    function updateRecordTime(record, current) {
+        const total = recordSeconds(record) || record.seconds || 0;
+        if (!(total > 0)) return;
+        const position = Math.min(Math.max(0, current), total);
+        record.duration.textContent = `${formatDuration(position)} / ${formatDuration(total)}`;
+    }
+
+    // 停止播放或回到空闲时恢复只显示总时长
+    function resetRecordTime(record) {
+        const total = recordSeconds(record) || record.seconds || 0;
+        if (total > 0) record.duration.textContent = formatDuration(total);
     }
 
     function idleSegmentTime(record, segment) {
@@ -244,6 +264,8 @@ export function createSegments(host) {
             segmentAt,
             updateSegmentTime,
             idleSegmentTime,
+            updateRecordTime,
+            resetRecordTime,
             refreshSegmentControls,
             setSegmentLabel,
             setSegmentVoice,

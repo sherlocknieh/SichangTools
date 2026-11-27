@@ -123,6 +123,10 @@ export function createChain(host) {
             audio.addEventListener('timeupdate', () => {
                 if (!Number.isFinite(audio.duration) || !audio.duration) return;
                 host.updateSegmentTime(record, segment, audio.currentTime, audio.duration);
+                // 记录头同步显示整条已播位置 / 总时长
+                const index = host.segmentIndex(record, segment);
+                const { starts } = host.segmentSpans(record);
+                host.updateRecordTime(record, (starts[index] || 0) + audio.currentTime);
                 host.syncSegmentButtons(record, segment);
             });
             segment.audio = audio;
@@ -157,6 +161,10 @@ export function createChain(host) {
         record.chain = { segment };
         record.autoSegment = segment;
         host.activeAudio = audio;
+        // 记录头立即切到「已播 / 总长」，从当前段的起点或传入偏移算起
+        const startIndex = host.segmentIndex(record, segment);
+        const { starts } = host.segmentSpans(record);
+        host.updateRecordTime(record, (starts[startIndex] || 0) + offset);
         // 行内立即切到「进度条 + 暂停」状态，不等音频真正起播
         host.syncSegmentButtons(record, segment);
         host.mirrorPlayingText(record, segment);
@@ -258,6 +266,7 @@ export function createChain(host) {
         }
         record.chain = null;
         record.autoSegment = null;
+        host.resetRecordTime(record);
         // 队列清掉后进度条退回预览文字
         if (current) host.syncSegmentButtons(record, current);
         syncRecordPlayButton(record);
@@ -282,6 +291,9 @@ export function createChain(host) {
             if (!Number.isFinite(audio.duration) || !audio.duration) return;
             audio.currentTime = ratio * audio.duration;
             host.updateSegmentTime(record, segment, audio.currentTime, audio.duration);
+            const index = host.segmentIndex(record, segment);
+            const { starts } = host.segmentSpans(record);
+            host.updateRecordTime(record, (starts[index] || 0) + audio.currentTime);
         };
         if (audio.readyState >= 1) seek();
         else audio.addEventListener('loadedmetadata', seek, { once: true });

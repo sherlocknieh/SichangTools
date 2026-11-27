@@ -259,8 +259,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
     text-overflow: ellipsis;
     white-space: nowrap;
     color: #a9a9b3;
-}
-.seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
+}.seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
 .seg[data-state="pending"] .segDur { color: #6f6f79; }
 .seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 .seg[data-state="failed"] .segDur, .seg[data-state="skipped"] .segDur { color: #c97a7a; }

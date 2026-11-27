@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0214
+// @version      2026.11.28.0221
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -365,8 +365,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
     text-overflow: ellipsis;
     white-space: nowrap;
     color: #a9a9b3;
-}
-.seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
+}.seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
 .seg[data-state="pending"] .segDur { color: #6f6f79; }
 .seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 .seg[data-state="failed"] .segDur, .seg[data-state="skipped"] .segDur { color: #c97a7a; }
@@ -882,6 +881,21 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			segment.fill.style.width = `${ratio * 100}%`;
 			if (active || segment.complete) segment.durationEl.textContent = active ? `${formatSegmentDuration(current)} / ${formatSegmentDuration(duration)}` : formatSegmentDuration(duration);
 		}
+		function recordSeconds(record) {
+			let bytes = 0;
+			for (const segment of record.segments) bytes += segment.bytes;
+			return bytes / 2 / sampleRateOf(record);
+		}
+		function updateRecordTime(record, current) {
+			const total = recordSeconds(record) || record.seconds || 0;
+			if (!(total > 0)) return;
+			const position = Math.min(Math.max(0, current), total);
+			record.duration.textContent = `${formatDuration(position)} / ${formatDuration(total)}`;
+		}
+		function resetRecordTime(record) {
+			const total = recordSeconds(record) || record.seconds || 0;
+			if (total > 0) record.duration.textContent = formatDuration(total);
+		}
 		function idleSegmentTime(record, segment) {
 			if (segment.audio && !segment.audio.paused) return;
 			updateSegmentTime(record, segment, 0, segment.bytes / 2 / sampleRateOf(record));
@@ -985,6 +999,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			segmentAt,
 			updateSegmentTime,
 			idleSegmentTime,
+			updateRecordTime,
+			resetRecordTime,
 			refreshSegmentControls,
 			setSegmentLabel,
 			setSegmentVoice,
@@ -1299,7 +1315,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			deleteButton.innerHTML = ICONS.close;
 			deleteButton.title = "删除这条记录";
 			deleteButton.setAttribute("aria-label", "删除这条记录");
-			head.append(caret, segCount, txt, downloadButton, duration, playButton, regenAllButton, deleteButton);
+			head.append(caret, segCount, txt, duration, playButton, regenAllButton, deleteButton, downloadButton);
 			const segList = document.createElement("div");
 			segList.className = "segList";
 			row.append(head, segList);
@@ -1532,6 +1548,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				audio.addEventListener("timeupdate", () => {
 					if (!Number.isFinite(audio.duration) || !audio.duration) return;
 					host.updateSegmentTime(record, segment, audio.currentTime, audio.duration);
+					const index = host.segmentIndex(record, segment);
+					const { starts } = host.segmentSpans(record);
+					host.updateRecordTime(record, (starts[index] || 0) + audio.currentTime);
 					host.syncSegmentButtons(record, segment);
 				});
 				segment.audio = audio;
@@ -1562,6 +1581,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.chain = { segment };
 			record.autoSegment = segment;
 			host.activeAudio = audio;
+			const startIndex = host.segmentIndex(record, segment);
+			const { starts } = host.segmentSpans(record);
+			host.updateRecordTime(record, (starts[startIndex] || 0) + offset);
 			host.syncSegmentButtons(record, segment);
 			host.mirrorPlayingText(record, segment);
 			syncRecordPlayButton(record);
@@ -1664,6 +1686,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			record.chain = null;
 			record.autoSegment = null;
+			host.resetRecordTime(record);
 			if (current) host.syncSegmentButtons(record, current);
 			syncRecordPlayButton(record);
 		}
@@ -1682,6 +1705,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (!Number.isFinite(audio.duration) || !audio.duration) return;
 				audio.currentTime = ratio * audio.duration;
 				host.updateSegmentTime(record, segment, audio.currentTime, audio.duration);
+				const index = host.segmentIndex(record, segment);
+				const { starts } = host.segmentSpans(record);
+				host.updateRecordTime(record, (starts[index] || 0) + audio.currentTime);
 			};
 			if (audio.readyState >= 1) seek();
 			else audio.addEventListener("loadedmetadata", seek, { once: true });
@@ -1723,7 +1749,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.session = null;
 			if (host.activeTimeline === record) host.activeTimeline = null;
 			record.state = "ready";
-			record.duration.textContent = formatDuration(record.seconds);
+			host.resetRecordTime(record);
 			record.autoSegment = null;
 			host.refreshSegmentControls(record);
 		}
@@ -1745,6 +1771,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				host.mirrorPlayingText(record, segment);
 			}
 			host.updateSegmentTime(record, segment, position - start, duration);
+			host.updateRecordTime(record, position);
 			host.syncSegmentButtons(record, segment);
 		}
 		function startTimelineTicker(record, session) {

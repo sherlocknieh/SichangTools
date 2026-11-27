@@ -1,7 +1,6 @@
 // 实时时间线：边下边播、暂停继续与进度跳转。
 // 它以整条 PCM 为源，和分段顺序播放共用「当前段」的进度展示，但播放通道完全独立。
 import { MIN_START_SECONDS } from './constants.js';
-import { formatDuration } from './text.js';
 import { pcmToSamples } from './audio.js';
 
 export function createTimeline(host) {
@@ -26,7 +25,7 @@ export function createTimeline(host) {
         record.session = null;
         if (host.activeTimeline === record) host.activeTimeline = null;
         record.state = 'ready';
-        record.duration.textContent = formatDuration(record.seconds);
+        host.resetRecordTime(record);
         record.autoSegment = null;
         host.refreshSegmentControls(record);
     }
@@ -54,6 +53,7 @@ export function createTimeline(host) {
         }
         // 行内进度条按实时播放位置推进，同时也刷新播放/停止按钮状态
         host.updateSegmentTime(record, segment, position - start, duration);
+        host.updateRecordTime(record, position);
         host.syncSegmentButtons(record, segment);
     }
 
