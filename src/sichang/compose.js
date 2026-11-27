@@ -1,14 +1,37 @@
 // 输入区：语音面板不再自带文本框，直接读写官方输入框里的文字。
 // 选中记录/分段、播放跟随和重生成都走同一个 textarea；这里只负责绑定和同步按钮状态。
-import { VOICE_STORE_KEY } from './constants.js';
+import {
+    ADD_BUBBLE_BUTTON_SELECTOR,
+    COMPOSE_BUTTON_LABEL,
+    COMPOSE_BUTTON_SELECTOR,
+    OFFICIAL_ATTACH_SELECTOR,
+    VOICE_STORE_KEY,
+} from './constants.js';
 import { DEFAULT_VOICE } from './voices.js';
+import { canMutate } from './hydration.js';
 import { ICONS } from './icons.js';
-import { setNativeValue } from './official-page.js';
+import { findComposer, setNativeValue } from './official-page.js';
+
+const GO_STYLE_ID = 'sichang-compose-style';
+// 生成按钮在官方按钮组里，样式走文档级注入，避免依赖面板的 Shadow DOM
+const GO_CSS = `
+button[data-sichang-go] {
+    background: #418a55 !important;
+    color: #f2fff5 !important;
+}
+button[data-sichang-go] > svg { display: block; width: 16px; height: 16px; }
+button[data-sichang-go]:hover:not(:disabled) { background: #4d9c63 !important; color: #fff !important; }
+button[data-sichang-go].paused { background: #7a5f2e !important; color: #ffe6b8 !important; }
+button[data-sichang-go].paused:hover:not(:disabled) { background: #8b6d35 !important; }
+button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !important; }
+`;
 
 export function createCompose(host) {
     const { ui } = host;
     // 官方输入区会随水合/切会话整体替换，始终以最新绑定到的 textarea 为准
     let textarea = null;
+    // 生成按钮跟着官方按钮组一起被 React 重绘，不在当前按钮行时重建
+    let goButton = null;
     // 程序化写入时 setNativeValue 也会派发 input，用它区分“用户手输”
     let writing = false;
 
@@ -34,22 +57,57 @@ export function createCompose(host) {
     }
 
     function syncGoButton() {
+        if (!goButton) return;
         const session = activeSynthesis();
         if (session) {
             const paused = Boolean(session.synthesisPaused);
-            ui.go.innerHTML = paused ? ICONS.play : ICONS.pause;
-            ui.go.classList.toggle('paused', paused);
-            ui.go.disabled = false;
+            goButton.innerHTML = paused ? ICONS.play : ICONS.pause;
+            goButton.classList.toggle('paused', paused);
+            goButton.disabled = false;
             const label = paused ? '继续合成' : '暂停合成';
-            ui.go.title = label;
-            ui.go.setAttribute('aria-label', label);
+            goButton.title = label;
+            goButton.setAttribute('aria-label', label);
             return;
         }
-        ui.go.innerHTML = ICONS.synth;
-        ui.go.classList.remove('paused');
-        ui.go.title = '读取官方输入框文字合成语音';
-        ui.go.setAttribute('aria-label', '合成语音');
-        ui.go.disabled = !getInputText().trim();
+        goButton.innerHTML = ICONS.synth;
+        goButton.classList.remove('paused');
+        goButton.title = '读取官方输入框文字合成语音';
+        goButton.setAttribute('aria-label', COMPOSE_BUTTON_LABEL);
+        goButton.disabled = !getInputText().trim();
+    }
+
+    // 生成按钮和加号同属官方按钮行：发送 → 加号 → 生成。
+    // 由 panel-layout 在每次挂载检查时调用；节点被 React 重绘掉后在这里重建。
+    function ensureGoButton(composer = findComposer()) {
+        if (!composer?.send || !composer.row) return;
+        if (!canMutate(composer.row)) return;
+        if (!document.getElementById(GO_STYLE_ID)) {
+            const style = document.createElement('style');
+            style.id = GO_STYLE_ID;
+            style.textContent = GO_CSS;
+            document.head.appendChild(style);
+        }
+        const existing = composer.row.querySelector(COMPOSE_BUTTON_SELECTOR);
+        if (existing) {
+            goButton = existing;
+        } else {
+            // 复用官方附件按钮的尺寸，没有附件按钮时退回发送按钮。
+            const source = composer.row.querySelector(OFFICIAL_ATTACH_SELECTOR) || composer.send;
+            const next = source.cloneNode(false);
+            next.setAttribute('data-sichang-go', '');
+            next.setAttribute('type', 'button');
+            next.setAttribute('aria-label', COMPOSE_BUTTON_LABEL);
+            next.title = '读取官方输入框文字合成语音';
+            next.innerHTML = ICONS.synth;
+            goButton = next;
+        }
+        // 加号插在发送按钮后面；生成始终紧跟加号，避免后插入的节点打乱顺序。
+        const plus = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
+        const anchor = plus || composer.send;
+        if (goButton.previousElementSibling !== anchor) {
+            anchor.parentElement.insertBefore(goButton, anchor.nextSibling);
+        }
+        syncGoButton();
     }
 
     function getInputText() {
@@ -148,7 +206,16 @@ export function createCompose(host) {
         submitCompose();
     }
 
-    ui.go.addEventListener('click', triggerCompose);
+    // 按钮会随官方重绘换节点，用文档级委托，点击时不冒泡给官方输入区。
+    function onGoClick(event) {
+        const target = event.target;
+        if (!(target instanceof Element) || !target.closest(COMPOSE_BUTTON_SELECTOR)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        triggerCompose();
+    }
+    document.addEventListener('click', onGoClick, true);
 
     return {
         api: {
@@ -159,8 +226,15 @@ export function createCompose(host) {
             hasPendingInput,
             bindInput,
             syncGoButton,
+            ensureGoButton,
             submitCompose,
             activeSynthesis,
+        },
+        dispose: () => {
+            document.removeEventListener('click', onGoClick, true);
+            document.getElementById(GO_STYLE_ID)?.remove();
+            goButton?.remove();
+            goButton = null;
         },
     };
 }

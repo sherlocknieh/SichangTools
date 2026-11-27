@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0221
+// @version      2026.11.28.0317
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -27,6 +27,8 @@
 	var OFFICIAL_ATTACH_SELECTOR = "button[aria-label=\"发送附件\"], button[title=\"发送附件\"]";
 	var ADD_BUBBLE_BUTTON_SELECTOR = "button[data-sichang-add-bubble]";
 	var ADD_BUBBLE_BUTTON_LABEL = "添加消息气泡";
+	var COMPOSE_BUTTON_SELECTOR = "button[data-sichang-go]";
+	var COMPOSE_BUTTON_LABEL = "合成语音";
 	var OFFICIAL_COPY_SELECTOR = "button[aria-label=\"复制消息\"], button[title=\"复制消息\"], button[aria-label=\"Copy message\"], button[title=\"Copy message\"]";
 	var FORK_BUTTON_SELECTOR = "button[data-sichang-fork]";
 	var FORK_BUTTON_LABEL = "复刻到这条消息";
@@ -228,18 +230,6 @@ button:not(:disabled):active { filter: brightness(1.16); }
 }
 .head .voice:hover { border-color: #3c3c47; }
 .head .voice:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
-.head .go {
-    flex: none;
-    width: 32px;
-    padding: 0;
-    border-radius: 8px;
-    background: #418a55;
-    color: #f2fff5;
-}
-.head .go:hover { background: #4d9c63; color: #fff; }
-.head .go > svg { width: 14px; height: 14px; }
-.head .go.paused { background: #7a5f2e; color: #ffe6b8; }
-.head .go.paused:hover { background: #8b6d35; color: #fff; }
 .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
 /* 没有记录时 body 不占高度，顶栏下面也不留分隔线 */
@@ -434,7 +424,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>
             <button class="rateCycle" hidden aria-label="播放倍速" title="播放倍速">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
-            <button class="go" title="读取官方输入框文字合成语音" aria-label="合成语音">${ICONS.synth}</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
         </div>
         <div class="body">
@@ -454,7 +443,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
 			voice: panel.querySelector(".voice"),
-			go: panel.querySelector(".go"),
 			dispose() {
 				host.remove();
 			}
@@ -596,6 +584,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			if (ui.host.parentElement !== container || container.firstElementChild !== ui.host) container.insertBefore(ui.host, container.firstChild);
 			host.bindInput(textarea);
+			host.ensureGoButton(composer);
 		}
 		let timer = 0;
 		function schedulePlace() {
@@ -624,9 +613,22 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 		};
 	}
+	var GO_STYLE_ID = "sichang-compose-style";
+	var GO_CSS = `
+button[data-sichang-go] {
+    background: #418a55 !important;
+    color: #f2fff5 !important;
+}
+button[data-sichang-go] > svg { display: block; width: 16px; height: 16px; }
+button[data-sichang-go]:hover:not(:disabled) { background: #4d9c63 !important; color: #fff !important; }
+button[data-sichang-go].paused { background: #7a5f2e !important; color: #ffe6b8 !important; }
+button[data-sichang-go].paused:hover:not(:disabled) { background: #8b6d35 !important; }
+button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !important; }
+`;
 	function createCompose(host) {
 		const { ui } = host;
 		let textarea = null;
+		let goButton = null;
 		let writing = false;
 		ui.voice.addEventListener("change", () => {
 			try {
@@ -647,22 +649,47 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			return session;
 		}
 		function syncGoButton() {
+			if (!goButton) return;
 			const session = activeSynthesis();
 			if (session) {
 				const paused = Boolean(session.synthesisPaused);
-				ui.go.innerHTML = paused ? ICONS.play : ICONS.pause;
-				ui.go.classList.toggle("paused", paused);
-				ui.go.disabled = false;
+				goButton.innerHTML = paused ? ICONS.play : ICONS.pause;
+				goButton.classList.toggle("paused", paused);
+				goButton.disabled = false;
 				const label = paused ? "继续合成" : "暂停合成";
-				ui.go.title = label;
-				ui.go.setAttribute("aria-label", label);
+				goButton.title = label;
+				goButton.setAttribute("aria-label", label);
 				return;
 			}
-			ui.go.innerHTML = ICONS.synth;
-			ui.go.classList.remove("paused");
-			ui.go.title = "读取官方输入框文字合成语音";
-			ui.go.setAttribute("aria-label", "合成语音");
-			ui.go.disabled = !getInputText().trim();
+			goButton.innerHTML = ICONS.synth;
+			goButton.classList.remove("paused");
+			goButton.title = "读取官方输入框文字合成语音";
+			goButton.setAttribute("aria-label", COMPOSE_BUTTON_LABEL);
+			goButton.disabled = !getInputText().trim();
+		}
+		function ensureGoButton(composer = findComposer()) {
+			if (!composer?.send || !composer.row) return;
+			if (!canMutate(composer.row)) return;
+			if (!document.getElementById(GO_STYLE_ID)) {
+				const style = document.createElement("style");
+				style.id = GO_STYLE_ID;
+				style.textContent = GO_CSS;
+				document.head.appendChild(style);
+			}
+			const existing = composer.row.querySelector(COMPOSE_BUTTON_SELECTOR);
+			if (existing) goButton = existing;
+			else {
+				const next = (composer.row.querySelector("button[aria-label=\"发送附件\"], button[title=\"发送附件\"]") || composer.send).cloneNode(false);
+				next.setAttribute("data-sichang-go", "");
+				next.setAttribute("type", "button");
+				next.setAttribute("aria-label", COMPOSE_BUTTON_LABEL);
+				next.title = "读取官方输入框文字合成语音";
+				next.innerHTML = ICONS.synth;
+				goButton = next;
+			}
+			const anchor = composer.row.querySelector("button[data-sichang-add-bubble]") || composer.send;
+			if (goButton.previousElementSibling !== anchor) anchor.parentElement.insertBefore(goButton, anchor.nextSibling);
+			syncGoButton();
 		}
 		function getInputText() {
 			return textarea?.isConnected ? String(textarea.value || "") : "";
@@ -746,18 +773,35 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			submitCompose();
 		}
-		ui.go.addEventListener("click", triggerCompose);
-		return { api: {
-			currentTts,
-			setInputText,
-			getInputText,
-			isInputFocused,
-			hasPendingInput,
-			bindInput,
-			syncGoButton,
-			submitCompose,
-			activeSynthesis
-		} };
+		function onGoClick(event) {
+			const target = event.target;
+			if (!(target instanceof Element) || !target.closest("button[data-sichang-go]")) return;
+			event.preventDefault();
+			event.stopPropagation();
+			event.stopImmediatePropagation();
+			triggerCompose();
+		}
+		document.addEventListener("click", onGoClick, true);
+		return {
+			api: {
+				currentTts,
+				setInputText,
+				getInputText,
+				isInputFocused,
+				hasPendingInput,
+				bindInput,
+				syncGoButton,
+				ensureGoButton,
+				submitCompose,
+				activeSynthesis
+			},
+			dispose: () => {
+				document.removeEventListener("click", onGoClick, true);
+				document.getElementById(GO_STYLE_ID)?.remove();
+				goButton?.remove();
+				goButton = null;
+			}
+		};
 	}
 	function formatDuration(seconds) {
 		const total = Math.max(0, Math.round(seconds));
@@ -3521,7 +3565,7 @@ button[${BUSY_ATTR}]::before {
 			next.title = `${ADD_BUBBLE_BUTTON_LABEL}（选择提问或回答）`;
 			next.setAttribute("aria-haspopup", "menu");
 			next.innerHTML = PLUS_ICON;
-			composer.send.parentElement.insertBefore(next, composer.send);
+			composer.send.parentElement.insertBefore(next, composer.send.nextSibling);
 			button = next;
 			setBusy(state.busy);
 		}

@@ -21,11 +21,13 @@ export const OFFICIAL_NEW_CHAT_SELECTOR = 'button[aria-label="新建对话"], bu
 export const CLONE_BUTTON_SELECTOR = 'button[data-sichang-clone]';
 export const CLONE_BUTTON_LABEL = '克隆会话';
 export const CLONE_TITLE_SUFFIX = '（副本）';
-// 官方输入区：加号按钮插在「发送消息」左侧，输入内容来自同一个 textarea。
+// 官方输入区：按钮组顺序固定为「发送消息 → 加号 → 生成语音」，都读写同一个 textarea。
 export const OFFICIAL_SEND_SELECTOR = 'button[aria-label="发送消息"], button[title="发送消息"]';
 export const OFFICIAL_ATTACH_SELECTOR = 'button[aria-label="发送附件"], button[title="发送附件"]';
 export const ADD_BUBBLE_BUTTON_SELECTOR = 'button[data-sichang-add-bubble]';
 export const ADD_BUBBLE_BUTTON_LABEL = '添加消息气泡';
+export const COMPOSE_BUTTON_SELECTOR = 'button[data-sichang-go]';
+export const COMPOSE_BUTTON_LABEL = '合成语音';
 // 每条官方消息的操作行以「复制消息」按钮为锚点；fork 与「在下方插入」都插在它前面。
 export const OFFICIAL_COPY_SELECTOR = 'button[aria-label="复制消息"], button[title="复制消息"], button[aria-label="Copy message"], button[title="Copy message"]';
 export const FORK_BUTTON_SELECTOR = 'button[data-sichang-fork]';

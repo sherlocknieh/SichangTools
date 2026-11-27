@@ -122,18 +122,6 @@ button:not(:disabled):active { filter: brightness(1.16); }
 }
 .head .voice:hover { border-color: #3c3c47; }
 .head .voice:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
-.head .go {
-    flex: none;
-    width: 32px;
-    padding: 0;
-    border-radius: 8px;
-    background: #418a55;
-    color: #f2fff5;
-}
-.head .go:hover { background: #4d9c63; color: #fff; }
-.head .go > svg { width: 14px; height: 14px; }
-.head .go.paused { background: #7a5f2e; color: #ffe6b8; }
-.head .go.paused:hover { background: #8b6d35; color: #fff; }
 .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
 /* 没有记录时 body 不占高度，顶栏下面也不留分隔线 */

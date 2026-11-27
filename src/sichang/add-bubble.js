@@ -193,7 +193,8 @@ export function createAddBubble() {
         next.title = `${ADD_BUBBLE_BUTTON_LABEL}（选择提问或回答）`;
         next.setAttribute('aria-haspopup', 'menu');
         next.innerHTML = PLUS_ICON;
-        composer.send.parentElement.insertBefore(next, composer.send);
+        // 按钮组顺序：发送 → 加号 → 生成，加号紧跟在发送按钮后面
+        composer.send.parentElement.insertBefore(next, composer.send.nextSibling);
         button = next;
         setBusy(state.busy);
     }

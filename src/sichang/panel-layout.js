@@ -1,5 +1,5 @@
 // 面板挂载与折叠：等站点水合完成后嵌进官方输入卡片顶部，输入区被换掉后自动重新挂载。
-// 只依赖面板 DOM 和 host 的输入绑定，不参与记录与播放逻辑。
+// 只依赖面板 DOM 和 host 的输入/生成按钮绑定，不参与记录与播放逻辑。
 import { FOLD_STORE_KEY } from './constants.js';
 import { canMutate, onSettled } from './hydration.js';
 import { findComposer } from './official-page.js';
@@ -48,6 +48,8 @@ export function createPanelLayout(host) {
             container.insertBefore(ui.host, container.firstChild);
         }
         host.bindInput(textarea);
+        // 生成按钮在官方按钮行里，和面板一起随输入卡片重绘后补回
+        host.ensureGoButton(composer);
     }
 
     // 输入区随时会被 React 重渲染；合并成一次延迟检查，不轮询

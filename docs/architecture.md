@@ -20,7 +20,7 @@ src/
   sichang/             # 思畅站点的功能模块
     panel.js           # 面板骨架（Shadow DOM）与剪贴板兜底
     panel-layout.js    # 挂载到官方输入卡片顶部、折叠与重渲染后重新挂载
-    compose.js         # 读写官方输入框文字、合成/暂停入口
+    compose.js         # 读写官方输入框文字、官方按钮组的生成/暂停入口
     record-view.js     # 记录条目与分段条目的 DOM、折叠、菜单、下载、删除
     segments.js        # 分段状态/时长/行内进度条与按钮可用性
     chain.js           # 分段顺序播放与记录头播放按钮
@@ -51,7 +51,7 @@ src/
 - `src/sichang/`：按职责分文件，改哪块只读哪块。新增功能先判断属于哪个已有模块，不要往 handler 里堆。
   - 模块统一导出 `createX(host)`，返回 `{ api, dispose }`；handler 用 `adopt()` 合并到 `host`，创建顺序为 compose → record-view → segments → chain → timeline → playback-bar → regenerate → synthesis → panel-layout → delete-message → clone-conversation → add-bubble → fork-message。跨模块调用一律 `host.fn()`，共享状态读写 `host.records` 等字段。
   - `panel.js` / `panel-layout.js`：面板骨架与挂载/折叠；面板嵌在官方输入卡片顶部，等 React 水合完成（`hydration.js` 的 `canMutate()` 放行）后才插入，输入区被水合或切会话替换后由 `findComposer()` 重新挂载，不碰记录和播放状态。
-  - `compose.js`：把语音面板接到官方 textarea 上（`bindInput`/`getInputText`/`setInputText`）并管理「合成/暂停」入口；选中、播放跟随和重生成共用这一份文字，不再维护独立草稿。
+  - `compose.js`：把语音面板接到官方 textarea 上（`bindInput`/`getInputText`/`setInputText`）并管理官方按钮组里的「生成/暂停/继续」入口（`ensureGoButton` 负责在「发送消息 → 加号 → 生成」位置补回按钮）；选中、播放跟随和重生成共用这一份文字，不再维护独立草稿。
   - `record-view.js`：记录条目与分段条目的 DOM、记录折叠、菜单、下载、删除。
   - `segments.js`：分段状态文案、时长进度、行内进度条与按钮可用性。
   - `chain.js`：分段顺序播放（自动接段、等待下一段）与记录头整条播放按钮。
@@ -66,7 +66,7 @@ src/
   - `official-page.js`：官方 React 页面的共享工具（从 DOM fiber 找 context、`findComposer()` 定位输入卡片、通过原生 setter 改受控 textarea）。删除、加气泡和语音面板共用。
   - `hydration.js`：站点水合门禁。`canMutate(element)` 判断目标节点是否已经水合完成（`readyState === 'complete'` 且有 `__reactFiber$`），`onSettled(cb)` 在水合完成或 5 秒兜底放行后回调一次。面板、加号、克隆和 fork 按钮的插入都先过这里，避免水合期多出的节点让 React 整页重渲染、清掉其它脚本挂的节点。
   - `busy-icon.js`：共享的操作中按钮动画。通过 `data-sichang-busy` 和伪元素把按钮内容替换成旋转箭头，删除、加气泡、克隆和 fork 共用。
-  - `add-bubble.js`：注入两个加号入口：官方输入区「发送消息」左侧的加号把输入框文字追加到会话末尾；每条消息操作行里的加号把文字插入到该条消息下方。两者都弹出「添加提问 / 添加回答」，不请求 AI 回复；所有会话类型统一走 import，不再按匿名会话分流。插入中间位置时先截断原尾部，再写回新消息和重排后的尾部。写入成功后立即更新气泡并清空输入框。细节见 `logic/add-bubble.md`。
+  - `add-bubble.js`：注入两个加号入口：官方输入区「发送消息」右侧的加号把输入框文字追加到会话末尾（按钮组顺序为发送 → 加号 → 生成语音）；每条消息操作行里的加号把文字插入到该条消息下方。两者都弹出「添加提问 / 添加回答」，不请求 AI 回复；所有会话类型统一走 import，不再按匿名会话分流。插入中间位置时先截断原尾部，再写回新消息和重排后的尾部。写入成功后立即更新气泡并清空输入框。细节见 `logic/add-bubble.md`。
   - `fork-message.js`：在每条官方消息的操作行注入 fork 按钮；按按钮文档顺序映射到消息，截取到该条为止后复用 `conversation-copy.js` 新建副本。映射数量不一致时安全拒绝。细节见 `logic/fork-message.md`。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
   - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长格式化，纯函数。
