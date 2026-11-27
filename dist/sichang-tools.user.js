@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2252
+// @version      2026.11.27.2257
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -1396,6 +1396,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			resetClearConfirm();
 			for (const record of [...records]) removeRecord(record);
 			host.activeAudio = null;
+			host.setInputText("");
 		});
 		updateCount();
 		return {

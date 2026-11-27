@@ -427,6 +427,8 @@ export function createRecordView(host) {
         resetClearConfirm();
         for (const record of [...records]) removeRecord(record);
         host.activeAudio = null;
+        // 记录和输入框文字是同一份编辑上下文，清空记录时把官方输入框也一并清空
+        host.setInputText('');
     });
 
     updateCount();
