@@ -15,6 +15,7 @@ import { createRegenerator } from './sichang/regenerate.js';
 import { createMessageDelete } from './sichang/delete-message.js';
 import { createConversationClone } from './sichang/clone-conversation.js';
 import { createAddBubble } from './sichang/add-bubble.js';
+import { createForkMessage } from './sichang/fork-message.js';
 
 export default function initSichangHandler() {
     if (window.location.hostname !== 'sichang.xyz') return;
@@ -121,6 +122,8 @@ export default function initSichangHandler() {
     adopt(createConversationClone());
     // 输入框右侧加号：把输入文字直接追加成一条用户气泡，不触发 AI 回复
     adopt(createAddBubble());
+    // 每条消息操作行的 fork：复刻当前会话到该条消息为止
+    adopt(createForkMessage());
 
     function syncPlaybackRateButton() {
         ui.rateCycle.textContent = `${host.playbackRate}×`;

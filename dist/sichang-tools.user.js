@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2127
-// @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、手动添加消息与 WAV 保存
+// @version      2026.11.27.2135
+// @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
 // @grant        none
@@ -26,6 +26,9 @@
 	var OFFICIAL_SEND_SELECTOR = "button[aria-label=\"发送消息\"], button[title=\"发送消息\"]";
 	var ADD_BUBBLE_BUTTON_SELECTOR = "button[data-sichang-add-bubble]";
 	var ADD_BUBBLE_BUTTON_LABEL = "添加消息气泡";
+	var OFFICIAL_COPY_SELECTOR = "button[aria-label=\"复制消息\"], button[title=\"复制消息\"], button[aria-label=\"Copy message\"], button[title=\"Copy message\"]";
+	var FORK_BUTTON_SELECTOR = "button[data-sichang-fork]";
+	var FORK_BUTTON_LABEL = "复刻到这条消息";
 	var PANEL_ID = "sichang-tts-capture";
 	var DEFAULT_SAMPLE_RATE = 24e3;
 	var SEGMENT_HEADER = "X-Sichang-Segment";
@@ -2717,31 +2720,122 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			});
 		}
 	}
-	function describeLoss(messages) {
-		let variants = 0;
-		let thinking = 0;
-		let suggestions = 0;
-		let sources = 0;
-		let attachments = 0;
-		for (const message of messages) {
-			if (message.meta?.variants?.length > 1) variants += 1;
-			if (message.meta?.thinking) thinking += 1;
-			if (message.meta?.imageSuggestions?.length) suggestions += 1;
-			if (message.meta?.webSources?.length) sources += 1;
-			if (message.attachments?.length) attachments += message.attachments.length;
-		}
-		const parts = [];
-		if (variants) parts.push(`分支变体（${variants} 条消息）`);
-		if (thinking) parts.push(`思考内容（${thinking} 条消息）`);
-		if (suggestions) parts.push(`图片建议（${suggestions} 条消息）`);
-		if (sources) parts.push(`网页来源（${sources} 条消息）`);
-		if (attachments) parts.push(`附件/生成图（${attachments} 个）`);
-		return parts;
-	}
 	function errorMessage(error) {
 		if (error?.status === 401) return "未登录或登录已失效，无法同步到官方。";
 		if (error?.status === 404) return "这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。";
 		return error?.message || String(error);
+	}
+	function messageText(content) {
+		const text = String(content ?? "");
+		return text.length ? text : "​";
+	}
+	function roleOf(message) {
+		return message.role === "system" ? "system" : message.role === "user" ? "user" : "assistant";
+	}
+	function sameMessages(actual, expected) {
+		if (actual.length !== expected.length) return false;
+		for (let index = 0; index < actual.length; index += 1) {
+			if (actual[index].content !== expected[index].content) return false;
+			if (actual[index].role !== expected[index].role) return false;
+		}
+		return true;
+	}
+	function validateCopyMessages(messages) {
+		if (!messages.length) throw new Error("没有可复制的消息。");
+		if (messages.length > 500) throw new Error(`消息超过官方导入一次最多 500 条的限制。`);
+		const tooLong = messages.find((message) => messageText(message.content).length > CONVERSATION_IMPORT_MAX_CHARS);
+		if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断。`);
+	}
+	async function copyConversationByApi({ owner, meta, messages, title }) {
+		if (!owner) throw new Error("无法识别会话归属，暂不支持复制。");
+		validateCopyMessages(messages);
+		const targetCid = `conv__${owner}__${newId()}`;
+		const now = Date.now();
+		const targetMeta = {
+			...meta,
+			title,
+			createdAt: now,
+			updatedAt: now
+		};
+		const copied = messages.map((message, index) => ({
+			...message,
+			id: `msg__${owner}__${newId()}`,
+			seq: index,
+			role: roleOf(message),
+			content: messageText(message.content),
+			createdAt: message.createdAt || now
+		}));
+		let created = false;
+		try {
+			await createConversation(targetCid, targetMeta);
+			created = true;
+			await importMessages(targetCid, targetMeta, copied);
+			if (!sameMessages(await loadMessages(targetCid), copied)) throw new Error("写入后校验失败：副本消息与服务端不一致，可能受导入上限或并发影响。");
+			return {
+				cid: targetCid,
+				local: false
+			};
+		} catch (error) {
+			if (created) try {
+				await deleteConversation(targetCid);
+			} catch {}
+			throw error;
+		}
+	}
+	function copyConversationLocally({ context, meta, messages, title }) {
+		validateCopyMessages(messages);
+		const created = context?.createConversation?.(meta.model || "gemma-4-uncensored");
+		if (!created?.id) throw new Error("无法创建本地副本会话。");
+		const owner = conversationOwner(created.id);
+		for (const message of messages) context.addMessage(created.id, {
+			id: `msg__${owner}__${newId()}`,
+			role: roleOf(message),
+			content: messageText(message.content),
+			createdAt: message.createdAt || Date.now(),
+			...message.model ? { model: message.model } : {}
+		});
+		context.renameConversation?.(created.id, title);
+		return {
+			cid: created.id,
+			local: true
+		};
+	}
+	async function readConversationForCopy(sourceCid, context) {
+		try {
+			const [meta, messages] = await Promise.all([loadConversation(sourceCid), loadMessages(sourceCid)]);
+			return {
+				meta,
+				messages,
+				remote: true
+			};
+		} catch (error) {
+			const active = context?.activeConversation;
+			if (active?.id === sourceCid && Array.isArray(active.messages) && active.messages.length) return {
+				meta: active,
+				messages: active.messages,
+				remote: false
+			};
+			throw error;
+		}
+	}
+	async function copyConversation({ sourceCid, context, meta, messages, title }) {
+		const owner = conversationOwner(sourceCid);
+		try {
+			return await copyConversationByApi({
+				owner,
+				meta,
+				messages,
+				title
+			});
+		} catch (error) {
+			if (owner === "anonymous" && context?.activeConversation?.id === sourceCid) return copyConversationLocally({
+				context,
+				meta,
+				messages,
+				title
+			});
+			throw error;
+		}
 	}
 	function officialContext(element) {
 		let fiber = null;
@@ -2763,11 +2857,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		else element.value = value;
 		element.dispatchEvent(new Event("input", { bubbles: true }));
 	}
-	var ROLE_LABELS = {
-		user: "你",
-		assistant: "AI",
-		system: "系统"
-	};
 	function createMessageDelete(host) {
 		const state = {
 			busy: false,
@@ -2785,16 +2874,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			return true;
 		}
-		function hasAdjacentSameRole(messages) {
-			let previous = "";
-			for (const message of messages) {
-				const role = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : "system";
-				if (role === "system") continue;
-				if (role === previous) return true;
-				previous = role;
-			}
-			return false;
-		}
 		function planBaseSeq(fresh, firstDiff) {
 			if (firstDiff < fresh.length) return fresh[firstDiff].seq;
 			return fresh.length ? fresh[fresh.length - 1].seq + 1 : 0;
@@ -2811,17 +2890,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			anchor.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1e3);
 		}
-		function confirmDelete(target, fresh, desired, newTail, index) {
-			const loss = describeLoss(newTail);
-			const lines = [`只删除 #${target.seq}（${ROLE_LABELS[target.role] || target.role}）：${previewText(String(target.content || "")) || "（空）"}`];
-			const tailCount = fresh.length - index - 1;
-			if (newTail.length) lines.push(`后面的 ${Math.max(tailCount, 0)} 条消息会保留；为保证顺序，会从这条起截断并重建尾部 ${newTail.length} 条。`);
-			else lines.push("这是最后一条，不会重建其他消息。");
-			if (loss.length) lines.push(`重建会丢失：${loss.join("、")}。文本、角色、模型、时间和消息 ID 会保留。`);
-			if (hasAdjacentSameRole(desired)) lines.push("注意：删除后会出现连续的同角色消息，官方对话通常用户/助手交替，模型表现可能异常。");
-			lines.push("修改直接写入官方，成功后当前页面会立即移除这条消息。继续？");
-			return window.confirm(lines.join("\n\n"));
-		}
 		async function applyDelete(resolveTarget) {
 			if (state.busy || !state.cid) return null;
 			state.busy = true;
@@ -2836,17 +2904,18 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				const index = indexOfId(fresh, target.id);
 				if (index < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
 				firstDiff = index;
-				const desired = [...fresh.slice(0, index), ...fresh.slice(index + 1)];
+				const desired = [...fresh.slice(0, index), ...fresh.slice(index + 1).map((message) => ({
+					...message,
+					content: messageText(message.content)
+				}))];
 				const baseSeq = planBaseSeq(fresh, firstDiff);
 				const newTail = desired.slice(firstDiff).map((message, offset) => ({
 					...message,
-					seq: baseSeq + offset
+					seq: baseSeq + offset,
+					content: messageText(message.content)
 				}));
 				const tooLong = newTail.find((message) => String(message.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
 				if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
-				const empty = newTail.find((message) => String(message.content || "").length === 0);
-				if (empty) throw new Error(`第 #${empty.seq} 条消息没有文本内容，官方导入接口无法补回，已取消。`);
-				if (!confirmDelete(target, fresh, desired, newTail, index)) return { cancelled: true };
 				deleted = true;
 				await request(`/api/conversations/${encodeURIComponent(state.cid)}/messages/${encodeURIComponent(target.id)}`, { method: "DELETE" });
 				if (newTail.length) await importMessages(state.cid, meta, newTail);
@@ -2862,10 +2931,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (deleted) try {
 					const originalTail = fresh.slice(firstDiff).map((item, offset) => ({
 						...item,
-						seq: planBaseSeq(fresh, firstDiff) + offset
+						seq: planBaseSeq(fresh, firstDiff) + offset,
+						content: messageText(item.content)
 					}));
 					if (originalTail.length) await importMessages(state.cid, meta, originalTail);
-					if (!sameOrder(await loadMessages(state.cid), fresh)) throw new Error("补回后校验失败");
+					if (!sameOrder(await loadMessages(state.cid), [...fresh.slice(0, firstDiff), ...fresh.slice(firstDiff).map((message) => ({
+						...message,
+						content: messageText(message.content)
+					}))])) throw new Error("补回后校验失败");
 					return {
 						ok: false,
 						message: `删除失败：${message}。已尝试补回原消息，请确认页面内容。`
@@ -2919,9 +2992,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) throw new Error("无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。");
 				return fresh[indexAtClick];
 			});
-			if (!result || result.cancelled) return;
+			if (!result) return;
 			if (!result.ok) {
-				window.alert(`SichangTools：${result.message}`);
+				console.warn(`[SichangTools] ${result.message}`);
 				return;
 			}
 			if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
@@ -2938,7 +3011,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			event.stopPropagation();
 			event.stopImmediatePropagation();
 			if (state.busy) {
-				window.alert("SichangTools：正在删除上一条消息，请稍后再试。");
+				console.warn("[SichangTools] 正在删除上一条消息，请稍后再试。");
 				return;
 			}
 			const buttonsAtClick = officialDeleteButtons();
@@ -3004,7 +3077,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			next.setAttribute("aria-label", CLONE_BUTTON_LABEL);
 			next.title = CLONE_BUTTON_LABEL;
 			next.innerHTML = COPY_ICON;
-			next.addEventListener("click", onCloneClick);
 			source.parentElement.insertBefore(next, source);
 			button = next;
 			setBusy(state.busy);
@@ -3016,88 +3088,41 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				ensureButton();
 			}, 120);
 		}
-		function validateCid(cid) {
-			if (!cid || cid.startsWith("conv__anonymous__")) throw new Error("当前是未登录的本地对话，消息不在云端，暂不支持克隆。请登录后打开云端对话。");
-		}
-		function validateMessages(messages) {
-			if (!messages.length) throw new Error("当前对话还没有消息，无需克隆。");
-			if (messages.length > 500) throw new Error(`当前对话有 ${messages.length} 条消息，超过官方导入一次最多 500 条的限制，已取消。`);
-			const empty = messages.find((message) => String(message.content || "").length === 0);
-			if (empty) throw new Error(`第 #${empty.seq} 条消息没有文本内容，官方导入接口无法复制，请先删除它。`);
-			const tooLong = messages.find((message) => String(message.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
-			if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
-		}
-		function confirmClone(meta, messages) {
-			const loss = describeLoss(messages);
-			const lines = [`克隆「${meta.title || "新对话"}」的 ${messages.length} 条消息为一个新会话？`, "副本会保留消息顺序、角色、正文、模型和创建时间，并生成新的会话和消息 ID。"];
-			if (loss.length) lines.push(`副本会丢失：${loss.join("、")}。`);
-			lines.push("完成后会打开副本；原会话不变。继续？");
-			return window.confirm(lines.join("\n\n"));
-		}
-		function sameMessages(actual, expected) {
-			if (actual.length !== expected.length) return false;
-			for (let index = 0; index < actual.length; index += 1) {
-				if (actual[index].content !== expected[index].content) return false;
-				if (actual[index].role !== expected[index].role) return false;
-			}
-			return true;
-		}
 		async function applyClone() {
 			const sourceCid = readConversationId();
-			const owner = conversationOwner(sourceCid);
-			validateCid(sourceCid);
-			if (!owner) throw new Error("无法识别当前会话 ID，暂不支持克隆。");
-			if (owner === "anonymous") throw new Error("当前是未登录的本地对话，消息不在云端，暂不支持克隆。请登录后打开云端对话。");
-			const [meta, messages] = await Promise.all([loadConversation(sourceCid), loadMessages(sourceCid)]);
-			validateMessages(messages);
-			if (!confirmClone(meta, messages)) return { cancelled: true };
-			const targetCid = `conv__${owner}__${newId()}`;
-			const now = Date.now();
-			const targetMeta = {
-				...meta,
-				title: cloneTitle(meta.title),
-				createdAt: now,
-				updatedAt: now
-			};
-			const copied = messages.map((message, index) => ({
-				...message,
-				id: `msg__${owner}__${newId()}`,
-				seq: index,
-				createdAt: message.createdAt || now
-			}));
-			let created = false;
-			try {
-				await createConversation(targetCid, targetMeta);
-				created = true;
-				await importMessages(targetCid, targetMeta, copied);
-				if (!sameMessages(await loadMessages(targetCid), copied)) throw new Error("写入后校验失败：副本消息与服务端不一致，可能受导入上限或并发影响。");
-				return {
-					ok: true,
-					cid: targetCid
-				};
-			} catch (error) {
-				if (created) try {
-					await deleteConversation(targetCid);
-				} catch {}
-				throw error;
-			}
+			if (!sourceCid) throw new Error("当前没有可克隆的会话。");
+			const anchor = findHeader()?.querySelector(OFFICIAL_NEW_CHAT_SELECTOR);
+			const context = anchor ? officialContext(anchor) : null;
+			const { meta, messages } = await readConversationForCopy(sourceCid, context);
+			return copyConversation({
+				sourceCid,
+				context,
+				meta,
+				messages,
+				title: cloneTitle(meta.title)
+			});
 		}
 		async function onCloneClick(event) {
+			const target = event.target;
+			if (!(target instanceof Element) || !target.closest("button[data-sichang-clone]")) return;
 			event.preventDefault();
 			event.stopPropagation();
+			event.stopImmediatePropagation();
 			if (state.busy) return;
 			setBusy(true);
 			try {
 				const result = await applyClone();
-				if (!result?.ok) return;
-				window.location.assign(`/chat/${encodeURIComponent(result.cid)}`);
+				const path = `/chat/${encodeURIComponent(result.cid)}`;
+				if (result.local) window.history.replaceState(null, "", path);
+				else window.location.assign(path);
 			} catch (error) {
-				window.alert(`SichangTools：克隆失败：${errorMessage(error)}`);
+				console.warn("[SichangTools] 克隆失败：", error);
 			} finally {
 				setBusy(false);
 			}
 		}
 		ensureButton();
+		document.addEventListener("click", onCloneClick, { capture: true });
 		state.observer = new MutationObserver(scheduleEnsure);
 		state.observer.observe(document.body, {
 			childList: true,
@@ -3106,11 +3131,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		return {
 			api: {},
 			dispose: () => {
+				document.removeEventListener("click", onCloneClick, { capture: true });
 				state.observer?.disconnect();
 				state.observer = null;
 				if (state.timer) window.clearTimeout(state.timer);
 				state.timer = 0;
-				button?.removeEventListener("click", onCloneClick);
 				button?.remove();
 				button = null;
 			}
@@ -3188,10 +3213,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}, 120);
 		}
 		function readInput(textarea) {
-			const content = String(textarea.value || "").trim();
-			if (!content) throw new Error("输入框是空的，先输入要添加的文字。");
 			if (textarea.disabled) throw new Error("输入框当前不可用，请等页面初始化完成。");
-			if (content.length > 2e4) throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
+			const content = String(textarea.value || "").trim();
+			if (content.length > 2e4) throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断。`);
 			return content;
 		}
 		async function addBubble() {
@@ -3208,7 +3232,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				id: `msg__${owner}__${newId()}`,
 				seq: nextSeq(messages),
 				role: "user",
-				content,
+				content: messageText(content),
 				createdAt: Date.now(),
 				state: "complete"
 			};
@@ -3251,7 +3275,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			try {
 				if (!await addBubble()) window.location.reload();
 			} catch (error) {
-				window.alert(`SichangTools：${errorMessage(error)}`);
+				console.warn(`[SichangTools] 添加消息失败：${errorMessage(error)}`);
 			} finally {
 				setBusy(false);
 			}
@@ -3273,6 +3297,124 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				state.timer = 0;
 				button?.remove();
 				button = null;
+			}
+		};
+	}
+	var FORK_ICON = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="18" r="3"></circle>
+        <circle cx="6" cy="6" r="3"></circle>
+        <circle cx="18" cy="6" r="3"></circle>
+        <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"></path>
+        <path d="M12 12v3"></path>
+    </svg>
+`;
+	function copyButtons() {
+		return Array.from(document.querySelectorAll(OFFICIAL_COPY_SELECTOR));
+	}
+	function actionRowOf(copy) {
+		return (copy?.parentElement)?.parentElement ?? null;
+	}
+	function createForkMessage() {
+		const state = {
+			busy: false,
+			observer: null,
+			timer: 0
+		};
+		function setBusy(busy) {
+			state.busy = busy;
+			for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) {
+				button.disabled = busy;
+				button.setAttribute("aria-busy", busy ? "true" : "false");
+			}
+		}
+		function ensureButtons() {
+			for (const copy of copyButtons()) {
+				const span = copy.parentElement;
+				const row = actionRowOf(copy);
+				if (!span || !row || row.querySelector("button[data-sichang-fork]")) continue;
+				const wrapper = span.cloneNode(true);
+				const button = wrapper.querySelector("button");
+				if (!button) continue;
+				button.setAttribute("data-sichang-fork", "");
+				button.setAttribute("aria-label", FORK_BUTTON_LABEL);
+				button.title = FORK_BUTTON_LABEL;
+				button.innerHTML = FORK_ICON;
+				button.disabled = state.busy;
+				row.insertBefore(wrapper, span);
+			}
+		}
+		function scheduleEnsure() {
+			if (state.timer) return;
+			state.timer = window.setTimeout(() => {
+				state.timer = 0;
+				ensureButtons();
+			}, 120);
+		}
+		async function forkAt(copy, index) {
+			const cid = readConversationId();
+			if (!cid) throw new Error("当前没有可复刻的会话。");
+			const context = officialContext(copy);
+			const conversation = context?.activeConversation;
+			if (!conversation || conversation.id !== cid) throw new Error("无法读取官方当前会话，请等消息加载完成。");
+			if (copyButtons().length !== conversation.messages.length || index < 0 || index >= conversation.messages.length) throw new Error("消息列表已变化，请等页面稳定后重试。");
+			const target = conversation.messages[index];
+			const source = await readConversationForCopy(cid, context);
+			let fullIndex = source.messages.findIndex((message) => message.id === target.id);
+			if (fullIndex < 0 && typeof target.seq === "number") fullIndex = source.messages.findIndex((message) => message.seq === target.seq);
+			if (fullIndex < 0) throw new Error("在会话里找不到这条消息，请刷新后重试。");
+			const messages = source.messages.slice(0, fullIndex + 1);
+			const title = `${source.meta.title || "新对话"}（前${messages.length}条）`;
+			return copyConversation({
+				sourceCid: cid,
+				context,
+				meta: source.meta,
+				messages,
+				title
+			});
+		}
+		async function onForkClick(event) {
+			const target = event.target;
+			if (!(target instanceof Element)) return;
+			const button = target.closest(FORK_BUTTON_SELECTOR);
+			if (!button) return;
+			event.preventDefault();
+			event.stopPropagation();
+			event.stopImmediatePropagation();
+			if (state.busy || button.disabled) return;
+			const copy = (button.parentElement?.parentElement)?.querySelector(OFFICIAL_COPY_SELECTOR);
+			if (!copy) return;
+			const index = copyButtons().indexOf(copy);
+			setBusy(true);
+			try {
+				const result = await forkAt(copy, index);
+				const path = `/chat/${encodeURIComponent(result.cid)}`;
+				if (result.local) window.history.replaceState(null, "", path);
+				else window.location.assign(path);
+			} catch (error) {
+				console.warn("[SichangTools] 复刻失败：", error);
+			} finally {
+				setBusy(false);
+			}
+		}
+		ensureButtons();
+		document.addEventListener("click", onForkClick, { capture: true });
+		state.observer = new MutationObserver(scheduleEnsure);
+		state.observer.observe(document.body, {
+			childList: true,
+			subtree: true
+		});
+		return {
+			api: {},
+			dispose: () => {
+				document.removeEventListener("click", onForkClick, { capture: true });
+				state.observer?.disconnect();
+				state.observer = null;
+				if (state.timer) window.clearTimeout(state.timer);
+				state.timer = 0;
+				for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) button.parentElement?.remove();
 			}
 		};
 	}
@@ -3365,6 +3507,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		adopt(createMessageDelete(host));
 		adopt(createConversationClone());
 		adopt(createAddBubble());
+		adopt(createForkMessage());
 		function syncPlaybackRateButton() {
 			ui.rateCycle.textContent = `${host.playbackRate}×`;
 			ui.rateCycle.title = `播放倍速 ${host.playbackRate}×（仅已下载音频）`;

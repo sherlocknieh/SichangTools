@@ -26,6 +26,10 @@ export const OFFICIAL_SEND_SELECTOR = 'button[aria-label="发送消息"], button
 export const OFFICIAL_ATTACH_SELECTOR = 'button[aria-label="发送附件"], button[title="发送附件"]';
 export const ADD_BUBBLE_BUTTON_SELECTOR = 'button[data-sichang-add-bubble]';
 export const ADD_BUBBLE_BUTTON_LABEL = '添加消息气泡';
+// 每条官方消息的操作行以「复制消息」按钮为锚点；fork 按钮插在它前面。
+export const OFFICIAL_COPY_SELECTOR = 'button[aria-label="复制消息"], button[title="复制消息"], button[aria-label="Copy message"], button[title="Copy message"]';
+export const FORK_BUTTON_SELECTOR = 'button[data-sichang-fork]';
+export const FORK_BUTTON_LABEL = '复刻到这条消息';
 export const PANEL_ID = 'sichang-tts-capture';
 export const DEFAULT_SAMPLE_RATE = 24000;
 export const MAX_RECORDS = 20;

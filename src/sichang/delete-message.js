@@ -6,7 +6,6 @@ import {
     OFFICIAL_MESSAGE_DELETE_SELECTOR,
 } from './constants.js';
 import {
-    describeLoss,
     errorMessage,
     importMessages,
     loadConversation,
@@ -14,10 +13,8 @@ import {
     readConversationId,
     request,
 } from './conversation-api.js';
+import { messageText } from './conversation-copy.js';
 import { officialContext } from './official-page.js';
-import { previewText } from './text.js';
-
-const ROLE_LABELS = { user: '你', assistant: 'AI', system: '系统' };
 
 export function createMessageDelete(host) {
     const state = {
@@ -41,17 +38,6 @@ export function createMessageDelete(host) {
         return true;
     }
 
-    function hasAdjacentSameRole(messages) {
-        let previous = '';
-        for (const message of messages) {
-            const role = message.role === 'user' ? 'user' : message.role === 'assistant' ? 'assistant' : 'system';
-            if (role === 'system') continue;
-            if (role === previous) return true;
-            previous = role;
-        }
-        return false;
-    }
-
     function planBaseSeq(fresh, firstDiff) {
         if (firstDiff < fresh.length) return fresh[firstDiff].seq;
         return fresh.length ? fresh[fresh.length - 1].seq + 1 : 0;
@@ -67,27 +53,6 @@ export function createMessageDelete(host) {
         anchor.download = `sichang-message-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
         anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-
-    function confirmDelete(target, fresh, desired, newTail, index) {
-        const loss = describeLoss(newTail);
-        const lines = [
-            `只删除 #${target.seq}（${ROLE_LABELS[target.role] || target.role}）：${previewText(String(target.content || '')) || '（空）'}`,
-        ];
-        const tailCount = fresh.length - index - 1;
-        if (newTail.length) {
-            lines.push(`后面的 ${Math.max(tailCount, 0)} 条消息会保留；为保证顺序，会从这条起截断并重建尾部 ${newTail.length} 条。`);
-        } else {
-            lines.push('这是最后一条，不会重建其他消息。');
-        }
-        if (loss.length) {
-            lines.push(`重建会丢失：${loss.join('、')}。文本、角色、模型、时间和消息 ID 会保留。`);
-        }
-        if (hasAdjacentSameRole(desired)) {
-            lines.push('注意：删除后会出现连续的同角色消息，官方对话通常用户/助手交替，模型表现可能异常。');
-        }
-        lines.push('修改直接写入官方，成功后当前页面会立即移除这条消息。继续？');
-        return window.confirm(lines.join('\n\n'));
     }
 
     async function applyDelete(resolveTarget) {
@@ -106,22 +71,21 @@ export function createMessageDelete(host) {
             if (index < 0) throw new Error('选中的消息已不存在，请刷新后重试。');
 
             firstDiff = index;
-            const desired = [...fresh.slice(0, index), ...fresh.slice(index + 1)];
+            // import 不接受空正文；只有被重建的尾部换成零宽空格，头部保持原样。
+            const desired = [
+                ...fresh.slice(0, index),
+                ...fresh.slice(index + 1).map(message => ({ ...message, content: messageText(message.content) })),
+            ];
             const baseSeq = planBaseSeq(fresh, firstDiff);
             const newTail = desired.slice(firstDiff).map((message, offset) => ({
                 ...message,
                 seq: baseSeq + offset,
+                content: messageText(message.content),
             }));
             const tooLong = newTail.find(message => String(message.content || '').length > CONVERSATION_IMPORT_MAX_CHARS);
             if (tooLong) {
                 throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
             }
-            const empty = newTail.find(message => String(message.content || '').length === 0);
-            if (empty) {
-                throw new Error(`第 #${empty.seq} 条消息没有文本内容，官方导入接口无法补回，已取消。`);
-            }
-            if (!confirmDelete(target, fresh, desired, newTail, index)) return { cancelled: true };
-
             // 请求失败也可能已经在服务端截断；先标记，失败时统一尝试补回原尾部。
             deleted = true;
             await request(
@@ -142,10 +106,15 @@ export function createMessageDelete(host) {
                     const originalTail = fresh.slice(firstDiff).map((item, offset) => ({
                         ...item,
                         seq: planBaseSeq(fresh, firstDiff) + offset,
+                        content: messageText(item.content),
                     }));
                     if (originalTail.length) await importMessages(state.cid, meta, originalTail);
                     const restored = await loadMessages(state.cid);
-                    if (!sameOrder(restored, fresh)) throw new Error('补回后校验失败');
+                    const original = [
+                        ...fresh.slice(0, firstDiff),
+                        ...fresh.slice(firstDiff).map(message => ({ ...message, content: messageText(message.content) })),
+                    ];
+                    if (!sameOrder(restored, original)) throw new Error('补回后校验失败');
                     return { ok: false, message: `删除失败：${message}。已尝试补回原消息，请确认页面内容。` };
                 } catch (restoreError) {
                     downloadBackup(meta, fresh);
@@ -204,9 +173,9 @@ export function createMessageDelete(host) {
             return fresh[indexAtClick];
         });
 
-        if (!result || result.cancelled) return;
+        if (!result) return;
         if (!result.ok) {
-            window.alert(`SichangTools：${result.message}`);
+            console.warn(`[SichangTools] ${result.message}`);
             return;
         }
         if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
@@ -230,7 +199,7 @@ export function createMessageDelete(host) {
         event.stopImmediatePropagation();
 
         if (state.busy) {
-            window.alert('SichangTools：正在删除上一条消息，请稍后再试。');
+            console.warn('[SichangTools] 正在删除上一条消息，请稍后再试。');
             return;
         }
 

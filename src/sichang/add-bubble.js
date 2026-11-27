@@ -19,6 +19,7 @@ import {
     readConversationId,
     request,
 } from './conversation-api.js';
+import { messageText } from './conversation-copy.js';
 import { officialContext, setNativeValue } from './official-page.js';
 
 const PLUS_ICON = `
@@ -99,13 +100,12 @@ export function createAddBubble() {
         }, 120);
     }
 
-    // 服务端只接受非空文本；这里也顺便挡住超过 import 上限的正文。
+    // 空输入也允许：官方 import 会跳过空正文，所以统一用零宽空格占位。
     function readInput(textarea) {
-        const content = String(textarea.value || '').trim();
-        if (!content) throw new Error('输入框是空的，先输入要添加的文字。');
         if (textarea.disabled) throw new Error('输入框当前不可用，请等页面初始化完成。');
+        const content = String(textarea.value || '').trim();
         if (content.length > CONVERSATION_IMPORT_MAX_CHARS) {
-            throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
+            throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断。`);
         }
         return content;
     }
@@ -128,7 +128,7 @@ export function createAddBubble() {
             id: `msg__${owner}__${newId()}`,
             seq: nextSeq(messages),
             role: 'user',
-            content,
+            content: messageText(content),
             createdAt: Date.now(),
             state: 'complete',
         };
@@ -179,7 +179,7 @@ export function createAddBubble() {
             // 拿不到官方 React 状态时整页刷新，保证服务端和页面一致。
             if (!synced) window.location.reload();
         } catch (error) {
-            window.alert(`SichangTools：${errorMessage(error)}`);
+            console.warn(`[SichangTools] 添加消息失败：${errorMessage(error)}`);
         } finally {
             setBusy(false);
         }

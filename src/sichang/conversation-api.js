@@ -148,29 +148,6 @@ export async function importMessages(cid, meta, messages) {
     }
 }
 
-// import 只接收文本字段，重建/克隆都会丢这些元数据；确认框和文档共用同一份口径。
-export function describeLoss(messages) {
-    let variants = 0;
-    let thinking = 0;
-    let suggestions = 0;
-    let sources = 0;
-    let attachments = 0;
-    for (const message of messages) {
-        if (message.meta?.variants?.length > 1) variants += 1;
-        if (message.meta?.thinking) thinking += 1;
-        if (message.meta?.imageSuggestions?.length) suggestions += 1;
-        if (message.meta?.webSources?.length) sources += 1;
-        if (message.attachments?.length) attachments += message.attachments.length;
-    }
-    const parts = [];
-    if (variants) parts.push(`分支变体（${variants} 条消息）`);
-    if (thinking) parts.push(`思考内容（${thinking} 条消息）`);
-    if (suggestions) parts.push(`图片建议（${suggestions} 条消息）`);
-    if (sources) parts.push(`网页来源（${sources} 条消息）`);
-    if (attachments) parts.push(`附件/生成图（${attachments} 个）`);
-    return parts;
-}
-
 export function errorMessage(error) {
     if (error?.status === 401) return '未登录或登录已失效，无法同步到官方。';
     if (error?.status === 404) return '这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。';
