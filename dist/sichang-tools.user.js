@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2322
+// @version      2026.11.27.2326
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -430,6 +430,71 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 		};
 	}
+	var RETRY_MS = 200;
+	var FALLBACK_MS = 5e3;
+	function hasReactFiber(element) {
+		return Boolean(element) && Object.getOwnPropertyNames(element).some((key) => key.startsWith("__reactFiber$"));
+	}
+	var forced = false;
+	var settled = false;
+	var retryTimer = 0;
+	var fallbackTimer = 0;
+	var listeners = new Set();
+	function canMutate(element) {
+		if (forced) return true;
+		return document.readyState === "complete" && hasReactFiber(element);
+	}
+	function sampleNode() {
+		return document.querySelector("textarea") || document.body?.firstElementChild || null;
+	}
+	function settle() {
+		if (settled) return;
+		settled = true;
+		window.clearTimeout(retryTimer);
+		window.clearTimeout(fallbackTimer);
+		retryTimer = 0;
+		fallbackTimer = 0;
+		for (const fn of [...listeners]) {
+			listeners.delete(fn);
+			try {
+				fn();
+			} catch (error) {
+				console.warn("[SichangTools] 水合后回调失败", error);
+			}
+		}
+	}
+	function check() {
+		if (settled) return;
+		if (document.readyState !== "complete") return;
+		if (!hasReactFiber(sampleNode())) return;
+		settle();
+	}
+	function retry() {
+		retryTimer = 0;
+		if (settled) return;
+		check();
+		if (settled) return;
+		retryTimer = window.setTimeout(retry, RETRY_MS);
+	}
+	function arm() {
+		check();
+		if (settled) return;
+		retry();
+		fallbackTimer = window.setTimeout(() => {
+			forced = true;
+			settle();
+		}, FALLBACK_MS);
+	}
+	function onSettled(callback) {
+		if (settled) {
+			callback();
+			return () => {};
+		}
+		listeners.add(callback);
+		return () => listeners.delete(callback);
+	}
+	if (document.readyState === "complete") arm();
+	else window.addEventListener("load", arm, { once: true });
 	function findComposer() {
 		const candidates = [...document.querySelectorAll("textarea")].filter((textarea) => textarea.getBoundingClientRect().width > 0);
 		for (const textarea of candidates) {
@@ -468,11 +533,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		else element.value = value;
 		element.dispatchEvent(new Event("input", { bubbles: true }));
 	}
-	var HYDRATION_RETRY_MS = 200;
-	var HYDRATION_FALLBACK_MS = 5e3;
-	function hasReactFiber(element) {
-		return Boolean(element) && Object.getOwnPropertyNames(element).some((key) => key.startsWith("__reactFiber$"));
-	}
 	function createPanelLayout(host) {
 		const { ui } = host;
 		function applyFold(folded, persist = true) {
@@ -497,15 +557,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (event.target.closest("button, select")) return;
 			applyFold(!ui.panel.classList.contains("folded"));
 		});
-		let hydrationFallback = false;
-		let retryTimer = 0;
-		function scheduleRetry() {
-			if (retryTimer) return;
-			retryTimer = window.setTimeout(() => {
-				retryTimer = 0;
-				placePanel();
-			}, HYDRATION_RETRY_MS);
-		}
 		function placePanel() {
 			const composer = findComposer();
 			if (!composer) {
@@ -513,10 +564,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				return;
 			}
 			const { container, textarea } = composer;
-			const hydrated = hasReactFiber(container) && hasReactFiber(textarea);
-			if (!hydrationFallback && (document.readyState !== "complete" || !hydrated)) {
+			if (!canMutate(container) || !canMutate(textarea)) {
 				ui.host.remove();
-				scheduleRetry();
 				return;
 			}
 			if (ui.host.parentElement !== container || container.firstElementChild !== ui.host) container.insertBefore(ui.host, container.firstChild);
@@ -535,15 +584,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			childList: true,
 			subtree: true
 		});
-		let fallbackTimer = 0;
-		function armFallback() {
-			fallbackTimer = window.setTimeout(() => {
-				hydrationFallback = true;
-				placePanel();
-			}, HYDRATION_FALLBACK_MS);
-		}
-		if (document.readyState === "complete") armFallback();
-		else window.addEventListener("load", armFallback, { once: true });
+		const unsubscribeSettled = onSettled(schedulePlace);
 		placePanel();
 		return {
 			api: {
@@ -553,10 +594,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			},
 			dispose: () => {
 				observer.disconnect();
+				unsubscribeSettled();
 				if (timer) window.clearTimeout(timer);
-				if (retryTimer) window.clearTimeout(retryTimer);
-				window.clearTimeout(fallbackTimer);
-				window.removeEventListener("load", armFallback);
 			}
 		};
 	}
@@ -3223,6 +3262,7 @@ button[${BUSY_ATTR}]::before {
 			}
 			const header = findHeader();
 			if (!header) return;
+			if (!canMutate(header)) return;
 			const existing = header.querySelector(CLONE_BUTTON_SELECTOR);
 			if (existing) {
 				button = existing;
@@ -3287,12 +3327,14 @@ button[${BUSY_ATTR}]::before {
 			childList: true,
 			subtree: true
 		});
+		const unsubscribeSettled = onSettled(scheduleEnsure);
 		return {
 			api: {},
 			dispose: () => {
 				document.removeEventListener("click", onCloneClick, { capture: true });
 				state.observer?.disconnect();
 				state.observer = null;
+				unsubscribeSettled();
 				if (state.timer) window.clearTimeout(state.timer);
 				state.timer = 0;
 				button?.remove();
@@ -3402,6 +3444,7 @@ button[${BUSY_ATTR}]::before {
 			}
 			const composer = findComposer();
 			if (!composer?.send || !composer.row) return;
+			if (!canMutate(composer.row)) return;
 			const existing = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
 			if (existing) {
 				button = existing;
@@ -3526,6 +3569,7 @@ button[${BUSY_ATTR}]::before {
 			childList: true,
 			subtree: true
 		});
+		const unsubscribeSettled = onSettled(scheduleEnsure);
 		return {
 			api: {},
 			dispose: () => {
@@ -3537,6 +3581,7 @@ button[${BUSY_ATTR}]::before {
 				document.getElementById(MENU_STYLE_ID)?.remove();
 				state.observer?.disconnect();
 				state.observer = null;
+				unsubscribeSettled();
 				if (state.timer) window.clearTimeout(state.timer);
 				state.timer = 0;
 				button?.remove();
@@ -3579,6 +3624,7 @@ button[${BUSY_ATTR}]::before {
 				const span = copy.parentElement;
 				const row = actionRowOf(copy);
 				if (!span || !row || row.querySelector("button[data-sichang-fork]")) continue;
+				if (!canMutate(row)) continue;
 				const wrapper = span.cloneNode(true);
 				const button = wrapper.querySelector("button");
 				if (!button) continue;
@@ -3650,12 +3696,14 @@ button[${BUSY_ATTR}]::before {
 			childList: true,
 			subtree: true
 		});
+		const unsubscribeSettled = onSettled(scheduleEnsure);
 		return {
 			api: {},
 			dispose: () => {
 				document.removeEventListener("click", onForkClick, { capture: true });
 				state.observer?.disconnect();
 				state.observer = null;
+				unsubscribeSettled();
 				if (state.timer) window.clearTimeout(state.timer);
 				state.timer = 0;
 				for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) button.parentElement?.remove();

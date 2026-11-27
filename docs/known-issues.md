@@ -128,7 +128,7 @@
 
 **原因**：面板如果在站点水合完成前插进 React 管理的输入卡片，多出的节点会让 React 回退成整页客户端渲染，把其它脚本挂在 `body` 上的节点一起清掉。
 
-**规避**：不要在水合期间修改 React 管理的 DOM。`panel-layout.js` 用 React fiber 判断输入卡片已水合后才挂载，并把首次挂载放到 `readyState === 'complete'` 之后；复现时不要只看「面板有没有出现」，还要检查 `.dscf-msgnav` 是否仍 `isConnected`。
+**规避**：不要在水合期间修改 React 管理的 DOM。所有向官方 React DOM 插节点的模块（`panel-layout.js`、`add-bubble.js`、`clone-conversation.js`、`fork-message.js`）都先过 `hydration.js` 的 `canMutate()`：要求 `readyState === 'complete'` 且目标节点已有 React fiber；水合完成但不伴随 DOM 变化时由 `onSettled()` 补一次检查，fiber 一直不出现则 `load` 后 5 秒兜底放行。复现时不要只看「面板有没有出现」，还要检查 `.dscf-msgnav` 是否仍 `isConnected`。
 
 ## 面板位置不对 / 不在输入框上方
 

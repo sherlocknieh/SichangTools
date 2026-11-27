@@ -1,6 +1,7 @@
 // 每条官方消息操作行里的「复刻到这条消息」：把当前会话截到该条为止复制成新会话。
 // 按钮以官方「复制消息」按钮为锚点注入；点击顺序对应官方消息顺序，数量不一致时拒绝。
 import { clearBusyIcons, setBusyIcon } from './busy-icon.js';
+import { canMutate, onSettled } from './hydration.js';
 import {
     FORK_BUTTON_LABEL,
     FORK_BUTTON_SELECTOR,
@@ -51,6 +52,8 @@ export function createForkMessage() {
             const span = copy.parentElement;
             const row = actionRowOf(copy);
             if (!span || !row || row.querySelector(FORK_BUTTON_SELECTOR)) continue;
+            // 水合完成前不要往消息操作行插节点，否则会触发 React 整页重渲染
+            if (!canMutate(row)) continue;
             // 复制官方按钮外壳，尺寸、颜色和悬浮态都跟操作行一致。
             const wrapper = span.cloneNode(true);
             const button = wrapper.querySelector('button');
@@ -129,6 +132,8 @@ export function createForkMessage() {
     document.addEventListener('click', onForkClick, { capture: true });
     state.observer = new MutationObserver(scheduleEnsure);
     state.observer.observe(document.body, { childList: true, subtree: true });
+    // 水合完成时不一定有 DOM 变化，补一次插入检查
+    const unsubscribeSettled = onSettled(scheduleEnsure);
 
     return {
         api: {},
@@ -136,6 +141,7 @@ export function createForkMessage() {
             document.removeEventListener('click', onForkClick, { capture: true });
             state.observer?.disconnect();
             state.observer = null;
+            unsubscribeSettled();
             if (state.timer) window.clearTimeout(state.timer);
             state.timer = 0;
             for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) {

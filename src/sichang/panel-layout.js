@@ -1,18 +1,8 @@
 // 面板挂载与折叠：等站点水合完成后嵌进官方输入卡片顶部，输入区被换掉后自动重新挂载。
 // 只依赖面板 DOM 和 host 的输入绑定，不参与记录与播放逻辑。
 import { FOLD_STORE_KEY } from './constants.js';
+import { canMutate, onSettled } from './hydration.js';
 import { findComposer } from './official-page.js';
-
-// React 水合完成前不要把面板插进它管理的 DOM：多出的节点会触发客户端重渲染，
-// 连带清掉其它脚本挂在页面上的节点（例如 deepseek-web-toolkit 的消息导航）。
-const HYDRATION_RETRY_MS = 200;
-// fiber 一直不出现（非 React 页面/站点改版）时，load 后兜底等待这么久再强制挂载
-const HYDRATION_FALLBACK_MS = 5000;
-
-function hasReactFiber(element) {
-    return Boolean(element)
-        && Object.getOwnPropertyNames(element).some(key => key.startsWith('__reactFiber$'));
-}
 
 export function createPanelLayout(host) {
     const { ui } = host;
@@ -45,16 +35,6 @@ export function createPanelLayout(host) {
     });
 
     // 等水合完成后才挂进输入卡片；没有输入区（例如会话列表页）时保持不挂载
-    let hydrationFallback = false;
-    let retryTimer = 0;
-    function scheduleRetry() {
-        if (retryTimer) return;
-        retryTimer = window.setTimeout(() => {
-            retryTimer = 0;
-            placePanel();
-        }, HYDRATION_RETRY_MS);
-    }
-
     function placePanel() {
         const composer = findComposer();
         if (!composer) {
@@ -62,11 +42,9 @@ export function createPanelLayout(host) {
             return;
         }
         const { container, textarea } = composer;
-        const hydrated = hasReactFiber(container) && hasReactFiber(textarea);
-        // readyState 结束前即使 fiber 已经挂上，也可能仍有子树在排队水合；完成后才动手
-        if (!hydrationFallback && (document.readyState !== 'complete' || !hydrated)) {
+        // 水合前插入会让 React 整页重渲染；等 canMutate 放行后再动手
+        if (!canMutate(container) || !canMutate(textarea)) {
             ui.host.remove();
-            scheduleRetry();
             return;
         }
         // 水合或切换会话可能换掉整张输入卡片；不在当前卡片最前面就重新插回去
@@ -88,16 +66,8 @@ export function createPanelLayout(host) {
     const observer = new MutationObserver(schedulePlace);
     observer.observe(document.documentElement, { childList: true, subtree: true });
 
-    // 站点改版或非 React 页面上 fiber 可能一直不出现；页面加载完再兜底一段时间后照常挂载
-    let fallbackTimer = 0;
-    function armFallback() {
-        fallbackTimer = window.setTimeout(() => {
-            hydrationFallback = true;
-            placePanel();
-        }, HYDRATION_FALLBACK_MS);
-    }
-    if (document.readyState === 'complete') armFallback();
-    else window.addEventListener('load', armFallback, { once: true });
+    // 水合完成（或兜底放行）不一定伴随 DOM 变化，这里补一次挂载检查
+    const unsubscribeSettled = onSettled(schedulePlace);
 
     placePanel();
 
@@ -105,10 +75,8 @@ export function createPanelLayout(host) {
         api: { applyFold, expandPanel, placePanel },
         dispose: () => {
             observer.disconnect();
+            unsubscribeSettled();
             if (timer) window.clearTimeout(timer);
-            if (retryTimer) window.clearTimeout(retryTimer);
-            window.clearTimeout(fallbackTimer);
-            window.removeEventListener('load', armFallback);
         },
     };
 }

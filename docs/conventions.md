@@ -20,6 +20,7 @@
 
 - 页面内容随时会插入；只监听少量必要事件（如 `resize`），不轮询 DOM。
 - 插入 UI 前先判断是否已存在，保证幂等。
+- 往站点 React 管理的 DOM 里插节点（面板、加号、克隆、fork 按钮）前先调 `hydration.js` 的 `canMutate(目标节点)`；水合没完成就放弃本次插入，靠 MutationObserver / `onSettled()` 再触发。水合期多出来的节点会让 React 整页客户端重渲染，清掉其它脚本挂的节点。
 
 ## 语言与风格
 

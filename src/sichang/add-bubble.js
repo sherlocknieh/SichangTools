@@ -9,6 +9,7 @@ import {
     OFFICIAL_ATTACH_SELECTOR,
 } from './constants.js';
 import { setBusyIcon } from './busy-icon.js';
+import { canMutate, onSettled } from './hydration.js';
 import {
     conversationOwner,
     errorMessage,
@@ -136,6 +137,8 @@ export function createAddBubble() {
         }
         const composer = findComposer();
         if (!composer?.send || !composer.row) return;
+        // 水合完成前不要往官方输入行插节点，否则会触发 React 整页重渲染
+        if (!canMutate(composer.row)) return;
         const existing = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
         if (existing) {
             button = existing;
@@ -291,6 +294,8 @@ export function createAddBubble() {
     // 输入区会随会话切换/回复状态重绘，加号被官方一并移除时补插；不做轮询。
     state.observer = new MutationObserver(scheduleEnsure);
     state.observer.observe(document.body, { childList: true, subtree: true });
+    // 水合完成时不一定有 DOM 变化，补一次插入检查
+    const unsubscribeSettled = onSettled(scheduleEnsure);
 
     return {
         api: {},
@@ -303,6 +308,7 @@ export function createAddBubble() {
             document.getElementById(MENU_STYLE_ID)?.remove();
             state.observer?.disconnect();
             state.observer = null;
+            unsubscribeSettled();
             if (state.timer) window.clearTimeout(state.timer);
             state.timer = 0;
             button?.remove();

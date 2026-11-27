@@ -2,6 +2,7 @@
 // 入口是聊天页顶栏「新建对话」左侧的按钮；官方没有克隆接口，复制实现见 conversation-copy.js。
 // 站点改版时优先核对顶栏选择器与 conversation-api.js 里的接口契约。
 import { clearBusyIcons, setBusyIcon } from './busy-icon.js';
+import { canMutate, onSettled } from './hydration.js';
 import {
     CLONE_BUTTON_LABEL,
     CLONE_BUTTON_SELECTOR,
@@ -59,6 +60,8 @@ export function createConversationClone() {
         }
         const header = findHeader();
         if (!header) return;
+        // 水合完成前不要往官方顶栏插节点，否则会触发 React 整页重渲染
+        if (!canMutate(header)) return;
         const existing = header.querySelector(CLONE_BUTTON_SELECTOR);
         if (existing) {
             button = existing;
@@ -128,6 +131,8 @@ export function createConversationClone() {
     // SPA 切会话/窗口尺寸变化时官方会重绘顶栏，按钮可能被 React 一并移除；只做去抖后的补插。
     state.observer = new MutationObserver(scheduleEnsure);
     state.observer.observe(document.body, { childList: true, subtree: true });
+    // 水合完成时不一定有 DOM 变化，补一次插入检查
+    const unsubscribeSettled = onSettled(scheduleEnsure);
 
     return {
         api: {},
@@ -135,6 +140,7 @@ export function createConversationClone() {
             document.removeEventListener('click', onCloneClick, { capture: true });
             state.observer?.disconnect();
             state.observer = null;
+            unsubscribeSettled();
             if (state.timer) window.clearTimeout(state.timer);
             state.timer = 0;
             button?.remove();
