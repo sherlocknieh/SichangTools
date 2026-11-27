@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0157
+// @version      2026.11.28.0210
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -253,7 +253,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
     position: relative;
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     min-height: 22px;
     color: #80808a;
     font-size: 11px;
@@ -275,33 +275,47 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .itemHead .segCount { flex: none; color: #6f6f79; font-size: 10px; }
-/* 记录头图标按钮：默认透明，悬停铺底；播放中用实心软绿，不再套描边 */
+/* 记录头与分段行共用同一套图标按钮：同尺寸、同圆角、同底色，右侧操作列才能对齐 */
 .itemHead .itemPlay,
 .itemHead .itemRegen,
 .itemHead .itemDownload,
-.itemHead .itemDelete {
+.itemHead .itemDelete,
+.segAction,
+.segRegen,
+.segDelete {
     flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 22px;
+    width: 22px;
+    height: 20px;
     padding: 0;
-    border-radius: var(--btn-radius);
-    color: var(--icon-ink);
+    border-radius: 6px;
+    background: var(--btn-bg);
+    color: #c2c2cb;
     line-height: 1;
 }
+.itemHead .itemPlay > svg,
+.segAction > svg { width: 11px; height: 11px; }
+.itemHead .itemRegen > svg,
+.itemHead .itemDownload > svg,
+.segRegen > svg { width: 12px; height: 12px; }
+.itemHead .itemDelete > svg,
+.segDelete > svg { width: 10px; height: 10px; }
 .itemHead .itemPlay:hover,
 .itemHead .itemRegen:hover,
-.itemHead .itemDownload:hover { background: var(--btn-bg-hover); color: #fff; }
-.itemHead .itemPlay.playing {
-    background: #2f5239;
-    color: #c8f6d2;
-}
-.itemHead .itemRegen.busy svg { animation: tts-spin 1s linear infinite; }
+.itemHead .itemDownload:hover,
+.segAction:hover,
+.segRegen:hover { background: var(--btn-bg-hover); color: #fff; }
+.itemHead .itemPlay.playing,
+.segAction.playing { background: #2f5239; color: #c8f6d2; }
+.itemHead .itemRegen.busy svg,
+.segRegen.busy svg { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
-.itemHead .itemDelete { color: #8a8a94; }
-.itemHead .itemDelete:hover { background: var(--danger-soft); color: var(--danger-ink); }
+.itemHead .itemDelete,
+.segDelete { background: transparent; color: #80808a; }
+.itemHead .itemDelete:hover,
+.segDelete:hover { background: var(--danger-soft); color: var(--danger-ink); }
 .itemHead .txt {
     flex: 1 1 auto;
     min-width: 0;
@@ -321,7 +335,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
     align-items: center;
     gap: 4px;
     min-height: 25px;
-    padding: 1px 1px 1px 0;
+    padding: 1px 0;
     border-radius: 6px;
     font-size: 11px;
     cursor: pointer;
@@ -353,32 +367,8 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .seg[data-state="pending"] .segDur { color: #6f6f79; }
 .seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 .seg[data-state="failed"] .segDur, .seg[data-state="skipped"] .segDur { color: #c97a7a; }
-/* 分段行图标按钮：软底小方块，悬停提亮，播放中绿色实底 */
-.segAction,
-.segRegen,
-.segDelete {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 20px;
-    padding: 0;
-    border-radius: 6px;
-    background: var(--btn-bg);
-    color: #c2c2cb;
-    line-height: 1;
-}
-.segAction > svg { width: 11px; height: 11px; }
-.segRegen > svg { width: 12px; height: 12px; }
-.segDelete > svg { width: 10px; height: 10px; }
-.segAction:hover,
-.segRegen:hover { background: var(--btn-bg-hover); color: #fff; }
-.segRegen.busy svg { animation: tts-spin 1s linear infinite; }
+/* 分段重生成失败时的短暂反馈 */
 .segRegen.failed { background: var(--danger-soft); color: var(--danger-ink); }
-/* 分段删除：合成中删掉还没轮到的段就不再请求，直接跳过 */
-.segDelete { background: transparent; color: #80808a; }
-.segDelete:hover { background: var(--danger-soft); color: var(--danger-ink); }
 /* 播放中：进度条顶替预览文字，占同一块空间 */
 .segBar {
     display: none;
@@ -830,9 +820,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (button.classList.contains("failed")) return;
 			button.innerHTML = SEGMENT_ICONS.replay;
 			button.classList.toggle("busy", Boolean(record.regenerating && segment.busy));
-			if (record.regenerating && segment.busy) button.title = `正在重生成第 ${index} 段`;
-			else if (host.selection.record === record && host.selection.segment === segment) button.title = `按输入框里的文本重生成第 ${index} 段`;
-			else button.title = `重生成第 ${index} 段`;
+			if (record.regenerating && segment.busy) button.title = `正在重新生成第 ${index} 段`;
+			else if (host.selection.record === record && host.selection.segment === segment) button.title = `按输入框里的文本重新生成第 ${index} 段`;
+			else button.title = `重新生成第 ${index} 段`;
 			button.setAttribute("aria-label", button.title);
 		}
 		function flashSegmentRegenButton(segment, message) {
@@ -1075,7 +1065,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const hasText = record.segments.some((segment) => String(segment.text || "").trim());
 			button.disabled = !allowed || record.regenerating || !hasText;
 			button.classList.toggle("busy", Boolean(record.regeneratingAll));
-			button.title = record.regeneratingAll ? "正在重生成整条" : "重生成整条（逐段复用）";
+			button.title = record.regeneratingAll ? "正在重新生成" : "重新生成";
 			button.setAttribute("aria-label", button.title);
 		}
 		function createSegment(record, text, after) {
@@ -1109,8 +1099,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const regenButton = document.createElement("button");
 			regenButton.className = "segRegen";
 			regenButton.innerHTML = SEGMENT_ICONS.replay;
-			regenButton.title = "重生成这一段";
-			regenButton.setAttribute("aria-label", "重生成这一段");
+			regenButton.title = "重新生成这一段";
+			regenButton.setAttribute("aria-label", "重新生成这一段");
 			regenButton.disabled = true;
 			const deleteButton = document.createElement("button");
 			deleteButton.className = "segDelete";
@@ -1292,8 +1282,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const regenAllButton = document.createElement("button");
 			regenAllButton.className = "itemRegen";
 			regenAllButton.innerHTML = ICONS.regen;
-			regenAllButton.title = "重生成整条（逐段复用）";
-			regenAllButton.setAttribute("aria-label", "重生成整条");
+			regenAllButton.title = "重新生成";
+			regenAllButton.setAttribute("aria-label", "重新生成");
 			regenAllButton.disabled = true;
 			const downloadButton = document.createElement("button");
 			downloadButton.className = "itemDownload";
@@ -1306,7 +1296,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			deleteButton.innerHTML = ICONS.close;
 			deleteButton.title = "删除这条记录";
 			deleteButton.setAttribute("aria-label", "删除这条记录");
-			head.append(caret, segCount, txt, duration, playButton, regenAllButton, downloadButton, deleteButton);
+			head.append(caret, segCount, txt, downloadButton, duration, playButton, regenAllButton, deleteButton);
 			const segList = document.createElement("div");
 			segList.className = "segList";
 			row.append(head, segList);

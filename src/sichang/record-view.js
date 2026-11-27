@@ -45,7 +45,7 @@ export function createRecordView(host) {
         const hasText = record.segments.some(segment => String(segment.text || '').trim());
         button.disabled = !allowed || record.regenerating || !hasText;
         button.classList.toggle('busy', Boolean(record.regeneratingAll));
-        button.title = record.regeneratingAll ? '正在重生成整条' : '重生成整条（逐段复用）';
+        button.title = record.regeneratingAll ? '正在重新生成' : '重新生成';
         button.setAttribute('aria-label', button.title);
     }
 
@@ -84,8 +84,8 @@ export function createRecordView(host) {
         const regenButton = document.createElement('button');
         regenButton.className = 'segRegen';
         regenButton.innerHTML = SEGMENT_ICONS.replay;
-        regenButton.title = '重生成这一段';
-        regenButton.setAttribute('aria-label', '重生成这一段');
+        regenButton.title = '重新生成这一段';
+        regenButton.setAttribute('aria-label', '重新生成这一段');
         regenButton.disabled = true;
         // 删除这一段：合成中删掉还没轮到的段就不再发请求，被删的跳过
         const deleteButton = document.createElement('button');
@@ -292,8 +292,8 @@ export function createRecordView(host) {
         const regenAllButton = document.createElement('button');
         regenAllButton.className = 'itemRegen';
         regenAllButton.innerHTML = ICONS.regen;
-        regenAllButton.title = '重生成整条（逐段复用）';
-        regenAllButton.setAttribute('aria-label', '重生成整条');
+        regenAllButton.title = '重新生成';
+        regenAllButton.setAttribute('aria-label', '重新生成');
         regenAllButton.disabled = true;
         const downloadButton = document.createElement('button');
         downloadButton.className = 'itemDownload';
@@ -306,8 +306,8 @@ export function createRecordView(host) {
         deleteButton.innerHTML = ICONS.close;
         deleteButton.title = '删除这条记录';
         deleteButton.setAttribute('aria-label', '删除这条记录');
-        // 记录头一行放完摘要与整条操作，摘要占据中间剩余宽度并单行截断
-        head.append(caret, segCount, txt, duration, playButton, regenAllButton, downloadButton, deleteButton);
+        // 下载放在时长前面，让 ▶/↻/✕ 三列和下方分段行使用同一套宽度与间距，右侧对齐
+        head.append(caret, segCount, txt, downloadButton, duration, playButton, regenAllButton, deleteButton);
 
         const segList = document.createElement('div');
         segList.className = 'segList';

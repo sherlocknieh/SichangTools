@@ -39,11 +39,11 @@ export function createSegments(host) {
         button.innerHTML = SEGMENT_ICONS.replay;
         button.classList.toggle('busy', Boolean(record.regenerating && segment.busy));
         if (record.regenerating && segment.busy) {
-            button.title = `正在重生成第 ${index} 段`;
+            button.title = `正在重新生成第 ${index} 段`;
         } else if (host.selection.record === record && host.selection.segment === segment) {
-            button.title = `按输入框里的文本重生成第 ${index} 段`;
+            button.title = `按输入框里的文本重新生成第 ${index} 段`;
         } else {
-            button.title = `重生成第 ${index} 段`;
+            button.title = `重新生成第 ${index} 段`;
         }
         button.setAttribute('aria-label', button.title);
     }
