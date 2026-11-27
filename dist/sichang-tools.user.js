@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2003
+// @version      2026.11.27.2025
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持对话结构管理与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -11,6 +11,12 @@
 (function() {
 	"use strict";
 	var TTS_PATH = "/api/tts";
+	var OFFICIAL_MESSAGE_DELETE_SELECTOR = [
+		"button[aria-label=\"删除消息\"]",
+		"button[title=\"删除消息\"]",
+		"button[aria-label=\"Delete message\"]",
+		"button[title=\"Delete message\"]"
+	].join(", ");
 	var CONVERSATION_IMPORT_MAX_CHARS = 2e4;
 	var PANEL_ID = "sichang-tts-capture";
 	var DEFAULT_SAMPLE_RATE = 24e3;
@@ -3100,7 +3106,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (operation.type === "delete") {
 				const a = seqOf(operation.startId);
 				const b = seqOf(operation.endId || operation.startId);
-				return a === b ? `删除 #${a}` : `删除 #${a}–#${b}`;
+				const label = a === b ? `删除 #${a}` : `删除 #${a}–#${b}`;
+				return operation.source === "official" ? `接管官方删除：${label}` : label;
 			}
 			if (operation.type === "delete-turn") return "删除选中消息所在的整轮";
 			if (operation.type === "move") return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到 #${seqOf(operation.targetId)} 之前`;
@@ -3128,7 +3135,56 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			lines.push("修改直接写入官方，无法从官方界面恢复。继续？");
 			return window.confirm(lines.join("\n\n"));
 		}
-		async function applyOperation(operation, options = {}) {
+		function officialDeleteButtons() {
+			return Array.from(document.querySelectorAll(OFFICIAL_MESSAGE_DELETE_SELECTOR));
+		}
+		function reportOfficialDeleteFailure(message) {
+			setStatus(message, "error");
+			if (!state.open) window.alert(`SichangTools：${message}`);
+		}
+		async function interceptOfficialDelete(button, buttonsAtClick, indexAtClick) {
+			try {
+				if (await applyOperation((fresh) => {
+					if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
+					const buttonsNow = officialDeleteButtons();
+					if (!(buttonsNow.length === buttonsAtClick.length && buttonsNow.every((item, index) => item === buttonsAtClick[index])) || buttonsNow[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
+					if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) throw new Error("无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。");
+					const target = fresh[indexAtClick];
+					return {
+						type: "delete",
+						startId: target.id,
+						endId: target.id,
+						source: "official"
+					};
+				})) {
+					window.location.reload();
+					return;
+				}
+				if (state.status !== "已取消。") reportOfficialDeleteFailure(state.status || "删除失败，已阻止官方原生删除。");
+			} catch (error) {
+				reportOfficialDeleteFailure(error?.message || String(error));
+			}
+		}
+		function onOfficialDeleteClick(event) {
+			const target = event.target;
+			if (!(target instanceof Element)) return;
+			const button = target.closest(OFFICIAL_MESSAGE_DELETE_SELECTOR);
+			if (!button) return;
+			const cid = readConversationId();
+			if (!cid || cid.startsWith("conv__anonymous__")) return;
+			event.preventDefault();
+			event.stopPropagation();
+			event.stopImmediatePropagation();
+			if (state.busy) {
+				reportOfficialDeleteFailure("正在处理上一次结构修改，请稍后再试。");
+				return;
+			}
+			const buttonsAtClick = officialDeleteButtons();
+			const indexAtClick = buttonsAtClick.indexOf(button);
+			state.cid = cid;
+			interceptOfficialDelete(button, buttonsAtClick, indexAtClick);
+		}
+		async function applyOperation(operationOrFactory, options = {}) {
 			if (state.busy || !state.cid) return false;
 			state.busy = true;
 			state.status = "读取最新消息…";
@@ -3144,6 +3200,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				fresh = await loadMessages(state.cid);
 				const meta = await loadMeta(state.cid);
 				state.meta = meta;
+				const operation = typeof operationOrFactory === "function" ? operationOrFactory(fresh, meta) : operationOrFactory;
 				desired = buildDesired(fresh, meta, operation);
 				firstDiff = firstDifference(fresh, desired);
 				if (firstDiff < 0) {
@@ -3616,6 +3673,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		overlay.addEventListener("change", onChange, { signal: events.signal });
 		ui.conv.addEventListener("click", open, { signal: events.signal });
 		document.addEventListener("keydown", onKeydown, { signal: events.signal });
+		window.addEventListener("click", onOfficialDeleteClick, {
+			capture: true,
+			signal: events.signal
+		});
 		return {
 			api: {},
 			dispose: () => {

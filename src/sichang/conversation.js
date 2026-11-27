@@ -7,6 +7,7 @@ import {
     CONVERSATION_IMPORT_BATCH,
     CONVERSATION_IMPORT_MAX_CHARS,
     CONVERSATION_MESSAGE_PAGE_SIZE,
+    OFFICIAL_MESSAGE_DELETE_SELECTOR,
 } from './constants.js';
 import { previewText } from './text.js';
 
@@ -326,7 +327,8 @@ export function createConversation(host) {
         if (operation.type === 'delete') {
             const a = seqOf(operation.startId);
             const b = seqOf(operation.endId || operation.startId);
-            return a === b ? `删除 #${a}` : `删除 #${a}–#${b}`;
+            const label = a === b ? `删除 #${a}` : `删除 #${a}–#${b}`;
+            return operation.source === 'official' ? `接管官方删除：${label}` : label;
         }
         if (operation.type === 'delete-turn') {
             return '删除选中消息所在的整轮';
@@ -370,7 +372,77 @@ export function createConversation(host) {
         return window.confirm(lines.join('\n\n'));
     }
 
-    async function applyOperation(operation, options = {}) {
+    function officialDeleteButtons() {
+        return Array.from(document.querySelectorAll(OFFICIAL_MESSAGE_DELETE_SELECTOR));
+    }
+
+    function reportOfficialDeleteFailure(message) {
+        setStatus(message, 'error');
+        if (!state.open) window.alert(`SichangTools：${message}`);
+    }
+
+    async function interceptOfficialDelete(button, buttonsAtClick, indexAtClick) {
+        try {
+            const ok = await applyOperation(fresh => {
+                // 不信任 DOM 猜消息 ID：官方消息数量、文档顺序和被点按钮必须同时对应。
+                if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) {
+                    throw new Error('官方消息列表已变化，已取消删除，请刷新后重试。');
+                }
+                const buttonsNow = officialDeleteButtons();
+                const sameButtons = buttonsNow.length === buttonsAtClick.length
+                    && buttonsNow.every((item, index) => item === buttonsAtClick[index]);
+                if (!sameButtons || buttonsNow[indexAtClick] !== button) {
+                    throw new Error('官方消息列表已变化，已取消删除，请刷新后重试。');
+                }
+                if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) {
+                    throw new Error('无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。');
+                }
+                const target = fresh[indexAtClick];
+                return {
+                    type: 'delete',
+                    startId: target.id,
+                    endId: target.id,
+                    source: 'official',
+                };
+            });
+            if (ok) {
+                // 官方 React 状态不会自动同步我们的结构修改；重新加载避免在旧视图上继续误删。
+                window.location.reload();
+                return;
+            }
+            if (state.status !== '已取消。') reportOfficialDeleteFailure(state.status || '删除失败，已阻止官方原生删除。');
+        } catch (error) {
+            reportOfficialDeleteFailure(error?.message || String(error));
+        }
+    }
+
+    function onOfficialDeleteClick(event) {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const button = target.closest(OFFICIAL_MESSAGE_DELETE_SELECTOR);
+        if (!button) return;
+
+        const cid = readConversationId();
+        // 匿名/本地对话没有可安全重建的云端尾部；不把官方本地删除也拦下。
+        if (!cid || cid.startsWith('conv__anonymous__')) return;
+
+        // 必须在官方 React handler 之前同步截获，且永不在失败时回退官方 DELETE 截断。
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+
+        if (state.busy) {
+            reportOfficialDeleteFailure('正在处理上一次结构修改，请稍后再试。');
+            return;
+        }
+
+        const buttonsAtClick = officialDeleteButtons();
+        const indexAtClick = buttonsAtClick.indexOf(button);
+        state.cid = cid;
+        interceptOfficialDelete(button, buttonsAtClick, indexAtClick);
+    }
+
+    async function applyOperation(operationOrFactory, options = {}) {
         if (state.busy || !state.cid) return false;
         state.busy = true;
         state.status = '读取最新消息…';
@@ -387,6 +459,10 @@ export function createConversation(host) {
             fresh = await loadMessages(state.cid);
             const meta = await loadMeta(state.cid);
             state.meta = meta;
+            // 官方按钮没有消息 ID；在锁定操作后再根据最新官方消息解析目标，避免并发点击串操作。
+            const operation = typeof operationOrFactory === 'function'
+                ? operationOrFactory(fresh, meta)
+                : operationOrFactory;
             desired = buildDesired(fresh, meta, operation);
             firstDiff = firstDifference(fresh, desired);
             if (firstDiff < 0) {
@@ -910,6 +986,8 @@ export function createConversation(host) {
     overlay.addEventListener('change', onChange, { signal: events.signal });
     ui.conv.addEventListener('click', open, { signal: events.signal });
     document.addEventListener('keydown', onKeydown, { signal: events.signal });
+    // 在 React/官方处理器之前截获官方「删除消息」，不能让官方原生“从这条起全部删除”先执行。
+    window.addEventListener('click', onOfficialDeleteClick, { capture: true, signal: events.signal });
 
     return {
         api: {},

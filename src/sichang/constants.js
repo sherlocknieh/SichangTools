@@ -3,6 +3,13 @@ export const TTS_PATH = '/api/tts';
 // 官方没有单条消息的增删改接口；结构修改靠「截断 + import 补回」，
 // 单次导入上限按官方匿名迁移接口的约束取值
 export const CONVERSATION_MESSAGE_PAGE_SIZE = 500;
+// 官方消息按钮没有消息 ID；接管时按按钮与官方消息的文档顺序对应，数量不一致时拒绝操作。
+export const OFFICIAL_MESSAGE_DELETE_SELECTOR = [
+    'button[aria-label="删除消息"]',
+    'button[title="删除消息"]',
+    'button[aria-label="Delete message"]',
+    'button[title="Delete message"]',
+].join(', ');
 export const CONVERSATION_IMPORT_BATCH = 400;
 export const CONVERSATION_IMPORT_MAX_CHARS = 20000;
 export const PANEL_ID = 'sichang-tts-capture';
