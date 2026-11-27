@@ -87,6 +87,12 @@ export function createRecordView(host) {
         regenButton.title = '重生成这一段';
         regenButton.setAttribute('aria-label', '重生成这一段');
         regenButton.disabled = true;
+        // 删除这一段：合成中删掉还没轮到的段就不再发请求，被删的跳过
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'segDelete';
+        deleteButton.textContent = '✕';
+        deleteButton.title = '删除这一段';
+        deleteButton.setAttribute('aria-label', '删除这一段');
         // 可展开的小箭头：不点播放也能发现每段自己的控制面板
         const caret = document.createElement('span');
         caret.className = 'segCaret';
@@ -141,12 +147,12 @@ export function createRecordView(host) {
         controls.append(toggleButton, timeEl, voiceEl, bar, stopButton, replayButton, downloadButton, synthButton);
         panel.append(controls);
 
-        row.append(caret, idx, label, segDuration, playButton, regenButton);
+        row.append(caret, idx, label, segDuration, playButton, regenButton, deleteButton);
         box.append(row, panel);
         if (after) record.segList.insertBefore(box, after.box.nextSibling);
         else record.segList.appendChild(box);
         Object.assign(segment, {
-            box, row, idx, label, durationEl: segDuration, playButton, regenButton, caret,
+            box, row, idx, label, durationEl: segDuration, playButton, regenButton, deleteButton, caret,
             panel, bar, fill, timeEl, voiceEl, toggleButton, stopButton, synthButton, replayButton,
             downloadButton,
         });
@@ -167,6 +173,10 @@ export function createRecordView(host) {
         regenButton.addEventListener('click', event => {
             event.stopPropagation();
             host.regenerateSegment(record, segment);
+        });
+        deleteButton.addEventListener('click', event => {
+            event.stopPropagation();
+            deleteSegment(record, segment);
         });
         toggleButton.addEventListener('click', () => {
             if (segment.mode === 'live') {
@@ -219,6 +229,73 @@ export function createRecordView(host) {
             host.seekSegment(record, segment, ratio);
         });
         return segment;
+    }
+
+    // 删除单个分段：合成中删掉还没轮到的段就不再发请求（被删的跳过），
+    // 已收到数据的段删除后从整条账本里扣掉并重拼；删光分段等同于删除整条记录
+    function deleteSegment(record, segment) {
+        if (!segment || !record.segments.includes(segment)) return;
+        if (segment.busy || record.regenerating) return;
+        const session = record.state === 'capturing' && record.session && !record.session.stopped
+            ? record.session
+            : null;
+        const index = record.segments.indexOf(segment);
+        const sampleRate = host.sampleRateOf(record);
+        const duration = segment.bytes / 2 / sampleRate;
+        const start = session ? host.segmentSpans(record).starts[index] : 0;
+        const position = session ? host.livePosition(session) : 0;
+        // 还没完成的段直接跳过，不再计入合成进度分母
+        if (session && !segment.complete) {
+            session.total = Math.max(0, session.total - 1);
+            host.updateProgress?.(record, session.done, session.total);
+        }
+        segment.removed = true;
+        // 顺序播放正播到或正等待这一段：播到该段时按剩余列表继续或停下
+        if (record.chain?.segment === segment) host.stopChain(record);
+        else if (record.chain?.waitingFor === segment) host.advanceChain(record, index);
+        if (record.expandedSegment === segment) host.closeSegmentPanel(record, segment);
+        if (host.selection.record === record && host.selection.segment === segment) host.applySelection(record, null);
+        if (record.autoSegment === segment) record.autoSegment = null;
+        // 释放这一段自己的音频与 blob URL
+        if (segment.audio) {
+            if (segment.audio === host.activeAudio) host.activeAudio = null;
+            segment.audio.pause();
+            segment.audio = null;
+        }
+        if (segment.url) URL.revokeObjectURL(segment.url);
+        segment.url = null;
+        // 从列表和 DOM 移除并重排编号；整条摘要跟着剩余文本走
+        record.segments.splice(index, 1);
+        segment.box.remove();
+        record.bytes = Math.max(0, record.bytes - segment.bytes);
+        host.renumberSegments(record);
+        host.refreshRecordText(record);
+        host.refreshSegmentControls(record);
+
+        if (!record.segments.length) {
+            removeRecord(record);
+            return;
+        }
+
+        if (session) {
+            // 实时时间线按剩余分段重排：被删段在当前位置之前时后面内容前移，
+            // 正落在被删段内就从该段起点接着播
+            if (segment.bytes) {
+                session.receivedSeconds = Math.max(0, session.receivedSeconds - duration);
+                let next = position;
+                if (start + duration <= position) next -= duration;
+                else if (position > start) next = start;
+                next = Math.min(Math.max(0, next), session.receivedSeconds);
+                session.pausedOffset = next;
+                if (!session.paused) host.rescheduleTimeline(record, next);
+            }
+        } else if (record.state === 'playing' || record.state === 'paused') {
+            // 下载完但时间线还在播：停掉旧时间线，按剩余分段重建整条 WAV
+            host.stopTimeline(record);
+            host.rebuildRecord(record);
+        } else if (record.state !== 'failed') {
+            host.rebuildRecord(record);
+        }
     }
 
     // 记录头同时是折叠开关：点一下收起或展开该条下方的分段列表，
@@ -441,6 +518,7 @@ export function createRecordView(host) {
             syncRecordRegenButton,
             beginRecord,
             createSegment,
+            deleteSegment,
             removeRecord,
             downloadRecord,
             downloadSegment,

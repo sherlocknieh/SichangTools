@@ -225,6 +225,7 @@ export function createSynthesis(host) {
         let prefetch = null;
         const startPrefetch = piece => {
             if (prefetch || session.synthesisPaused || session.stopped) return;
+            if (!piece || piece.segment.removed) return;
             // 预取即视为这一段已经开始生成，音色在此刻固定
             const voice = piece.voice || currentVoice();
             piece.voice = voice;
@@ -241,21 +242,30 @@ export function createSynthesis(host) {
             }
             return requestSegment(piece.text, voice);
         };
+        // 被删段如果已经预取过，把请求连同响应体一起丢掉
+        const dropPrefetch = piece => {
+            if (!prefetch || prefetch.piece !== piece) return;
+            const { promise } = prefetch;
+            prefetch = null;
+            promise.then(response => {
+                try { response.body?.cancel(); } catch {}
+            }).catch(() => {});
+        };
 
         const consume = async (response, piece) => {
             const reader = response.body.getReader();
             const segment = piece.segment;
             let leftover = new Uint8Array(0);
-            host.setSegmentState(record, segment, 'active');
+            if (!segment.removed) host.setSegmentState(record, segment, 'active');
             try {
                 for (;;) {
                     await waitWhilePaused(session);
-                    if (session.stopped) break;
+                    if (session.stopped || segment.removed) break;
                     const { done, value } = await reader.read();
                     if (done) break;
                     // 读流期间用户可能刚按下暂停：先挂住这一块，不写进时间线
                     await waitWhilePaused(session);
-                    if (session.stopped) break;
+                    if (session.stopped || segment.removed) break;
                     if (!value || !value.length) continue;
                     if (record.bytes + value.length > MAX_PCM_BYTES) continue;
 
@@ -279,37 +289,51 @@ export function createSynthesis(host) {
                     leftover = data.subarray(evenLength);
                 }
             } finally {
-                // 一收到就解锁这一段的播放，不用等整条合成结束
-                if (segment.bytes) host.setSegmentState(record, segment, 'done');
-                else host.setSegmentState(record, segment, 'pending');
+                if (segment.removed) {
+                    // 这一段被删掉了，停止读流，别再把数据写进已移除的条目
+                    try { reader.cancel(); } catch {}
+                } else if (segment.bytes) {
+                    // 一收到就解锁这一段的播放，不用等整条合成结束
+                    host.setSegmentState(record, segment, 'done');
+                } else {
+                    host.setSegmentState(record, segment, 'pending');
+                }
             }
             // 整段比预缓冲还短时也要起播，不能一直攒着
-            host.flushPending(session);
+            if (!segment.removed) host.flushPending(session);
         };
 
         const speak = async piece => {
             const segment = piece.segment;
+            if (segment.removed) return 'removed';
             const bytesBefore = segment.bytes;
             for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
                 try {
                     await waitWhilePaused(session);
                     if (session.stopped) return 'done';
+                    if (segment.removed) return 'removed';
                     const voice = piece.voice || currentVoice();
                     piece.voice = voice;
                     host.setSegmentVoice(segment, voice, true);
                     const response = await takePrefetch(piece, voice);
                     await waitWhilePaused(session);
                     if (session.stopped) return 'done';
+                    if (segment.removed) {
+                        try { response.body?.cancel(); } catch {}
+                        return 'removed';
+                    }
                     // 当前段开始播时就把下一段发出去，缩短段间等待
                     if (tasks.length) startPrefetch(tasks[0]);
                     await consume(response, piece);
-                    return 'done';
+                    return segment.removed ? 'removed' : 'done';
                 } catch (error) {
                     if (session.stopped || session.controller.signal.aborted) return 'done';
+                    if (segment.removed) return 'removed';
                     // 这一轮已经收到过数据就不再重试，否则同一段会重复拼进 WAV
                     if (segment.bytes > bytesBefore) return 'done';
                 }
             }
+            if (segment.removed) return 'removed';
             // 已经收到过一部分数据就把这半段当作完成，避免重复播放开头
             if (segment.bytes > bytesBefore) return 'done';
             const halves = splitInHalf(piece.text);
@@ -336,9 +360,19 @@ export function createSynthesis(host) {
                 await waitWhilePaused(session);
                 if (session.stopped) break;
                 const piece = tasks.shift();
+                // 合成中被删掉的段直接跳过，不发请求也不计入完成数
+                if (piece.segment.removed) {
+                    dropPrefetch(piece);
+                    updateProgress(record, session.done, session.total);
+                    continue;
+                }
                 const result = await speak(piece);
                 if (session.stopped) break;
-                if (result !== 'split') session.done += 1;
+                if (result === 'removed') {
+                    dropPrefetch(piece);
+                } else if (result !== 'split') {
+                    session.done += 1;
+                }
                 updateProgress(record, session.done, session.total);
             }
             if (session.stopped) return;

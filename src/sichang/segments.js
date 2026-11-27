@@ -117,6 +117,7 @@ export function createSegments(host) {
         for (const segment of record.segments) {
             segment.playButton.disabled = !playable || segment.busy || !segment.complete || !segment.bytes;
             syncSegmentRegenButton(record, segment);
+            if (segment.deleteButton) segment.deleteButton.disabled = Boolean(record.regenerating) || segment.busy;
             segment.downloadButton.disabled = !segment.bytes || segment.busy;
             if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
         }

@@ -210,6 +210,18 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segRegen:hover { background: #35353f; color: #fff; }
 .segRegen.busy { animation: tts-spin 1s linear infinite; }
 .segRegen.failed { background: #3a2226; color: #ff9a9a; }
+/* 分段删除：合成中删掉还没轮到的段就不再请求，直接跳过 */
+.segDelete {
+    flex: none;
+    width: 20px;
+    height: 18px;
+    padding: 0;
+    border-radius: 5px;
+    background: #2a2a32;
+    color: #c9c9d1;
+    font-size: 10px;
+}
+.segDelete:hover { background: #3a2226; color: #ff9a9a; }
 .segCaret {
     flex: none;
     width: 8px;

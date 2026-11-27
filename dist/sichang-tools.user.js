@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0041
+// @version      2026.11.28.0049
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -305,6 +305,18 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segRegen:hover { background: #35353f; color: #fff; }
 .segRegen.busy { animation: tts-spin 1s linear infinite; }
 .segRegen.failed { background: #3a2226; color: #ff9a9a; }
+/* 分段删除：合成中删掉还没轮到的段就不再请求，直接跳过 */
+.segDelete {
+    flex: none;
+    width: 20px;
+    height: 18px;
+    padding: 0;
+    border-radius: 5px;
+    background: #2a2a32;
+    color: #c9c9d1;
+    font-size: 10px;
+}
+.segDelete:hover { background: #3a2226; color: #ff9a9a; }
 .segCaret {
     flex: none;
     width: 8px;
@@ -872,6 +884,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			for (const segment of record.segments) {
 				segment.playButton.disabled = !playable || segment.busy || !segment.complete || !segment.bytes;
 				syncSegmentRegenButton(record, segment);
+				if (segment.deleteButton) segment.deleteButton.disabled = Boolean(record.regenerating) || segment.busy;
 				segment.downloadButton.disabled = !segment.bytes || segment.busy;
 				if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
 			}
@@ -1142,6 +1155,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			regenButton.title = "重生成这一段";
 			regenButton.setAttribute("aria-label", "重生成这一段");
 			regenButton.disabled = true;
+			const deleteButton = document.createElement("button");
+			deleteButton.className = "segDelete";
+			deleteButton.textContent = "✕";
+			deleteButton.title = "删除这一段";
+			deleteButton.setAttribute("aria-label", "删除这一段");
 			const caret = document.createElement("span");
 			caret.className = "segCaret";
 			caret.textContent = "›";
@@ -1192,7 +1210,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			downloadButton.disabled = true;
 			controls.append(toggleButton, timeEl, voiceEl, bar, stopButton, replayButton, downloadButton, synthButton);
 			panel.append(controls);
-			row.append(caret, idx, label, segDuration, playButton, regenButton);
+			row.append(caret, idx, label, segDuration, playButton, regenButton, deleteButton);
 			box.append(row, panel);
 			if (after) record.segList.insertBefore(box, after.box.nextSibling);
 			else record.segList.appendChild(box);
@@ -1204,6 +1222,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				durationEl: segDuration,
 				playButton,
 				regenButton,
+				deleteButton,
 				caret,
 				panel,
 				bar,
@@ -1232,6 +1251,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			regenButton.addEventListener("click", (event) => {
 				event.stopPropagation();
 				host.regenerateSegment(record, segment);
+			});
+			deleteButton.addEventListener("click", (event) => {
+				event.stopPropagation();
+				deleteSegment(record, segment);
 			});
 			toggleButton.addEventListener("click", () => {
 				if (segment.mode === "live") {
@@ -1282,6 +1305,57 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				host.seekSegment(record, segment, ratio);
 			});
 			return segment;
+		}
+		function deleteSegment(record, segment) {
+			if (!segment || !record.segments.includes(segment)) return;
+			if (segment.busy || record.regenerating) return;
+			const session = record.state === "capturing" && record.session && !record.session.stopped ? record.session : null;
+			const index = record.segments.indexOf(segment);
+			const sampleRate = host.sampleRateOf(record);
+			const duration = segment.bytes / 2 / sampleRate;
+			const start = session ? host.segmentSpans(record).starts[index] : 0;
+			const position = session ? host.livePosition(session) : 0;
+			if (session && !segment.complete) {
+				session.total = Math.max(0, session.total - 1);
+				host.updateProgress?.(record, session.done, session.total);
+			}
+			segment.removed = true;
+			if (record.chain?.segment === segment) host.stopChain(record);
+			else if (record.chain?.waitingFor === segment) host.advanceChain(record, index);
+			if (record.expandedSegment === segment) host.closeSegmentPanel(record, segment);
+			if (host.selection.record === record && host.selection.segment === segment) host.applySelection(record, null);
+			if (record.autoSegment === segment) record.autoSegment = null;
+			if (segment.audio) {
+				if (segment.audio === host.activeAudio) host.activeAudio = null;
+				segment.audio.pause();
+				segment.audio = null;
+			}
+			if (segment.url) URL.revokeObjectURL(segment.url);
+			segment.url = null;
+			record.segments.splice(index, 1);
+			segment.box.remove();
+			record.bytes = Math.max(0, record.bytes - segment.bytes);
+			host.renumberSegments(record);
+			host.refreshRecordText(record);
+			host.refreshSegmentControls(record);
+			if (!record.segments.length) {
+				removeRecord(record);
+				return;
+			}
+			if (session) {
+				if (segment.bytes) {
+					session.receivedSeconds = Math.max(0, session.receivedSeconds - duration);
+					let next = position;
+					if (start + duration <= position) next -= duration;
+					else if (position > start) next = start;
+					next = Math.min(Math.max(0, next), session.receivedSeconds);
+					session.pausedOffset = next;
+					if (!session.paused) host.rescheduleTimeline(record, next);
+				}
+			} else if (record.state === "playing" || record.state === "paused") {
+				host.stopTimeline(record);
+				host.rebuildRecord(record);
+			} else if (record.state !== "failed") host.rebuildRecord(record);
 		}
 		function setRecordFold(record, folded) {
 			record.row.classList.toggle("folded", folded);
@@ -1481,6 +1555,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				syncRecordRegenButton,
 				beginRecord,
 				createSegment,
+				deleteSegment,
 				removeRecord,
 				downloadRecord,
 				downloadSegment,
@@ -2298,6 +2373,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			let prefetch = null;
 			const startPrefetch = (piece) => {
 				if (prefetch || session.synthesisPaused || session.stopped) return;
+				if (!piece || piece.segment.removed) return;
 				const voice = piece.voice || currentVoice();
 				piece.voice = voice;
 				host.setSegmentVoice(piece.segment, voice, true);
@@ -2316,19 +2392,29 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				}
 				return requestSegment(piece.text, voice);
 			};
+			const dropPrefetch = (piece) => {
+				if (!prefetch || prefetch.piece !== piece) return;
+				const { promise } = prefetch;
+				prefetch = null;
+				promise.then((response) => {
+					try {
+						response.body?.cancel();
+					} catch {}
+				}).catch(() => {});
+			};
 			const consume = async (response, piece) => {
 				const reader = response.body.getReader();
 				const segment = piece.segment;
 				let leftover = new Uint8Array(0);
-				host.setSegmentState(record, segment, "active");
+				if (!segment.removed) host.setSegmentState(record, segment, "active");
 				try {
 					for (;;) {
 						await waitWhilePaused(session);
-						if (session.stopped) break;
+						if (session.stopped || segment.removed) break;
 						const { done, value } = await reader.read();
 						if (done) break;
 						await waitWhilePaused(session);
-						if (session.stopped) break;
+						if (session.stopped || segment.removed) break;
 						if (!value || !value.length) continue;
 						if (record.bytes + value.length > 67108864) continue;
 						let data = value;
@@ -2350,30 +2436,43 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 						leftover = data.subarray(evenLength);
 					}
 				} finally {
-					if (segment.bytes) host.setSegmentState(record, segment, "done");
+					if (segment.removed) try {
+						reader.cancel();
+					} catch {}
+					else if (segment.bytes) host.setSegmentState(record, segment, "done");
 					else host.setSegmentState(record, segment, "pending");
 				}
-				host.flushPending(session);
+				if (!segment.removed) host.flushPending(session);
 			};
 			const speak = async (piece) => {
 				const segment = piece.segment;
+				if (segment.removed) return "removed";
 				const bytesBefore = segment.bytes;
 				for (let attempt = 0; attempt < 2; attempt++) try {
 					await waitWhilePaused(session);
 					if (session.stopped) return "done";
+					if (segment.removed) return "removed";
 					const voice = piece.voice || currentVoice();
 					piece.voice = voice;
 					host.setSegmentVoice(segment, voice, true);
 					const response = await takePrefetch(piece, voice);
 					await waitWhilePaused(session);
 					if (session.stopped) return "done";
+					if (segment.removed) {
+						try {
+							response.body?.cancel();
+						} catch {}
+						return "removed";
+					}
 					if (tasks.length) startPrefetch(tasks[0]);
 					await consume(response, piece);
-					return "done";
+					return segment.removed ? "removed" : "done";
 				} catch (error) {
 					if (session.stopped || session.controller.signal.aborted) return "done";
+					if (segment.removed) return "removed";
 					if (segment.bytes > bytesBefore) return "done";
 				}
+				if (segment.removed) return "removed";
 				if (segment.bytes > bytesBefore) return "done";
 				const halves = splitInHalf(piece.text);
 				if (!halves) {
@@ -2402,9 +2501,15 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 					await waitWhilePaused(session);
 					if (session.stopped) break;
 					const piece = tasks.shift();
+					if (piece.segment.removed) {
+						dropPrefetch(piece);
+						updateProgress(record, session.done, session.total);
+						continue;
+					}
 					const result = await speak(piece);
 					if (session.stopped) break;
-					if (result !== "split") session.done += 1;
+					if (result === "removed") dropPrefetch(piece);
+					else if (result !== "split") session.done += 1;
 					updateProgress(record, session.done, session.total);
 				}
 				if (session.stopped) return;
