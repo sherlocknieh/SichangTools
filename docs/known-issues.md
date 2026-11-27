@@ -116,11 +116,19 @@
 
 ## 面板闪一下就消失 / 没有出现
 
-**现象**：打开聊天页时「语音捕获」面板出现一瞬间就消失，刷新也不恢复；删除、克隆、加号、fork 等功能仍然正常。
+**现象**：打开聊天页时「语音合成」面板出现一瞬间就消失，刷新也不恢复；删除、克隆、加号、fork 等功能仍然正常。
 
 **原因**：站点由客户端水合重建页面，脚本抢在水合前插入的面板会被一起清掉；现在面板嵌进官方输入卡片，输入卡片本身也会随水合/切会话整体替换。
 
-**规避**：`panel-layout.js` 用 `MutationObserver` 监听 `body` 的子树变化（120ms 合并），每次检查 `findComposer()` 并把面板重新插到当前输入卡片最前面；不要改成一次性插入后不再检查，也不要用轮询。`findComposer()` 还要求 textarea 有实际宽度，窄屏会话列表页会整块隐藏面板。
+**规避**：`panel-layout.js` 先不把面板挂到页面，等 `document.readyState` 为 `complete` 且输入卡片和 textarea 都已有 React fiber（`__reactFiber$*`，表示该子树水合完成）后再插入；之后用 `MutationObserver` 监听 `documentElement`（120ms 合并）重新挂载，不轮询。站点改版导致 fiber 一直不出现时，`load` 后 5 秒兜底挂载。
+
+## 其它脚本挂在页面上的节点消失（如 deepseek-web-toolkit 的消息导航）
+
+**现象**：同时启用两个脚本后，`deepseek-web-toolkit` 右侧的消息导航胶囊节点直接没了（`document.querySelector('.dscf-msgnav')` 为 `null`），刷新也不回来；工具箱自己的 `state.root` 仍指向旧节点，后续重绘不会重新挂到 `body`。
+
+**原因**：面板如果在站点水合完成前插进 React 管理的输入卡片，多出的节点会让 React 回退成整页客户端渲染，把其它脚本挂在 `body` 上的节点一起清掉。
+
+**规避**：不要在水合期间修改 React 管理的 DOM。`panel-layout.js` 用 React fiber 判断输入卡片已水合后才挂载，并把首次挂载放到 `readyState === 'complete'` 之后；复现时不要只看「面板有没有出现」，还要检查 `.dscf-msgnav` 是否仍 `isConnected`。
 
 ## 面板位置不对 / 不在输入框上方
 

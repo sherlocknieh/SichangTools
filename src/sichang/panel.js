@@ -33,7 +33,7 @@ export function createPanel() {
     panel.innerHTML = `
         <div class="head" title="单击收起/展开">
             <button class="fold" aria-label="收起">−</button>
-            <span class="title">语音捕获</span>
+            <span class="title">语音合成</span>
             <span class="spacer"></span>
             <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
@@ -45,7 +45,8 @@ export function createPanel() {
         </div>
     `;
     root.appendChild(panel);
-    document.documentElement.appendChild(host);
+    // 先不挂到页面上：由 panel-layout 等站点水合完成后再插进官方输入卡片，
+    // 避免在 React 管理的水合期多出节点，触发客户端重渲染清掉其它脚本的节点。
     return {
         host,
         root,

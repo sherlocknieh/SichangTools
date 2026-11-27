@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2257
+// @version      2026.11.27.2312
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -397,7 +397,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		panel.innerHTML = `
         <div class="head" title="单击收起/展开">
             <button class="fold" aria-label="收起">−</button>
-            <span class="title">语音捕获</span>
+            <span class="title">语音合成</span>
             <span class="spacer"></span>
             <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
@@ -413,7 +413,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
         </div>
     `;
 		root.appendChild(panel);
-		document.documentElement.appendChild(host);
 		return {
 			host,
 			root,
@@ -469,6 +468,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		else element.value = value;
 		element.dispatchEvent(new Event("input", { bubbles: true }));
 	}
+	var HYDRATION_RETRY_MS = 200;
+	var HYDRATION_FALLBACK_MS = 5e3;
+	function hasReactFiber(element) {
+		return Boolean(element) && Object.getOwnPropertyNames(element).some((key) => key.startsWith("__reactFiber$"));
+	}
 	function createPanelLayout(host) {
 		const { ui } = host;
 		function applyFold(folded, persist = true) {
@@ -493,14 +497,28 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (event.target.closest("button, select")) return;
 			applyFold(!ui.panel.classList.contains("folded"));
 		});
+		let hydrationFallback = false;
+		let retryTimer = 0;
+		function scheduleRetry() {
+			if (retryTimer) return;
+			retryTimer = window.setTimeout(() => {
+				retryTimer = 0;
+				placePanel();
+			}, HYDRATION_RETRY_MS);
+		}
 		function placePanel() {
 			const composer = findComposer();
 			if (!composer) {
-				ui.host.style.display = "none";
+				ui.host.remove();
 				return;
 			}
-			ui.host.style.display = "block";
 			const { container, textarea } = composer;
+			const hydrated = hasReactFiber(container) && hasReactFiber(textarea);
+			if (!hydrationFallback && (document.readyState !== "complete" || !hydrated)) {
+				ui.host.remove();
+				scheduleRetry();
+				return;
+			}
 			if (ui.host.parentElement !== container || container.firstElementChild !== ui.host) container.insertBefore(ui.host, container.firstChild);
 			host.bindInput(textarea);
 		}
@@ -517,6 +535,15 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			childList: true,
 			subtree: true
 		});
+		let fallbackTimer = 0;
+		function armFallback() {
+			fallbackTimer = window.setTimeout(() => {
+				hydrationFallback = true;
+				placePanel();
+			}, HYDRATION_FALLBACK_MS);
+		}
+		if (document.readyState === "complete") armFallback();
+		else window.addEventListener("load", armFallback, { once: true });
 		placePanel();
 		return {
 			api: {
@@ -527,6 +554,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			dispose: () => {
 				observer.disconnect();
 				if (timer) window.clearTimeout(timer);
+				if (retryTimer) window.clearTimeout(retryTimer);
+				window.clearTimeout(fallbackTimer);
+				window.removeEventListener("load", armFallback);
 			}
 		};
 	}

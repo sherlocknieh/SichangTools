@@ -47,7 +47,7 @@ src/
 - `src/handler.js`：放在入口同层的装配层，判断 `sichang.xyz` 域名后创建 `host`（记录、选中、正在播放的音频/会话/时间线等共享状态），登记选中逻辑与各模块；清理时逆序撤销监听器与 `fetch` 包装。接管与播放行为见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
 - `src/sichang/`：按职责分文件，改哪块只读哪块。新增功能先判断属于哪个已有模块，不要往 handler 里堆。
   - 模块统一导出 `createX(host)`，返回 `{ api, dispose }`；handler 用 `adopt()` 合并到 `host`，创建顺序为 compose → record-view → segments → chain → timeline → regenerate → synthesis → panel-layout → delete-message → clone-conversation → add-bubble → fork-message。跨模块调用一律 `host.fn()`，共享状态读写 `host.records` 等字段。
-  - `panel.js` / `panel-layout.js`：面板骨架与挂载/折叠；面板嵌在官方输入卡片顶部，输入区被水合或切会话替换后由 `findComposer()` 重新挂载，不碰记录和播放状态。
+  - `panel.js` / `panel-layout.js`：面板骨架与挂载/折叠；面板嵌在官方输入卡片顶部，等 React 水合完成（输入卡片有 fiber 且 `readyState` 为 `complete`）后才插入，输入区被水合或切会话替换后由 `findComposer()` 重新挂载，不碰记录和播放状态。
   - `compose.js`：把语音面板接到官方 textarea 上（`bindInput`/`getInputText`/`setInputText`）并管理「合成/暂停」入口；选中、播放跟随和重生成共用这一份文字，不再维护独立草稿。
   - `record-view.js`：记录条目与分段条目的 DOM、记录折叠、菜单、下载、删除。
   - `segments.js`：分段状态文案、时长进度、展开面板与按钮可用性。
