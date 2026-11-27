@@ -74,7 +74,7 @@ export function createRecordView(host) {
         // 音色放在预览文字/进度条前面，播放时也能直接看到这一段用的音色
         const voiceEl = document.createElement('span');
         voiceEl.className = 'segVoice';
-        voiceEl.textContent = voiceName(record.tts.voice);
+        voiceEl.textContent = `[${voiceName(record.tts.voice)}]`;
         const label = document.createElement('span');
         label.className = 'segText';
         const segDuration = document.createElement('span');

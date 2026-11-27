@@ -141,7 +141,7 @@ export function createSegments(host) {
     function setSegmentVoice(segment, voice, locked = false) {
         segment.voice = voice;
         if (locked) segment.voiceLocked = true;
-        segment.voiceEl.textContent = voiceName(voice);
+        segment.voiceEl.textContent = `[${voiceName(voice)}]`;
         segment.voiceEl.title = `音色：${VOICE_LABELS.get(voice) || voice || '默认音色'}`;
     }
 

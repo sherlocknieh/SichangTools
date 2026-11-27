@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0133
+// @version      2026.11.28.0134
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -324,7 +324,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
 /* 音色标签：紧挨进度条/预览文字前面 */
 .seg .segVoice {
     flex: none;
-    max-width: 44px;
+    max-width: 50px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -902,7 +902,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function setSegmentVoice(segment, voice, locked = false) {
 			segment.voice = voice;
 			if (locked) segment.voiceLocked = true;
-			segment.voiceEl.textContent = voiceName(voice);
+			segment.voiceEl.textContent = `[${voiceName(voice)}]`;
 			segment.voiceEl.title = `音色：${VOICE_LABELS.get(voice) || voice || "默认音色"}`;
 		}
 		function refreshRecordText(record) {
@@ -1091,7 +1091,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			idx.className = "idx";
 			const voiceEl = document.createElement("span");
 			voiceEl.className = "segVoice";
-			voiceEl.textContent = voiceName(record.tts.voice);
+			voiceEl.textContent = `[${voiceName(record.tts.voice)}]`;
 			const label = document.createElement("span");
 			label.className = "segText";
 			const segDuration = document.createElement("span");

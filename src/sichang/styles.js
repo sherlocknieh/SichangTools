@@ -218,7 +218,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
 /* 音色标签：紧挨进度条/预览文字前面 */
 .seg .segVoice {
     flex: none;
-    max-width: 44px;
+    max-width: 50px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
