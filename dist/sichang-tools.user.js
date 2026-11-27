@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2236
+// @version      2026.11.27.2242
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -168,8 +168,10 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .head .go.paused:hover { background: #5a4728; color: #fff; }
 .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
+/* 没有记录时 body 不占高度，顶栏下面也不留分隔线 */
+.panel.empty .body { display: none; }
+.panel.empty .head { border-bottom: 0; }
 .body { max-height: min(360px, 42vh); overflow: auto; padding-bottom: 6px; }
-.empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { padding: 7px 10px 8px; border-bottom: 1px solid #232329; }
 .item:last-child { border-bottom: 0; }
 .item.selected { background: #18181d; }
@@ -420,7 +422,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="body">
-            <div class="empty">点消息下的「朗读」，或在官方输入框写文字后点「合成」</div>
             <div class="list"></div>
         </div>
     `;
@@ -433,7 +434,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			head: panel.querySelector(".head"),
 			body: panel.querySelector(".body"),
 			list: panel.querySelector(".list"),
-			empty: panel.querySelector(".empty"),
 			count: panel.querySelector(".count"),
 			rateCycle: panel.querySelector(".rateCycle"),
 			clear: panel.querySelector(".clear"),
@@ -1034,7 +1034,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			resetClearConfirm();
 			ui.count.textContent = String(records.length);
 			ui.clear.hidden = records.length === 0;
-			ui.empty.style.display = records.length ? "none" : "";
+			ui.panel.classList.toggle("empty", records.length === 0);
 		}
 		function syncRecordRegenButton(record) {
 			const button = record.regenAllButton;

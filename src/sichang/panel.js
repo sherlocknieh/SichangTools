@@ -42,7 +42,6 @@ export function createPanel() {
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="body">
-            <div class="empty">点消息下的「朗读」，或在官方输入框写文字后点「合成」</div>
             <div class="list"></div>
         </div>
     `;
@@ -55,7 +54,6 @@ export function createPanel() {
         head: panel.querySelector('.head'),
         body: panel.querySelector('.body'),
         list: panel.querySelector('.list'),
-        empty: panel.querySelector('.empty'),
         count: panel.querySelector('.count'),
         rateCycle: panel.querySelector('.rateCycle'),
         clear: panel.querySelector('.clear'),

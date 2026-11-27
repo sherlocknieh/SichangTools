@@ -75,8 +75,10 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .head .go.paused:hover { background: #5a4728; color: #fff; }
 .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
+/* 没有记录时 body 不占高度，顶栏下面也不留分隔线 */
+.panel.empty .body { display: none; }
+.panel.empty .head { border-bottom: 0; }
 .body { max-height: min(360px, 42vh); overflow: auto; padding-bottom: 6px; }
-.empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { padding: 7px 10px 8px; border-bottom: 1px solid #232329; }
 .item:last-child { border-bottom: 0; }
 .item.selected { background: #18181d; }

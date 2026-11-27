@@ -33,7 +33,8 @@ export function createRecordView(host) {
         resetClearConfirm();
         ui.count.textContent = String(records.length);
         ui.clear.hidden = records.length === 0;
-        ui.empty.style.display = records.length ? 'none' : '';
+        // 没有记录时不展开 body，面板只保留顶栏；提示文字也省掉，避免占高度
+        ui.panel.classList.toggle('empty', records.length === 0);
     }
 
     // 记录头「整条重生成」：只做原地重合成，不允许和逐段重生成同时跑
