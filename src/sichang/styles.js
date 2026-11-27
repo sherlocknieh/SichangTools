@@ -90,6 +90,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .head .playToggle:hover { background: #35543e; color: #fff; }
 .head .clear {
     padding: 0 10px;
+    background: var(--btn-bg);
     color: #a9a9b3;
     font-weight: 500;
 }
@@ -206,8 +207,9 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .itemHead .itemRegen.busy svg,
 .segRegen.busy svg { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
+/* 删除键常驻软底，不用悬停也能看见；悬停再转危险色 */
 .itemHead .itemDelete,
-.segDelete { background: transparent; color: #80808a; }
+.segDelete { background: var(--btn-bg); color: #80808a; }
 .itemHead .itemDelete:hover,
 .segDelete:hover { background: var(--danger-soft); color: var(--danger-ink); }
 .itemHead .txt {
