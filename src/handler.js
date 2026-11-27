@@ -105,6 +105,7 @@ export default function initSichangHandler() {
         clearSegmentAudio: host.clearSegmentAudio,
         setSegmentState: host.setSegmentState,
         setSegmentLabel: host.setSegmentLabel,
+        setSegmentVoice: host.setSegmentVoice,
         refreshRecordText: host.refreshRecordText,
         rebuildRecord: host.rebuildRecord,
         refreshSegmentControls: host.refreshSegmentControls,

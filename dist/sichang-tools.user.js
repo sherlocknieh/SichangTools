@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0134
+// @version      2026.11.28.0135
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -2487,7 +2487,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		};
 	}
 	function createRegenerator(host) {
-		const { records, selection, inputText, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, playChainSegment, flashSegmentRegenButton, currentTts } = host;
+		const { records, selection, inputText, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, setSegmentVoice, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, playChainSegment, flashSegmentRegenButton, currentTts } = host;
 		async function regenerateSegment(record, segment, options = {}) {
 			const { text: textOverride, autoPlay = true, keepLock = false, allowEmpty = false, deferRebuild = false } = options;
 			if (!segment || !records.includes(record) || segment.busy) return false;
@@ -2510,9 +2510,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			let failed = false;
 			let ok = false;
 			try {
+				const voice = currentTts?.().voice || record.tts.voice;
 				const { chunks, bytes, sampleRate } = await requestSegmentAudio({
 					text,
-					voice: currentTts?.().voice || record.tts.voice,
+					voice,
 					rate: record.tts.rate,
 					format: record.tts.format
 				});
@@ -2528,6 +2529,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				clearSegmentAudio(segment);
 				segment.chunks = chunks;
 				segment.bytes = bytes;
+				setSegmentVoice(segment, voice, true);
 				if (text !== segment.text) {
 					setSegmentLabel(segment, text);
 					refreshRecordText(record);
@@ -4103,6 +4105,7 @@ button[${BUSY_ATTR}]::before {
 			clearSegmentAudio: host.clearSegmentAudio,
 			setSegmentState: host.setSegmentState,
 			setSegmentLabel: host.setSegmentLabel,
+			setSegmentVoice: host.setSegmentVoice,
 			refreshRecordText: host.refreshRecordText,
 			rebuildRecord: host.rebuildRecord,
 			refreshSegmentControls: host.refreshSegmentControls,

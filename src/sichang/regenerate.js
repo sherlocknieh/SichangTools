@@ -16,6 +16,7 @@ export function createRegenerator(host) {
         clearSegmentAudio,
         setSegmentState,
         setSegmentLabel,
+        setSegmentVoice,
         refreshRecordText,
         rebuildRecord,
         refreshSegmentControls,
@@ -93,6 +94,8 @@ export function createRegenerator(host) {
             clearSegmentAudio(segment);
             segment.chunks = chunks;
             segment.bytes = bytes;
+            // 音频换成了当前音色，分段行的音色标签也要跟着更新，否则还显示旧说话人
+            setSegmentVoice(segment, voice, true);
             // 编辑过的文本要写回分段和整条记录，音频与文字才不会对不上
             if (text !== segment.text) {
                 setSegmentLabel(segment, text);
