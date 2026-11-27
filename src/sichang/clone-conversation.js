@@ -1,6 +1,7 @@
 // 克隆官方会话：读取当前对话的元数据和全部消息，新建一个副本。
 // 入口是聊天页顶栏「新建对话」左侧的按钮；官方没有克隆接口，复制实现见 conversation-copy.js。
 // 站点改版时优先核对顶栏选择器与 conversation-api.js 里的接口契约。
+import { clearBusyIcons, setBusyIcon } from './busy-icon.js';
 import {
     CLONE_BUTTON_LABEL,
     CLONE_BUTTON_SELECTOR,
@@ -48,7 +49,7 @@ export function createConversationClone() {
         state.busy = busy;
         if (!button) return;
         button.disabled = busy;
-        button.setAttribute('aria-busy', busy ? 'true' : 'false');
+        setBusyIcon(button, busy);
     }
 
     function ensureButton() {
@@ -138,6 +139,7 @@ export function createConversationClone() {
             state.timer = 0;
             button?.remove();
             button = null;
+            clearBusyIcons();
         },
     };
 }

@@ -30,7 +30,8 @@ src/
     conversation-api.js # 官方会话接口共享封装：读取、import、错误文案
     conversation-copy.js # 会话复制：云端/匿名接口复制与本地回退
     official-page.js   # 官方 React context 与受控输入工具
-    delete-message.js  # 接管官方删除按钮：单条删除、截断、导入补回、同步官方视图
+    busy-icon.js       # 共享「操作中」按钮动画：旋转箭头
+    delete-message.js  # 接管官方删除按钮：菜单选择单条删除或删后续，同步官方视图
     clone-conversation.js # 顶栏「克隆会话」按钮：新建副本并导入全部消息
     add-bubble.js      # 输入框右侧「添加消息气泡」：把输入文字写成用户消息
     fork-message.js    # 每条消息的 fork 按钮：复刻会话到该条为止
@@ -54,11 +55,12 @@ src/
   - `timeline.js`：实时时间线的 Web Audio 调度、暂停继续与跳转。
   - `synthesis.js`：按句分段请求 `/api/tts`、边收边播、整条 WAV 落盘与 `fetch` 接管。
   - `regenerate.js`：单段重生成与整条重生成流程；整条重生成原地复用逐段流程，不新建记录。记录/播放/UI 的读写通过 `createRegenerator(host)` 注入。
-  - `delete-message.js`：在 `window` 捕获阶段接管官方「删除消息」按钮，阻止官方原生“从这条起全部删除”，按官方消息文档顺序安全映射消息 ID。官方没有单条删除接口，模块用「从目标消息 DELETE 截断 + `/api/conversations/import` 补回尾部」只删一条提问或回答；重导入保留 id/seq/role/content/model/createdAt，会丢掉 variants/thinking/图片建议/网页来源/附件。删除成功后通过官方 React context 的 `upsertConversation` 写回剩余消息，让官方页面立即更新；拿不到官方状态时回退整页刷新。映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。接口契约、恢复流程和 React 同步细节见 `logic/message-delete.md`。
+  - `delete-message.js`：在 `window` 捕获阶段接管官方「删除消息」按钮，先弹「删除本条 / 删除后续（走官方）」菜单，不再直接触发官方原生删除，按官方消息文档顺序安全映射消息 ID。单条删除用「从目标消息 DELETE 截断 + `/api/conversations/import` 补回尾部」，删后续直接走官方 DELETE 截断；重导入会丢掉 variants/thinking/图片建议/网页来源/附件。删除成功后通过官方 React context 的 `upsertConversation` 写回剩余消息，让官方页面立即更新；拿不到官方状态时回退整页刷新。映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。接口契约、恢复流程和 React 同步细节见 `logic/message-delete.md`。
   - `conversation-api.js`：官方会话接口的共享封装（`readConversationId`、读取元数据与分页消息、`createConversation`、`importMessages`、`errorMessage`）。删除、克隆与 fork 都走这一份契约，站点改版时只改这里。
   - `conversation-copy.js`：会话复制实现，整条克隆与消息级 fork 共用；负责空正文占位、新 ID/seq、写入校验、失败清理，以及匿名/本地接口不可达时退回官方 context 写 IndexedDB。
   - `clone-conversation.js`：在官方聊天页顶栏「新建对话」左侧注入「克隆会话」按钮；读取当前会话（云端或匿名）的元数据和全部消息，经 `conversation-copy.js` 新建副本。成功后进入副本，失败只写控制台。实现与接口细节见 `logic/conversation-clone.md`。
   - `official-page.js`：官方 React 页面的共享工具（从 DOM fiber 找 context、通过原生 setter 改受控 textarea）。删除与加气泡模块共用。
+  - `busy-icon.js`：共享的操作中按钮动画。通过 `data-sichang-busy` 和伪元素把按钮内容替换成旋转箭头，删除、加气泡、克隆和 fork 共用。
   - `add-bubble.js`：在官方输入区「发送消息」左侧注入加号按钮；点击后把输入框文字（可为空，用零宽空格占位）作为一条 `user` 消息经 import 写入当前云端会话，不请求 AI 回复。写入成功后用官方 context 立即插入气泡并清空输入框。细节见 `logic/add-bubble.md`。
   - `fork-message.js`：在每条官方消息的操作行注入 fork 按钮；按按钮文档顺序映射到消息，截取到该条为止后复用 `conversation-copy.js` 新建副本。映射数量不一致时安全拒绝。细节见 `logic/fork-message.md`。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。

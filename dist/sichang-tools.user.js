@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2200
+// @version      2026.11.27.2201
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -2603,6 +2603,50 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			regenerateRecord
 		};
 	}
+	var BUSY_ATTR = "data-sichang-busy";
+	var STYLE_ID = "sichang-busy-icon-style";
+	var CSS = `
+@keyframes sichang-busy-spin { to { transform: rotate(360deg); } }
+button[${BUSY_ATTR}] {
+    --sichang-busy-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+    position: relative;
+    pointer-events: none;
+}
+button[${BUSY_ATTR}] > * { visibility: hidden; }
+button[${BUSY_ATTR}]::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    background: currentColor;
+    -webkit-mask: var(--sichang-busy-arrow) center / contain no-repeat;
+    mask: var(--sichang-busy-arrow) center / contain no-repeat;
+    animation: sichang-busy-spin .8s linear infinite;
+}
+`;
+	function ensureBusyIconStyle() {
+		if (document.getElementById(STYLE_ID)) return;
+		const style = document.createElement("style");
+		style.id = STYLE_ID;
+		style.textContent = CSS;
+		document.head.appendChild(style);
+	}
+	function setBusyIcon(button, busy) {
+		if (!button || busy && !button.isConnected) return;
+		ensureBusyIconStyle();
+		if (busy) button.setAttribute(BUSY_ATTR, "");
+		else button.removeAttribute(BUSY_ATTR);
+		button.setAttribute("aria-busy", busy ? "true" : "false");
+	}
+	function clearBusyIcons() {
+		for (const button of document.querySelectorAll(`[${BUSY_ATTR}]`)) {
+			button.removeAttribute(BUSY_ATTR);
+			button.setAttribute("aria-busy", "false");
+		}
+	}
 	var CHAT_PATH_RE = /^\/chat\/(conv__[^/?#]+)/;
 	function readConversationId() {
 		const match = CHAT_PATH_RE.exec(window.location.pathname);
@@ -2943,7 +2987,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 	var MENU_SELECTOR$1 = "[data-sichang-delete-menu]";
 	var MODE_SELECTOR = "[data-sichang-delete-mode]";
 	var MENU_STYLE_ID$1 = "sichang-delete-menu-style";
-	var BUSY_ATTR = "data-sichang-deleting";
 	var MENU_CSS$1 = `
 .sichang-delete-menu {
     position: fixed;
@@ -2972,27 +3015,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .sichang-delete-menu button:hover { background: var(--muted, rgba(127, 127, 127, .15)); }
 .sichang-delete-menu button[data-sichang-delete-mode="one"] { color: #c0392b; }
-@keyframes sichang-delete-spin { to { transform: rotate(360deg); } }
-/* 操作中换成一个旋转箭头图标：用伪元素避免改动官方 React 管理的按钮子节点。 */
-button[${BUSY_ATTR}] {
-    --sichang-delete-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
-    position: relative;
-    pointer-events: none;
-}
-button[${BUSY_ATTR}] > * { visibility: hidden; }
-button[${BUSY_ATTR}]::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 14px;
-    height: 14px;
-    margin: -7px 0 0 -7px;
-    background: currentColor;
-    -webkit-mask: var(--sichang-delete-arrow) center / contain no-repeat;
-    mask: var(--sichang-delete-arrow) center / contain no-repeat;
-    animation: sichang-delete-spin .8s linear infinite;
-}
 `;
 	function createMessageDelete(host) {
 		const state = {
@@ -3041,12 +3063,6 @@ button[${BUSY_ATTR}]::before {
 			state.menu = menu;
 			state.anchor = anchor;
 			positionMenu();
-		}
-		function setButtonBusy(button, busy) {
-			if (!button) return;
-			if (busy) button.setAttribute(BUSY_ATTR, "");
-			else button.removeAttribute(BUSY_ATTR);
-			button.setAttribute("aria-busy", busy ? "true" : "false");
 		}
 		function indexOfId(list, id) {
 			return list.findIndex((item) => item.id === id);
@@ -3218,7 +3234,7 @@ button[${BUSY_ATTR}]::before {
 			const context = officialContext(anchor);
 			const conversation = context?.activeConversation ?? null;
 			const resolve = (fresh) => resolveTarget(anchor, fresh, buttonsAtClick, indexAtClick);
-			setButtonBusy(anchor, true);
+			setBusyIcon(anchor, true);
 			try {
 				const result = mode === "after" ? await applyDeleteAfter(resolve) : await applyDelete(resolve);
 				if (!result) return;
@@ -3229,7 +3245,7 @@ button[${BUSY_ATTR}]::before {
 				if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
 				window.location.reload();
 			} finally {
-				setButtonBusy(anchor, false);
+				setBusyIcon(anchor, false);
 			}
 		}
 		function onOfficialDeleteClick(event) {
@@ -3276,7 +3292,7 @@ button[${BUSY_ATTR}]::before {
 				window.removeEventListener("resize", closeMenu);
 				closeMenu();
 				document.getElementById(MENU_STYLE_ID$1)?.remove();
-				for (const button of document.querySelectorAll(`[${BUSY_ATTR}]`)) setButtonBusy(button, false);
+				clearBusyIcons();
 			}
 		};
 	}
@@ -3306,7 +3322,7 @@ button[${BUSY_ATTR}]::before {
 			state.busy = busy;
 			if (!button) return;
 			button.disabled = busy;
-			button.setAttribute("aria-busy", busy ? "true" : "false");
+			setBusyIcon(button, busy);
 		}
 		function ensureButton() {
 			if (button?.isConnected) {
@@ -3389,6 +3405,7 @@ button[${BUSY_ATTR}]::before {
 				state.timer = 0;
 				button?.remove();
 				button = null;
+				clearBusyIcons();
 			}
 		};
 	}
@@ -3465,7 +3482,7 @@ button[${BUSY_ATTR}]::before {
 			state.busy = busy;
 			if (!button) return;
 			button.disabled = busy;
-			button.setAttribute("aria-busy", busy ? "true" : "false");
+			setBusyIcon(button, busy);
 			for (const option of state.menu?.querySelectorAll(ROLE_SELECTOR) ?? []) option.disabled = busy;
 		}
 		function ensureMenuStyle() {
@@ -3675,11 +3692,11 @@ button[${BUSY_ATTR}]::before {
 			observer: null,
 			timer: 0
 		};
-		function setBusy(busy) {
+		function setBusy(busy, active = null) {
 			state.busy = busy;
 			for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) {
 				button.disabled = busy;
-				button.setAttribute("aria-busy", busy ? "true" : "false");
+				setBusyIcon(button, busy && button === active);
 			}
 		}
 		function ensureButtons() {
@@ -3739,7 +3756,7 @@ button[${BUSY_ATTR}]::before {
 			const copy = (button.parentElement?.parentElement)?.querySelector(OFFICIAL_COPY_SELECTOR);
 			if (!copy) return;
 			const index = copyButtons().indexOf(copy);
-			setBusy(true);
+			setBusy(true, button);
 			try {
 				const result = await forkAt(copy, index);
 				const path = `/chat/${encodeURIComponent(result.cid)}`;
@@ -3767,6 +3784,7 @@ button[${BUSY_ATTR}]::before {
 				if (state.timer) window.clearTimeout(state.timer);
 				state.timer = 0;
 				for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) button.parentElement?.remove();
+				clearBusyIcons();
 			}
 		};
 	}

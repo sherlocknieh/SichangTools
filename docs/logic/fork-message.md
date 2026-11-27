@@ -26,6 +26,7 @@ export const FORK_BUTTON_SELECTOR = 'button[data-sichang-fork]';
 - 以每条消息操作行里的「复制消息」按钮为锚点；操作行是 `span.inline-flex` 的父级 `div`（同排还有朗读、编辑、删除）。
 - 复制官方按钮外壳（`span` + `button`），替换图标和 `aria-label/title` 为「复刻到这条消息」，插在「复制消息」前面。
 - 用文档级点击委托，React 重绘换掉节点后点击仍有效。
+- 复刻期间被点的 fork 按钮加上 `data-sichang-busy`（共享 `busy-icon.js`），原图标替换成旋转箭头；同时禁用所有 fork 按钮，防止并发操作。
 - `MutationObserver` 监听 `document.body` 的 childList，去抖 120ms 后给还没有 fork 按钮的操作行补插；不做轮询。
 - `dispose` 断开 observer、清定时器并移除所有注入的按钮外壳。
 

@@ -30,6 +30,7 @@ export const CLONE_BUTTON_SELECTOR = 'button[data-sichang-clone]';
 - 顶栏是同时含「会话历史」和「新建对话」的 `div.h-14`，侧栏的新建对话不在其中。
 - 按钮复制官方「新建对话」按钮的 class，再插入它左侧，随站点主题/尺寸自动变化；图标是内联 SVG，`aria-label`/`title` 都是「克隆会话」。
 - 点击用文档级委托，React 重绘换掉按钮节点后仍能收到事件。
+- 克隆期间按钮加上 `data-sichang-busy`（共享 `busy-icon.js`），原图标替换成旋转箭头并禁用，避免重复提交。
 - 官方是 Next.js SPA，切会话或窗口变化会重绘顶栏并移除脚本节点；脚本用 `MutationObserver` 监听 `document.body` 的 childList，去抖 120ms 后补插，不做轮询。
 - `dispose` 断开 observer、清定时器并移除按钮。
 

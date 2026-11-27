@@ -1,5 +1,6 @@
 // 每条官方消息操作行里的「复刻到这条消息」：把当前会话截到该条为止复制成新会话。
 // 按钮以官方「复制消息」按钮为锚点注入；点击顺序对应官方消息顺序，数量不一致时拒绝。
+import { clearBusyIcons, setBusyIcon } from './busy-icon.js';
 import {
     FORK_BUTTON_LABEL,
     FORK_BUTTON_SELECTOR,
@@ -37,11 +38,11 @@ export function createForkMessage() {
         timer: 0,
     };
 
-    function setBusy(busy) {
+    function setBusy(busy, active = null) {
         state.busy = busy;
         for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) {
             button.disabled = busy;
-            button.setAttribute('aria-busy', busy ? 'true' : 'false');
+            setBusyIcon(button, busy && button === active);
         }
     }
 
@@ -110,7 +111,7 @@ export function createForkMessage() {
         const copy = row?.querySelector(OFFICIAL_COPY_SELECTOR);
         if (!copy) return;
         const index = copyButtons().indexOf(copy);
-        setBusy(true);
+        setBusy(true, button);
         try {
             const result = await forkAt(copy, index);
             const path = `/chat/${encodeURIComponent(result.cid)}`;
@@ -140,6 +141,7 @@ export function createForkMessage() {
             for (const button of document.querySelectorAll(FORK_BUTTON_SELECTOR)) {
                 button.parentElement?.remove();
             }
+            clearBusyIcons();
         },
     };
 }

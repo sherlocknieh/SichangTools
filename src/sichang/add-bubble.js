@@ -9,6 +9,7 @@ import {
     OFFICIAL_ATTACH_SELECTOR,
     OFFICIAL_SEND_SELECTOR,
 } from './constants.js';
+import { setBusyIcon } from './busy-icon.js';
 import {
     conversationOwner,
     errorMessage,
@@ -99,7 +100,7 @@ export function createAddBubble() {
         state.busy = busy;
         if (!button) return;
         button.disabled = busy;
-        button.setAttribute('aria-busy', busy ? 'true' : 'false');
+        setBusyIcon(button, busy);
         for (const option of state.menu?.querySelectorAll(ROLE_SELECTOR) ?? []) {
             option.disabled = busy;
         }

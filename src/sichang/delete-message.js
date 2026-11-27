@@ -6,6 +6,7 @@ import {
     CONVERSATION_IMPORT_MAX_CHARS,
     OFFICIAL_MESSAGE_DELETE_SELECTOR,
 } from './constants.js';
+import { clearBusyIcons, setBusyIcon } from './busy-icon.js';
 import {
     errorMessage,
     importMessages,
@@ -20,7 +21,6 @@ import { officialContext } from './official-page.js';
 const MENU_SELECTOR = '[data-sichang-delete-menu]';
 const MODE_SELECTOR = '[data-sichang-delete-mode]';
 const MENU_STYLE_ID = 'sichang-delete-menu-style';
-const BUSY_ATTR = 'data-sichang-deleting';
 const MENU_CSS = `
 .sichang-delete-menu {
     position: fixed;
@@ -49,27 +49,6 @@ const MENU_CSS = `
 }
 .sichang-delete-menu button:hover { background: var(--muted, rgba(127, 127, 127, .15)); }
 .sichang-delete-menu button[data-sichang-delete-mode="one"] { color: #c0392b; }
-@keyframes sichang-delete-spin { to { transform: rotate(360deg); } }
-/* 操作中换成一个旋转箭头图标：用伪元素避免改动官方 React 管理的按钮子节点。 */
-button[${BUSY_ATTR}] {
-    --sichang-delete-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
-    position: relative;
-    pointer-events: none;
-}
-button[${BUSY_ATTR}] > * { visibility: hidden; }
-button[${BUSY_ATTR}]::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 14px;
-    height: 14px;
-    margin: -7px 0 0 -7px;
-    background: currentColor;
-    -webkit-mask: var(--sichang-delete-arrow) center / contain no-repeat;
-    mask: var(--sichang-delete-arrow) center / contain no-repeat;
-    animation: sichang-delete-spin .8s linear infinite;
-}
 `;
 
 export function createMessageDelete(host) {
@@ -126,14 +105,6 @@ export function createMessageDelete(host) {
         state.menu = menu;
         state.anchor = anchor;
         positionMenu();
-    }
-
-    // 操作中给被点的官方按钮加旋转/呼吸动画；不直接删 DOM，避免和 React 状态脱节。
-    function setButtonBusy(button, busy) {
-        if (!button) return;
-        if (busy) button.setAttribute(BUSY_ATTR, '');
-        else button.removeAttribute(BUSY_ATTR);
-        button.setAttribute('aria-busy', busy ? 'true' : 'false');
     }
 
     // ---------- 写入与恢复 ----------
@@ -333,7 +304,7 @@ export function createMessageDelete(host) {
         const conversation = context?.activeConversation ?? null;
 
         const resolve = fresh => resolveTarget(anchor, fresh, buttonsAtClick, indexAtClick);
-        setButtonBusy(anchor, true);
+        setBusyIcon(anchor, true);
         try {
             const result = mode === 'after'
                 ? await applyDeleteAfter(resolve)
@@ -347,7 +318,7 @@ export function createMessageDelete(host) {
             // 官方内部状态结构变化时退回整页刷新，保证服务端和页面至少一致。
             window.location.reload();
         } finally {
-            setButtonBusy(anchor, false);
+            setBusyIcon(anchor, false);
         }
     }
 
@@ -408,9 +379,7 @@ export function createMessageDelete(host) {
             window.removeEventListener('resize', closeMenu);
             closeMenu();
             document.getElementById(MENU_STYLE_ID)?.remove();
-            for (const button of document.querySelectorAll(`[${BUSY_ATTR}]`)) {
-                setButtonBusy(button, false);
-            }
+            clearBusyIcons();
         },
     };
 }

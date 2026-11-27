@@ -31,6 +31,7 @@ export const ADD_BUBBLE_BUTTON_LABEL = '添加消息气泡';
 - AI 回复期间官方把发送按钮换成「停止生成」，`findComposer` 找不到发送按钮，点击加号只写控制台，不弹窗。
 - 输入区会随会话切换、回复状态重绘；`MutationObserver` 监听 `document.body` 的 childList，去抖 120ms 后补插，不做轮询。
 - 加号点击只负责开/关菜单，不直接写入；菜单项点击才触发写入。
+- 写入期间加号加上 `data-sichang-busy`（由共享的 `busy-icon.js` 注入样式），原图标替换成旋转箭头并禁用，防止重复添加。
 - `dispose` 断开 observer、清定时器并移除按钮。
 
 ## 为什么不用官方 addMessage
