@@ -2,6 +2,7 @@
 // 选中记录/分段、播放跟随和重生成都走同一个 textarea；这里只负责绑定和同步按钮状态。
 import { VOICE_STORE_KEY } from './constants.js';
 import { DEFAULT_VOICE } from './voices.js';
+import { ICONS } from './icons.js';
 import { setNativeValue } from './official-page.js';
 
 export function createCompose(host) {
@@ -36,7 +37,7 @@ export function createCompose(host) {
         const session = activeSynthesis();
         if (session) {
             const paused = Boolean(session.synthesisPaused);
-            ui.go.textContent = paused ? '继续' : '暂停';
+            ui.go.innerHTML = paused ? ICONS.play : ICONS.pause;
             ui.go.classList.toggle('paused', paused);
             ui.go.disabled = false;
             const label = paused ? '继续合成' : '暂停合成';
@@ -44,7 +45,7 @@ export function createCompose(host) {
             ui.go.setAttribute('aria-label', label);
             return;
         }
-        ui.go.textContent = '合成';
+        ui.go.innerHTML = ICONS.synth;
         ui.go.classList.remove('paused');
         ui.go.title = '读取官方输入框文字合成语音';
         ui.go.setAttribute('aria-label', '合成语音');

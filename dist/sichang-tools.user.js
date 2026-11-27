@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0130
+// @version      2026.11.28.0132
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -53,6 +53,7 @@
 		regen: shape("<path d=\"M20 12a8 8 0 1 1-8-8c2.2 0 4.3.9 5.9 2.4L20 8.5\"/><path d=\"M20 3.5v5h-5\"/>"),
 		download: shape("<path d=\"M12 4.5v10\"/><path d=\"m7.8 10.6 4.2 4.2 4.2-4.2\"/><path d=\"M5.5 19h13\"/>"),
 		close: shape("<path d=\"m7 7 10 10M17 7 7 17\"/>"),
+		synth: solid("<path d=\"M11 3.6l1.8 5.1 5.1 1.8-5.1 1.8L11 17.4l-1.8-5.1L4.1 10.5l5.1-1.8z\"/><path d=\"M18.2 14.6l.8 2.3 2.3.8-2.3.8-.8 2.3-.8-2.3-2.3-.8 2.3-.8z\"/>"),
 		waiting: shape("<circle cx=\"6.6\" cy=\"12\" r=\"1.3\" fill=\"currentColor\"/><circle cx=\"12\" cy=\"12\" r=\"1.3\" fill=\"currentColor\"/><circle cx=\"17.4\" cy=\"12\" r=\"1.3\" fill=\"currentColor\"/>")
 	};
 	var VOICE_GROUPS = [{
@@ -174,7 +175,6 @@ button:not(:disabled):active { filter: brightness(1.16); }
     background: #23232b;
     color: #bcbcc6;
     font-variant-numeric: tabular-nums;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .03);
 }
 .head .rateCycle:hover { background: var(--btn-bg-hover); color: #fff; }
 .head .playToggle {
@@ -194,7 +194,6 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .head .clear.confirm {
     background: var(--danger-soft);
     color: var(--danger-ink);
-    box-shadow: inset 0 0 0 1px rgba(255, 154, 154, .16);
 }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
 .head .voice {
@@ -221,23 +220,16 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .head .voice:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .head .go {
     flex: none;
-    height: 26px;
-    padding: 0 12px;
+    width: 32px;
+    padding: 0;
     border-radius: 8px;
-    background: linear-gradient(180deg, #5aab6f, #3d8352);
-    color: #f4fff6;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .3px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .18);
+    background: #418a55;
+    color: #f2fff5;
 }
-.head .go:hover { background: linear-gradient(180deg, #66b97b, #47915b); color: #fff; }
-.head .go.paused {
-    background: linear-gradient(180deg, #8a6a34, #6b5127);
-    color: #ffe6b8;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .16);
-}
-.head .go.paused:hover { background: linear-gradient(180deg, #9a783c, #7a5d2d); color: #fff; }
+.head .go:hover { background: #4d9c63; color: #fff; }
+.head .go > svg { width: 14px; height: 14px; }
+.head .go.paused { background: #7a5f2e; color: #ffe6b8; }
+.head .go.paused:hover { background: #8b6d35; color: #fff; }
 .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
 /* 没有记录时 body 不占高度，顶栏下面也不留分隔线 */
@@ -294,9 +286,8 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .itemHead .itemRegen:hover,
 .itemHead .itemDownload:hover { background: var(--btn-bg-hover); color: #fff; }
 .itemHead .itemPlay.playing {
-    background: linear-gradient(180deg, #365c40, #2b4a34);
+    background: #2f5239;
     color: #c8f6d2;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
 }
 .itemHead .itemRegen.busy svg { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
@@ -395,9 +386,8 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .seg.showProgress .segBar { display: block; }
 .segBar .fill { height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
 .segAction.playing {
-    background: linear-gradient(180deg, #365c40, #2b4a34);
+    background: #2f5239;
     color: #c8f6d2;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
 }
 @media (max-width: 480px) {
     .body { max-height: 38vh; }
@@ -443,7 +433,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>
             <button class="rateCycle" hidden aria-label="播放倍速" title="播放倍速">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
-            <button class="go" title="读取官方输入框文字合成语音">合成</button>
+            <button class="go" title="读取官方输入框文字合成语音" aria-label="合成语音">${ICONS.synth}</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
         </div>
         <div class="body">
@@ -660,7 +650,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const session = activeSynthesis();
 			if (session) {
 				const paused = Boolean(session.synthesisPaused);
-				ui.go.textContent = paused ? "继续" : "暂停";
+				ui.go.innerHTML = paused ? ICONS.play : ICONS.pause;
 				ui.go.classList.toggle("paused", paused);
 				ui.go.disabled = false;
 				const label = paused ? "继续合成" : "暂停合成";
@@ -668,7 +658,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				ui.go.setAttribute("aria-label", label);
 				return;
 			}
-			ui.go.textContent = "合成";
+			ui.go.innerHTML = ICONS.synth;
 			ui.go.classList.remove("paused");
 			ui.go.title = "读取官方输入框文字合成语音";
 			ui.go.setAttribute("aria-label", "合成语音");

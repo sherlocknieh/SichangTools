@@ -40,7 +40,7 @@ export function createPanel() {
             <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>
             <button class="rateCycle" hidden aria-label="播放倍速" title="播放倍速">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
-            <button class="go" title="读取官方输入框文字合成语音">合成</button>
+            <button class="go" title="读取官方输入框文字合成语音" aria-label="合成语音">${ICONS.synth}</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
         </div>
         <div class="body">

@@ -10,5 +10,6 @@ export const ICONS = {
     regen: shape('<path d="M20 12a8 8 0 1 1-8-8c2.2 0 4.3.9 5.9 2.4L20 8.5"/><path d="M20 3.5v5h-5"/>'),
     download: shape('<path d="M12 4.5v10"/><path d="m7.8 10.6 4.2 4.2 4.2-4.2"/><path d="M5.5 19h13"/>'),
     close: shape('<path d="m7 7 10 10M17 7 7 17"/>'),
+    synth: solid('<path d="M11 3.6l1.8 5.1 5.1 1.8-5.1 1.8L11 17.4l-1.8-5.1L4.1 10.5l5.1-1.8z"/><path d="M18.2 14.6l.8 2.3 2.3.8-2.3.8-.8 2.3-.8-2.3-2.3-.8 2.3-.8z"/>'),
     waiting: shape('<circle cx="6.6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="17.4" cy="12" r="1.3" fill="currentColor"/>'),
 };

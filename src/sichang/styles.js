@@ -68,7 +68,6 @@ button:not(:disabled):active { filter: brightness(1.16); }
     background: #23232b;
     color: #bcbcc6;
     font-variant-numeric: tabular-nums;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .03);
 }
 .head .rateCycle:hover { background: var(--btn-bg-hover); color: #fff; }
 .head .playToggle {
@@ -88,7 +87,6 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .head .clear.confirm {
     background: var(--danger-soft);
     color: var(--danger-ink);
-    box-shadow: inset 0 0 0 1px rgba(255, 154, 154, .16);
 }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
 .head .voice {
@@ -115,23 +113,16 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .head .voice:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .head .go {
     flex: none;
-    height: 26px;
-    padding: 0 12px;
+    width: 32px;
+    padding: 0;
     border-radius: 8px;
-    background: linear-gradient(180deg, #5aab6f, #3d8352);
-    color: #f4fff6;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .3px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .18);
+    background: #418a55;
+    color: #f2fff5;
 }
-.head .go:hover { background: linear-gradient(180deg, #66b97b, #47915b); color: #fff; }
-.head .go.paused {
-    background: linear-gradient(180deg, #8a6a34, #6b5127);
-    color: #ffe6b8;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .16);
-}
-.head .go.paused:hover { background: linear-gradient(180deg, #9a783c, #7a5d2d); color: #fff; }
+.head .go:hover { background: #4d9c63; color: #fff; }
+.head .go > svg { width: 14px; height: 14px; }
+.head .go.paused { background: #7a5f2e; color: #ffe6b8; }
+.head .go.paused:hover { background: #8b6d35; color: #fff; }
 .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
 /* 没有记录时 body 不占高度，顶栏下面也不留分隔线 */
@@ -188,9 +179,8 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .itemHead .itemRegen:hover,
 .itemHead .itemDownload:hover { background: var(--btn-bg-hover); color: #fff; }
 .itemHead .itemPlay.playing {
-    background: linear-gradient(180deg, #365c40, #2b4a34);
+    background: #2f5239;
     color: #c8f6d2;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
 }
 .itemHead .itemRegen.busy svg { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
@@ -289,9 +279,8 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .seg.showProgress .segBar { display: block; }
 .segBar .fill { height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
 .segAction.playing {
-    background: linear-gradient(180deg, #365c40, #2b4a34);
+    background: #2f5239;
     color: #c8f6d2;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07);
 }
 @media (max-width: 480px) {
     .body { max-height: 38vh; }
