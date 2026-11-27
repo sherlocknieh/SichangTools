@@ -18,7 +18,7 @@ src/
   main.js              # 唯一入口：注册 handler、登记清理、处理重复注入
   handler.js           # 装配：共享状态、选中逻辑、模块接线与清理
   sichang/             # 思畅站点的功能模块
-    panel.js           # 面板骨架（Shadow DOM）与剪贴板兜底
+    panel.js           # 面板骨架（Shadow DOM）、挂载保活与剪贴板兜底
     panel-layout.js    # 折叠、拖动、贴底避让与窗口尺寸变化
     compose.js         # 输入区：草稿、预填试听、合成/暂停入口
     record-view.js     # 记录条目与分段条目的 DOM、折叠、菜单、下载、删除

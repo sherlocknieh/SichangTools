@@ -52,6 +52,13 @@ export function createPanel() {
     `;
     root.appendChild(panel);
     document.documentElement.appendChild(host);
+    // 站点用客户端水合重建根节点时，会把脚本提前插入的面板一起清掉（表现为「闪一下就没了」）。
+    // 只监听 documentElement 的直接子节点；面板被移除就挂回去，不要轮询。
+    const keepMounted = new MutationObserver(() => {
+        if (host.isConnected) return;
+        document.documentElement.appendChild(host);
+    });
+    keepMounted.observe(document.documentElement, { childList: true });
     return {
         host,
         root,
@@ -69,5 +76,9 @@ export function createPanel() {
         clearInput: panel.querySelector('.clearInput'),
         voice: panel.querySelector('.voice'),
         go: panel.querySelector('.go'),
+        dispose() {
+            keepMounted.disconnect();
+            host.remove();
+        },
     };
 }

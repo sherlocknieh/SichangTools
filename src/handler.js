@@ -175,6 +175,6 @@ export default function initSichangHandler() {
                 host.audioContext.close();
             } catch {}
         }
-        ui.host.remove();
+        ui.dispose();
     };
 }
