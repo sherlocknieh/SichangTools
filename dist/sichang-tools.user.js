@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2112
-// @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条消息删除与 WAV 保存
+// @version      2026.11.27.2118
+// @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条消息删除、会话克隆与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
 // @grant        none
@@ -18,6 +18,11 @@
 		"button[title=\"Delete message\"]"
 	].join(", ");
 	var CONVERSATION_IMPORT_MAX_CHARS = 2e4;
+	var OFFICIAL_CHAT_HEADER_SELECTOR = "div.h-14";
+	var OFFICIAL_NEW_CHAT_SELECTOR = "button[aria-label=\"新建对话\"], button[title=\"新建对话\"]";
+	var CLONE_BUTTON_SELECTOR = "button[data-sichang-clone]";
+	var CLONE_BUTTON_LABEL = "克隆会话";
+	var CLONE_TITLE_SUFFIX = "（副本）";
 	var PANEL_ID = "sichang-tts-capture";
 	var DEFAULT_SAMPLE_RATE = 24e3;
 	var SEGMENT_HEADER = "X-Sichang-Segment";
@@ -2593,6 +2598,133 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		};
 	}
 	var CHAT_PATH_RE = /^\/chat\/(conv__[^/?#]+)/;
+	function readConversationId() {
+		const match = CHAT_PATH_RE.exec(window.location.pathname);
+		return match ? decodeURIComponent(match[1]) : "";
+	}
+	async function request(url, options = {}) {
+		const response = await fetch(url, {
+			credentials: "same-origin",
+			cache: "no-store",
+			...options
+		});
+		if (!response.ok) {
+			let detail = "";
+			try {
+				detail = (await response.text()).slice(0, 160);
+			} catch {}
+			const error = new Error(`${url} ${response.status}${detail ? `: ${detail}` : ""}`);
+			error.status = response.status;
+			throw error;
+		}
+		return response;
+	}
+	async function requestJson(url, options = {}) {
+		return (await request(url, options)).json();
+	}
+	function loadConversation(cid) {
+		return requestJson(`/api/conversations/${encodeURIComponent(cid)}`);
+	}
+	function createConversation(cid, meta) {
+		const body = {
+			id: cid,
+			title: meta.title || "新对话",
+			model: meta.model || "gemma-4-uncensored",
+			scope: meta.scope === "character" ? "character" : "general",
+			characterId: meta.scope === "character" ? meta.characterId ?? null : null,
+			createdAt: meta.createdAt || Date.now()
+		};
+		if (typeof meta.webSearch === "boolean") body.webSearch = meta.webSearch;
+		if (typeof meta.reasoning === "boolean") body.reasoning = meta.reasoning;
+		return request("/api/conversations", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body)
+		});
+	}
+	function deleteConversation(cid) {
+		return request(`/api/conversations/${encodeURIComponent(cid)}`, { method: "DELETE" });
+	}
+	async function loadMessages(cid) {
+		let before = "";
+		const pages = [];
+		const seen = new Set();
+		for (let page = 0; page < 40; page += 1) {
+			const params = new URLSearchParams({
+				limit: String(500),
+				before
+			});
+			const data = await requestJson(`/api/conversations/${encodeURIComponent(cid)}/messages?${params.toString()}`);
+			const items = Array.isArray(data.items) ? data.items : [];
+			pages.push(items);
+			if (!data.prevCursor || items.length === 0) break;
+			const cursor = String(data.prevCursor);
+			if (seen.has(cursor)) break;
+			seen.add(cursor);
+			before = cursor;
+		}
+		return pages.reverse().flat().sort((a, b) => a.seq - b.seq);
+	}
+	function toImportMessage(message, seq) {
+		return {
+			id: message.id,
+			seq,
+			role: message.role === "system" ? "system" : message.role === "user" ? "user" : "assistant",
+			...message.model ? { model: message.model } : {},
+			content: message.content,
+			createdAt: message.createdAt || Date.now(),
+			state: "complete"
+		};
+	}
+	async function importMessages(cid, meta, messages) {
+		const conversation = {
+			id: cid,
+			scope: meta.scope === "character" ? "character" : "general",
+			characterId: meta.scope === "character" ? meta.characterId ?? null : null,
+			title: meta.title || "新对话",
+			model: meta.model || "gemma-4-uncensored",
+			createdAt: meta.createdAt || Date.now(),
+			updatedAt: Date.now()
+		};
+		for (let offset = 0; offset < messages.length; offset += 400) {
+			const chunk = messages.slice(offset, offset + 400);
+			await request("/api/conversations/import", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ conversations: [{
+					...conversation,
+					updatedAt: Date.now(),
+					messages: chunk.map((message, index) => toImportMessage(message, message.seq ?? offset + index))
+				}] })
+			});
+		}
+	}
+	function describeLoss(messages) {
+		let variants = 0;
+		let thinking = 0;
+		let suggestions = 0;
+		let sources = 0;
+		let attachments = 0;
+		for (const message of messages) {
+			if (message.meta?.variants?.length > 1) variants += 1;
+			if (message.meta?.thinking) thinking += 1;
+			if (message.meta?.imageSuggestions?.length) suggestions += 1;
+			if (message.meta?.webSources?.length) sources += 1;
+			if (message.attachments?.length) attachments += message.attachments.length;
+		}
+		const parts = [];
+		if (variants) parts.push(`分支变体（${variants} 条消息）`);
+		if (thinking) parts.push(`思考内容（${thinking} 条消息）`);
+		if (suggestions) parts.push(`图片建议（${suggestions} 条消息）`);
+		if (sources) parts.push(`网页来源（${sources} 条消息）`);
+		if (attachments) parts.push(`附件/生成图（${attachments} 个）`);
+		return parts;
+	}
+	function errorMessage(error) {
+		if (error?.status === 401) return "未登录或登录已失效，无法同步到官方。";
+		if (error?.status === 404) return "这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。";
+		return error?.message || String(error);
+	}
 	var ROLE_LABELS = {
 		user: "你",
 		assistant: "AI",
@@ -2603,53 +2735,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			busy: false,
 			cid: ""
 		};
-		function readConversationId() {
-			const match = CHAT_PATH_RE.exec(window.location.pathname);
-			return match ? decodeURIComponent(match[1]) : "";
-		}
-		async function request(url, options = {}) {
-			const response = await fetch(url, {
-				credentials: "same-origin",
-				cache: "no-store",
-				...options
-			});
-			if (!response.ok) {
-				let detail = "";
-				try {
-					detail = (await response.text()).slice(0, 160);
-				} catch {}
-				const error = new Error(`${url} ${response.status}${detail ? `: ${detail}` : ""}`);
-				error.status = response.status;
-				throw error;
-			}
-			return response;
-		}
-		async function requestJson(url, options = {}) {
-			return (await request(url, options)).json();
-		}
-		function loadMeta(cid) {
-			return requestJson(`/api/conversations/${encodeURIComponent(cid)}`);
-		}
-		async function loadMessages(cid) {
-			let before = "";
-			const pages = [];
-			const seen = new Set();
-			for (let page = 0; page < 40; page += 1) {
-				const params = new URLSearchParams({
-					limit: String(500),
-					before
-				});
-				const data = await requestJson(`/api/conversations/${encodeURIComponent(cid)}/messages?${params.toString()}`);
-				const items = Array.isArray(data.items) ? data.items : [];
-				pages.push(items);
-				if (!data.prevCursor || items.length === 0) break;
-				const cursor = String(data.prevCursor);
-				if (seen.has(cursor)) break;
-				seen.add(cursor);
-				before = cursor;
-			}
-			return pages.reverse().flat().sort((a, b) => a.seq - b.seq);
-		}
 		function indexOfId(list, id) {
 			return list.findIndex((item) => item.id === id);
 		}
@@ -2661,27 +2746,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (actual[index].role !== expected[index].role) return false;
 			}
 			return true;
-		}
-		function describeLoss(messages) {
-			let variants = 0;
-			let thinking = 0;
-			let suggestions = 0;
-			let sources = 0;
-			let attachments = 0;
-			for (const message of messages) {
-				if (message.meta?.variants?.length > 1) variants += 1;
-				if (message.meta?.thinking) thinking += 1;
-				if (message.meta?.imageSuggestions?.length) suggestions += 1;
-				if (message.meta?.webSources?.length) sources += 1;
-				if (message.attachments?.length) attachments += message.attachments.length;
-			}
-			const parts = [];
-			if (variants) parts.push(`分支变体（${variants} 条消息）`);
-			if (thinking) parts.push(`思考内容（${thinking} 条消息）`);
-			if (suggestions) parts.push(`图片建议（${suggestions} 条消息）`);
-			if (sources) parts.push(`网页来源（${sources} 条消息）`);
-			if (attachments) parts.push(`附件/生成图（${attachments} 个）`);
-			return parts;
 		}
 		function hasAdjacentSameRole(messages) {
 			let previous = "";
@@ -2696,48 +2760,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function planBaseSeq(fresh, firstDiff) {
 			if (firstDiff < fresh.length) return fresh[firstDiff].seq;
 			return fresh.length ? fresh[fresh.length - 1].seq + 1 : 0;
-		}
-		function toImportMessage(message, seq) {
-			return {
-				id: message.id,
-				seq,
-				role: message.role === "system" ? "system" : message.role === "user" ? "user" : "assistant",
-				...message.model ? { model: message.model } : {},
-				content: message.content,
-				createdAt: message.createdAt || Date.now(),
-				state: "complete"
-			};
-		}
-		function importConversation(meta) {
-			return {
-				id: state.cid,
-				scope: meta.scope === "character" ? "character" : "general",
-				characterId: meta.scope === "character" ? meta.characterId ?? null : null,
-				title: meta.title || "新对话",
-				model: meta.model || "gemma-4-uncensored",
-				createdAt: meta.createdAt || Date.now(),
-				updatedAt: Date.now()
-			};
-		}
-		async function importMessages(meta, messages) {
-			const conversation = importConversation(meta);
-			for (let offset = 0; offset < messages.length; offset += 400) {
-				const chunk = messages.slice(offset, offset + 400);
-				await request("/api/conversations/import", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ conversations: [{
-						...conversation,
-						updatedAt: Date.now(),
-						messages: chunk.map((message, index) => toImportMessage(message, message.seq ?? offset + index))
-					}] })
-				});
-			}
-		}
-		function errorMessage(error) {
-			if (error?.status === 401) return "未登录或登录已失效，无法同步到官方。";
-			if (error?.status === 404) return "这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。";
-			return error?.message || String(error);
 		}
 		function downloadBackup(meta, messages) {
 			const blob = new Blob([JSON.stringify({
@@ -2771,7 +2793,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			let deleted = false;
 			try {
 				fresh = await loadMessages(state.cid);
-				meta = await loadMeta(state.cid);
+				meta = await loadConversation(state.cid);
 				const target = resolveTarget(fresh);
 				const index = indexOfId(fresh, target.id);
 				if (index < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
@@ -2789,7 +2811,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (!confirmDelete(target, fresh, desired, newTail, index)) return { cancelled: true };
 				deleted = true;
 				await request(`/api/conversations/${encodeURIComponent(state.cid)}/messages/${encodeURIComponent(target.id)}`, { method: "DELETE" });
-				if (newTail.length) await importMessages(meta, newTail);
+				if (newTail.length) await importMessages(state.cid, meta, newTail);
 				const after = await loadMessages(state.cid);
 				if (!sameOrder(after, desired)) throw new Error("写入后校验失败：官方消息顺序与预期不一致，可能被其他窗口改动了。");
 				return {
@@ -2804,7 +2826,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 						...item,
 						seq: planBaseSeq(fresh, firstDiff) + offset
 					}));
-					if (originalTail.length) await importMessages(meta, originalTail);
+					if (originalTail.length) await importMessages(state.cid, meta, originalTail);
 					if (!sameOrder(await loadMessages(state.cid), fresh)) throw new Error("补回后校验失败");
 					return {
 						ok: false,
@@ -2909,6 +2931,174 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 		};
 	}
+	var COPY_ICON = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true">
+        <rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect>
+        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+    </svg>
+`;
+	function newId() {
+		return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+	}
+	function splitConversationId(cid) {
+		const parts = cid.split("__");
+		if (parts.length < 3 || parts[0] !== "conv" || !parts[1]) return null;
+		return { owner: parts[1] };
+	}
+	function cloneTitle(title) {
+		return `${title || "新对话"}${CLONE_TITLE_SUFFIX}`;
+	}
+	function createConversationClone() {
+		const state = {
+			busy: false,
+			observer: null,
+			timer: 0
+		};
+		let button = null;
+		function findHeader() {
+			for (const element of document.querySelectorAll(OFFICIAL_CHAT_HEADER_SELECTOR)) if (element.querySelector("button[aria-label=\"会话历史\"], button[title=\"会话历史\"]") && element.querySelector("button[aria-label=\"新建对话\"], button[title=\"新建对话\"]")) return element;
+			return null;
+		}
+		function setBusy(busy) {
+			state.busy = busy;
+			if (!button) return;
+			button.disabled = busy;
+			button.setAttribute("aria-busy", busy ? "true" : "false");
+		}
+		function ensureButton() {
+			if (button?.isConnected) {
+				setBusy(state.busy);
+				return;
+			}
+			const header = findHeader();
+			if (!header) return;
+			const existing = header.querySelector(CLONE_BUTTON_SELECTOR);
+			if (existing) {
+				button = existing;
+				setBusy(state.busy);
+				return;
+			}
+			const source = header.querySelector(OFFICIAL_NEW_CHAT_SELECTOR);
+			if (!source) return;
+			const next = source.cloneNode(false);
+			next.setAttribute("data-sichang-clone", "");
+			next.setAttribute("aria-label", CLONE_BUTTON_LABEL);
+			next.title = CLONE_BUTTON_LABEL;
+			next.innerHTML = COPY_ICON;
+			next.addEventListener("click", onCloneClick);
+			source.parentElement.insertBefore(next, source);
+			button = next;
+			setBusy(state.busy);
+		}
+		function scheduleEnsure() {
+			if (state.timer) return;
+			state.timer = window.setTimeout(() => {
+				state.timer = 0;
+				ensureButton();
+			}, 120);
+		}
+		function validateCid(cid) {
+			if (!cid || cid.startsWith("conv__anonymous__")) throw new Error("当前是未登录的本地对话，消息不在云端，暂不支持克隆。请登录后打开云端对话。");
+		}
+		function validateMessages(messages) {
+			if (!messages.length) throw new Error("当前对话还没有消息，无需克隆。");
+			if (messages.length > 500) throw new Error(`当前对话有 ${messages.length} 条消息，超过官方导入一次最多 500 条的限制，已取消。`);
+			const empty = messages.find((message) => String(message.content || "").length === 0);
+			if (empty) throw new Error(`第 #${empty.seq} 条消息没有文本内容，官方导入接口无法复制，请先删除它。`);
+			const tooLong = messages.find((message) => String(message.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
+			if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
+		}
+		function confirmClone(meta, messages) {
+			const loss = describeLoss(messages);
+			const lines = [`克隆「${meta.title || "新对话"}」的 ${messages.length} 条消息为一个新会话？`, "副本会保留消息顺序、角色、正文、模型和创建时间，并生成新的会话和消息 ID。"];
+			if (loss.length) lines.push(`副本会丢失：${loss.join("、")}。`);
+			lines.push("完成后会打开副本；原会话不变。继续？");
+			return window.confirm(lines.join("\n\n"));
+		}
+		function sameMessages(actual, expected) {
+			if (actual.length !== expected.length) return false;
+			for (let index = 0; index < actual.length; index += 1) {
+				if (actual[index].content !== expected[index].content) return false;
+				if (actual[index].role !== expected[index].role) return false;
+			}
+			return true;
+		}
+		async function applyClone() {
+			const sourceCid = readConversationId();
+			const ids = splitConversationId(sourceCid);
+			validateCid(sourceCid);
+			if (!ids) throw new Error("无法识别当前会话 ID，暂不支持克隆。");
+			if (ids.owner === "anonymous") throw new Error("当前是未登录的本地对话，消息不在云端，暂不支持克隆。请登录后打开云端对话。");
+			const [meta, messages] = await Promise.all([loadConversation(sourceCid), loadMessages(sourceCid)]);
+			validateMessages(messages);
+			if (!confirmClone(meta, messages)) return { cancelled: true };
+			const targetCid = `conv__${ids.owner}__${newId()}`;
+			const now = Date.now();
+			const targetMeta = {
+				...meta,
+				title: cloneTitle(meta.title),
+				createdAt: now,
+				updatedAt: now
+			};
+			const copied = messages.map((message, index) => ({
+				...message,
+				id: `msg__${ids.owner}__${newId()}`,
+				seq: index,
+				createdAt: message.createdAt || now
+			}));
+			let created = false;
+			try {
+				await createConversation(targetCid, targetMeta);
+				created = true;
+				await importMessages(targetCid, targetMeta, copied);
+				if (!sameMessages(await loadMessages(targetCid), copied)) throw new Error("写入后校验失败：副本消息与服务端不一致，可能受导入上限或并发影响。");
+				return {
+					ok: true,
+					cid: targetCid
+				};
+			} catch (error) {
+				if (created) try {
+					await deleteConversation(targetCid);
+				} catch {}
+				throw error;
+			}
+		}
+		async function onCloneClick(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (state.busy) return;
+			setBusy(true);
+			try {
+				const result = await applyClone();
+				if (!result?.ok) return;
+				window.location.assign(`/chat/${encodeURIComponent(result.cid)}`);
+			} catch (error) {
+				window.alert(`SichangTools：克隆失败：${errorMessage(error)}`);
+			} finally {
+				setBusy(false);
+			}
+		}
+		ensureButton();
+		state.observer = new MutationObserver(scheduleEnsure);
+		state.observer.observe(document.body, {
+			childList: true,
+			subtree: true
+		});
+		return {
+			api: {},
+			dispose: () => {
+				state.observer?.disconnect();
+				state.observer = null;
+				if (state.timer) window.clearTimeout(state.timer);
+				state.timer = 0;
+				button?.removeEventListener("click", onCloneClick);
+				button?.remove();
+				button = null;
+			}
+		};
+	}
 	function initSichangHandler() {
 		if (window.location.hostname !== "sichang.xyz") return;
 		const ui = createPanel();
@@ -2996,6 +3186,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		adopt(createSynthesis(host));
 		adopt(createPanelLayout(host));
 		adopt(createMessageDelete(host));
+		adopt(createConversationClone());
 		function syncPlaybackRateButton() {
 			ui.rateCycle.textContent = `${host.playbackRate}×`;
 			ui.rateCycle.title = `播放倍速 ${host.playbackRate}×（仅已下载音频）`;

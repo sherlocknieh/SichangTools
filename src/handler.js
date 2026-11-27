@@ -13,6 +13,7 @@ import { createTimeline } from './sichang/timeline.js';
 import { createSynthesis } from './sichang/synthesis.js';
 import { createRegenerator } from './sichang/regenerate.js';
 import { createMessageDelete } from './sichang/delete-message.js';
+import { createConversationClone } from './sichang/clone-conversation.js';
 
 export default function initSichangHandler() {
     if (window.location.hostname !== 'sichang.xyz') return;
@@ -115,6 +116,8 @@ export default function initSichangHandler() {
     adopt(createPanelLayout(host));
     // 官方删除按钮接管：只走官方 /api/conversations 接口，和朗读/播放互不依赖
     adopt(createMessageDelete(host));
+    // 顶栏「克隆会话」按钮：读官方会话再建副本，同样独立于朗读/播放
+    adopt(createConversationClone());
 
     function syncPlaybackRateButton() {
         ui.rateCycle.textContent = `${host.playbackRate}×`;

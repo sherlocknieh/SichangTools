@@ -12,6 +12,15 @@ export const OFFICIAL_MESSAGE_DELETE_SELECTOR = [
 ].join(', ');
 export const CONVERSATION_IMPORT_BATCH = 400;
 export const CONVERSATION_IMPORT_MAX_CHARS = 20000;
+// 官方 import 迁移一次最多接收 500 条消息，超出部分会被服务端跳过；克隆后按实际条数校验
+export const CONVERSATION_IMPORT_MAX_MESSAGES = 500;
+// 官方聊天页顶栏：克隆按钮插在「新建对话」左侧。选择器集中在这里，站点改版时只改这一处。
+export const OFFICIAL_CHAT_HEADER_SELECTOR = 'div.h-14';
+export const OFFICIAL_HEADER_HISTORY_SELECTOR = 'button[aria-label="会话历史"], button[title="会话历史"]';
+export const OFFICIAL_NEW_CHAT_SELECTOR = 'button[aria-label="新建对话"], button[title="新建对话"]';
+export const CLONE_BUTTON_SELECTOR = 'button[data-sichang-clone]';
+export const CLONE_BUTTON_LABEL = '克隆会话';
+export const CLONE_TITLE_SUFFIX = '（副本）';
 export const PANEL_ID = 'sichang-tts-capture';
 export const DEFAULT_SAMPLE_RATE = 24000;
 export const MAX_RECORDS = 20;

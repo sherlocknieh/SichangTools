@@ -2,14 +2,20 @@
 // 实现仍是先 DELETE 截断，再用 /api/conversations/import 补回后面的消息；
 // 成功后把剩余消息写回官方前端的 React 状态，由官方自己立即重绘，避免整页刷新。
 import {
-    CONVERSATION_IMPORT_BATCH,
     CONVERSATION_IMPORT_MAX_CHARS,
-    CONVERSATION_MESSAGE_PAGE_SIZE,
     OFFICIAL_MESSAGE_DELETE_SELECTOR,
 } from './constants.js';
+import {
+    describeLoss,
+    errorMessage,
+    importMessages,
+    loadConversation,
+    loadMessages,
+    readConversationId,
+    request,
+} from './conversation-api.js';
 import { previewText } from './text.js';
 
-const CHAT_PATH_RE = /^\/chat\/(conv__[^/?#]+)/;
 const ROLE_LABELS = { user: '你', assistant: 'AI', system: '系统' };
 
 export function createMessageDelete(host) {
@@ -17,65 +23,6 @@ export function createMessageDelete(host) {
         busy: false,
         cid: '',
     };
-
-    // ---------- 官方接口 ----------
-
-    function readConversationId() {
-        const match = CHAT_PATH_RE.exec(window.location.pathname);
-        return match ? decodeURIComponent(match[1]) : '';
-    }
-
-    async function request(url, options = {}) {
-        const response = await fetch(url, {
-            credentials: 'same-origin',
-            cache: 'no-store',
-            ...options,
-        });
-        if (!response.ok) {
-            let detail = '';
-            try {
-                detail = (await response.text()).slice(0, 160);
-            } catch {}
-            const error = new Error(`${url} ${response.status}${detail ? `: ${detail}` : ''}`);
-            error.status = response.status;
-            throw error;
-        }
-        return response;
-    }
-
-    async function requestJson(url, options = {}) {
-        const response = await request(url, options);
-        return response.json();
-    }
-
-    function loadMeta(cid) {
-        return requestJson(`/api/conversations/${encodeURIComponent(cid)}`);
-    }
-
-    // 官方接口默认按 before 向前翻页；不传 before 会从最早一页开始，
-    // 所以这里固定先取最近一页，再用 prevCursor 一页页补更早的消息。
-    async function loadMessages(cid) {
-        let before = '';
-        const pages = [];
-        const seen = new Set();
-        for (let page = 0; page < 40; page += 1) {
-            const params = new URLSearchParams({
-                limit: String(CONVERSATION_MESSAGE_PAGE_SIZE),
-                before,
-            });
-            const data = await requestJson(
-                `/api/conversations/${encodeURIComponent(cid)}/messages?${params.toString()}`,
-            );
-            const items = Array.isArray(data.items) ? data.items : [];
-            pages.push(items);
-            if (!data.prevCursor || items.length === 0) break;
-            const cursor = String(data.prevCursor);
-            if (seen.has(cursor)) break;
-            seen.add(cursor);
-            before = cursor;
-        }
-        return pages.reverse().flat().sort((a, b) => a.seq - b.seq);
-    }
 
     // ---------- 写入与恢复 ----------
 
@@ -93,28 +40,6 @@ export function createMessageDelete(host) {
         return true;
     }
 
-    function describeLoss(messages) {
-        let variants = 0;
-        let thinking = 0;
-        let suggestions = 0;
-        let sources = 0;
-        let attachments = 0;
-        for (const message of messages) {
-            if (message.meta?.variants?.length > 1) variants += 1;
-            if (message.meta?.thinking) thinking += 1;
-            if (message.meta?.imageSuggestions?.length) suggestions += 1;
-            if (message.meta?.webSources?.length) sources += 1;
-            if (message.attachments?.length) attachments += message.attachments.length;
-        }
-        const parts = [];
-        if (variants) parts.push(`分支变体（${variants} 条消息）`);
-        if (thinking) parts.push(`思考内容（${thinking} 条消息）`);
-        if (suggestions) parts.push(`图片建议（${suggestions} 条消息）`);
-        if (sources) parts.push(`网页来源（${sources} 条消息）`);
-        if (attachments) parts.push(`附件/生成图（${attachments} 个）`);
-        return parts;
-    }
-
     function hasAdjacentSameRole(messages) {
         let previous = '';
         for (const message of messages) {
@@ -129,54 +54,6 @@ export function createMessageDelete(host) {
     function planBaseSeq(fresh, firstDiff) {
         if (firstDiff < fresh.length) return fresh[firstDiff].seq;
         return fresh.length ? fresh[fresh.length - 1].seq + 1 : 0;
-    }
-
-    function toImportMessage(message, seq) {
-        return {
-            id: message.id,
-            seq,
-            role: message.role === 'system' ? 'system' : message.role === 'user' ? 'user' : 'assistant',
-            ...(message.model ? { model: message.model } : {}),
-            content: message.content,
-            createdAt: message.createdAt || Date.now(),
-            state: 'complete',
-        };
-    }
-
-    function importConversation(meta) {
-        return {
-            id: state.cid,
-            scope: meta.scope === 'character' ? 'character' : 'general',
-            characterId: meta.scope === 'character' ? meta.characterId ?? null : null,
-            title: meta.title || '新对话',
-            model: meta.model || 'gemma-4-uncensored',
-            createdAt: meta.createdAt || Date.now(),
-            updatedAt: Date.now(),
-        };
-    }
-
-    async function importMessages(meta, messages) {
-        const conversation = importConversation(meta);
-        for (let offset = 0; offset < messages.length; offset += CONVERSATION_IMPORT_BATCH) {
-            const chunk = messages.slice(offset, offset + CONVERSATION_IMPORT_BATCH);
-            await request('/api/conversations/import', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    conversations: [{
-                        ...conversation,
-                        updatedAt: Date.now(),
-                        messages: chunk.map((message, index) => toImportMessage(message, message.seq ?? offset + index)),
-                    }],
-                }),
-            });
-        }
-    }
-
-    function errorMessage(error) {
-        if (error?.status === 401) return '未登录或登录已失效，无法同步到官方。';
-        if (error?.status === 404) return '这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。';
-        return error?.message || String(error);
     }
 
     function downloadBackup(meta, messages) {
@@ -222,7 +99,7 @@ export function createMessageDelete(host) {
         let deleted = false;
         try {
             fresh = await loadMessages(state.cid);
-            meta = await loadMeta(state.cid);
+            meta = await loadConversation(state.cid);
             const target = resolveTarget(fresh);
             const index = indexOfId(fresh, target.id);
             if (index < 0) throw new Error('选中的消息已不存在，请刷新后重试。');
@@ -250,7 +127,7 @@ export function createMessageDelete(host) {
                 `/api/conversations/${encodeURIComponent(state.cid)}/messages/${encodeURIComponent(target.id)}`,
                 { method: 'DELETE' },
             );
-            if (newTail.length) await importMessages(meta, newTail);
+            if (newTail.length) await importMessages(state.cid, meta, newTail);
 
             const after = await loadMessages(state.cid);
             if (!sameOrder(after, desired)) {
@@ -265,7 +142,7 @@ export function createMessageDelete(host) {
                         ...item,
                         seq: planBaseSeq(fresh, firstDiff) + offset,
                     }));
-                    if (originalTail.length) await importMessages(meta, originalTail);
+                    if (originalTail.length) await importMessages(state.cid, meta, originalTail);
                     const restored = await loadMessages(state.cid);
                     if (!sameOrder(restored, fresh)) throw new Error('补回后校验失败');
                     return { ok: false, message: `删除失败：${message}。已尝试补回原消息，请确认页面内容。` };

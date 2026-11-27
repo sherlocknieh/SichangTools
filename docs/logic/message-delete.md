@@ -1,6 +1,6 @@
 # 单条消息删除：实现、接口与即时同步
 
-对应代码：`src/sichang/delete-message.js`。这份文档记录官方接口契约、删除/恢复流程，以及为什么能在不刷新页面的情况下立即更新官方聊天视图。站点改版时先核对这里的接口和 React context 结构。
+对应代码：`src/sichang/delete-message.js`（官方接口封装在 `src/sichang/conversation-api.js`）。这份文档记录官方接口契约、删除/恢复流程，以及为什么能在不刷新页面的情况下立即更新官方聊天视图。站点改版时先核对这里的接口和 React context 结构。
 
 ## 结论
 
