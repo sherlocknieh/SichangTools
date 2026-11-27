@@ -165,6 +165,8 @@ export function createSynthesis(host) {
         host.stopOtherChains(null);
         const tasks = splitText(text).map(segmentText => ({ text: segmentText }));
         if (!tasks.length) return null;
+        // 面板默认收起，合成一开始就展开，分段进度和播放控件都能直接看到
+        host.expandPanel?.();
 
         const record = host.beginRecord(text, { voice, rate, format });
         // 开始新的合成后，输入框不再承担某一段的编辑目标

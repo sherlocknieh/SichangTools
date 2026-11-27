@@ -6,18 +6,26 @@ import { findComposer } from './official-page.js';
 export function createPanelLayout(host) {
     const { ui } = host;
 
-    function applyFold(folded) {
+    function applyFold(folded, persist = true) {
         ui.panel.classList.toggle('folded', folded);
         ui.fold.textContent = folded ? '+' : '−';
         ui.fold.setAttribute('aria-label', folded ? '展开' : '收起');
+        if (!persist) return;
         try {
             localStorage.setItem(FOLD_STORE_KEY, folded ? '1' : '0');
         } catch {}
     }
+    // 合成开始自动展开面板，方便看到分段进度；这只是临时展开，不改用户记住的折叠状态
+    function expandPanel() {
+        applyFold(false, false);
+    }
     ui.fold.addEventListener('click', () => applyFold(!ui.panel.classList.contains('folded')));
+    // 默认收起；只有用户手动展开过（存了 0）才保持展开
+    let savedFold = null;
     try {
-        if (localStorage.getItem(FOLD_STORE_KEY) === '1') applyFold(true);
+        savedFold = localStorage.getItem(FOLD_STORE_KEY);
     } catch {}
+    if (savedFold !== '0') applyFold(true);
 
     // 单击标题栏收起/展开；按钮和下拉不参与，避免误触
     ui.head.addEventListener('click', event => {
@@ -56,7 +64,7 @@ export function createPanelLayout(host) {
     placePanel();
 
     return {
-        api: { applyFold, placePanel },
+        api: { applyFold, expandPanel, placePanel },
         dispose: () => {
             observer.disconnect();
             if (timer) window.clearTimeout(timer);

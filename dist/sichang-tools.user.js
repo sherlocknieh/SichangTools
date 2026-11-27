@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2234
+// @version      2026.11.27.2236
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -485,18 +485,24 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 	}
 	function createPanelLayout(host) {
 		const { ui } = host;
-		function applyFold(folded) {
+		function applyFold(folded, persist = true) {
 			ui.panel.classList.toggle("folded", folded);
 			ui.fold.textContent = folded ? "+" : "−";
 			ui.fold.setAttribute("aria-label", folded ? "展开" : "收起");
+			if (!persist) return;
 			try {
 				localStorage.setItem(FOLD_STORE_KEY, folded ? "1" : "0");
 			} catch {}
 		}
+		function expandPanel() {
+			applyFold(false, false);
+		}
 		ui.fold.addEventListener("click", () => applyFold(!ui.panel.classList.contains("folded")));
+		let savedFold = null;
 		try {
-			if (localStorage.getItem("sichang-tts-folded") === "1") applyFold(true);
+			savedFold = localStorage.getItem(FOLD_STORE_KEY);
 		} catch {}
+		if (savedFold !== "0") applyFold(true);
 		ui.head.addEventListener("click", (event) => {
 			if (event.target.closest("button, select")) return;
 			applyFold(!ui.panel.classList.contains("folded"));
@@ -529,6 +535,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		return {
 			api: {
 				applyFold,
+				expandPanel,
 				placePanel
 			},
 			dispose: () => {
@@ -2077,6 +2084,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			host.stopOtherChains(null);
 			const tasks = splitText(text).map((segmentText) => ({ text: segmentText }));
 			if (!tasks.length) return null;
+			host.expandPanel?.();
 			const record = host.beginRecord(text, {
 				voice,
 				rate,
