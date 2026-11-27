@@ -9,7 +9,6 @@ import { VOICE_LABELS, voiceName } from './voices.js';
 export const SEGMENT_ICONS = {
     play: ICONS.play,
     pause: ICONS.pause,
-    stop: ICONS.stop,
     replay: ICONS.regen,
     synthStop: ICONS.close,
     waiting: ICONS.waiting,
@@ -189,7 +188,7 @@ export function createSegments(host) {
         return 'local';
     }
 
-    // 行内常驻按钮：播放/暂停和停止。按当前播放通道直接刷新，不依赖面板展开
+    // 行内常驻按钮：只保留播放/暂停。按当前播放通道直接刷新，不依赖面板展开
     function syncSegmentButtons(record, segment) {
         const live = playbackModeFor(record, segment) === 'live';
         const capturing = live && record.state === 'capturing';
@@ -205,24 +204,17 @@ export function createSegments(host) {
             setAction(segment.toggleButton, paused ? SEGMENT_ICONS.play : SEGMENT_ICONS.pause,
                 paused ? '继续播放' : '暂停播放');
             segment.toggleButton.classList.toggle('playing', !capturing && !paused);
-            // 生成中的分段不保留「停止合成」入口：要跳过这一段直接删它
-            segment.stopButton.hidden = capturing;
-            setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
         } else if (waiting) {
             segment.toggleButton.hidden = false;
             segment.toggleButton.disabled = true;
             setAction(segment.toggleButton, SEGMENT_ICONS.waiting, '等待下一段');
             segment.toggleButton.classList.remove('playing');
-            segment.stopButton.hidden = false;
-            setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
         } else {
             segment.toggleButton.hidden = false;
             segment.toggleButton.disabled = !enabled;
             setAction(segment.toggleButton, playing ? SEGMENT_ICONS.pause : SEGMENT_ICONS.play,
                 playing ? '暂停播放' : audio ? '继续播放' : '播放本段');
             segment.toggleButton.classList.toggle('playing', playing);
-            segment.stopButton.hidden = !audio;
-            setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
         }
         // 正在播放的这一段用进度条替代预览文字；停下后恢复总时长
         const showProgress = live || record.chain?.segment === segment;

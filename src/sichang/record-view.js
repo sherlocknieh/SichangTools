@@ -100,27 +100,21 @@ export function createRecordView(host) {
         const fill = document.createElement('div');
         fill.className = 'fill';
         bar.appendChild(fill);
-        // 播放/暂停与停止按钮常驻行内，不用展开面板就能控制当前播放
+        // 播放/暂停按钮常驻行内，不用展开面板就能控制当前播放
         const toggleButton = document.createElement('button');
         toggleButton.className = 'segAction';
         toggleButton.innerHTML = SEGMENT_ICONS.play;
         toggleButton.title = '播放本段';
         toggleButton.setAttribute('aria-label', '播放本段');
         toggleButton.disabled = true;
-        const stopButton = document.createElement('button');
-        stopButton.className = 'segAction';
-        stopButton.innerHTML = SEGMENT_ICONS.stop;
-        stopButton.title = '停止播放';
-        stopButton.setAttribute('aria-label', '停止播放');
-        stopButton.hidden = true;
 
-        row.append(idx, voiceEl, label, bar, segDuration, toggleButton, stopButton, regenButton, deleteButton);
+        row.append(idx, voiceEl, label, bar, segDuration, toggleButton, regenButton, deleteButton);
         box.append(row);
         if (after) record.segList.insertBefore(box, after.box.nextSibling);
         else record.segList.appendChild(box);
         Object.assign(segment, {
             box, row, idx, voiceEl, label, durationEl: segDuration, bar, fill,
-            toggleButton, stopButton, regenButton, deleteButton,
+            toggleButton, regenButton, deleteButton,
         });
         host.setSegmentVoice(segment, record.tts.voice);
         host.setSegmentLabel(segment, text);
@@ -150,23 +144,6 @@ export function createRecordView(host) {
                 return;
             }
             host.playChainSegment(record, segment);
-        });
-        stopButton.addEventListener('click', () => {
-            if (host.playbackModeFor(record, segment) === 'live') {
-                if (record.state === 'capturing') record.session?.stop();
-                else host.stopTimeline(record);
-                return;
-            }
-            if (record.chain) {
-                host.stopChain(record);
-                return;
-            }
-            if (segment.audio) {
-                segment.audio.pause();
-                segment.audio.currentTime = 0;
-            }
-            host.idleSegmentTime(record, segment);
-            host.syncSegmentPlayState(segment);
         });
         // 分段进度条自己跳转；还没播过时按需建 audio，停在目标位置
         bar.addEventListener('click', event => {

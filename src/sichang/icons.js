@@ -6,7 +6,6 @@ const solid = body => `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="fa
 export const ICONS = {
     play: solid('<path d="M8.2 5.4v13.2L19 12z"/>'),
     pause: solid('<rect x="7.4" y="5.4" width="3.4" height="13.2" rx="1.7"/><rect x="13.2" y="5.4" width="3.4" height="13.2" rx="1.7"/>'),
-    stop: solid('<rect x="7.2" y="7.2" width="9.6" height="9.6" rx="2.2"/>'),
     regen: shape('<path d="M20 12a8 8 0 1 1-8-8c2.2 0 4.3.9 5.9 2.4L20 8.5"/><path d="M20 3.5v5h-5"/>'),
     download: shape('<path d="M12 4.5v10"/><path d="m7.8 10.6 4.2 4.2 4.2-4.2"/><path d="M5.5 19h13"/>'),
     close: shape('<path d="m7 7 10 10M17 7 7 17"/>'),
