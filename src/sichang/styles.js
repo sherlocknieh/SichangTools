@@ -53,8 +53,8 @@ button:not(:disabled):active { filter: brightness(1.16); }
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 24px;
-    padding: 0 8px;
+    height: 26px;
+    padding: 0 9px;
     border-radius: var(--btn-radius);
     color: var(--icon-ink);
     font-size: 11px;
@@ -79,7 +79,11 @@ button:not(:disabled):active { filter: brightness(1.16); }
 }
 .head .playToggle.playing { background: #2c4734; color: #c8f6d2; }
 .head .playToggle:hover { background: #35543e; color: #fff; }
-.head .clear { color: #9797a2; }
+.head .clear {
+    padding: 0 10px;
+    color: #a9a9b3;
+    font-weight: 500;
+}
 .head .clear:hover { background: var(--btn-bg-hover); color: #fff; }
 .head .clear.confirm {
     background: var(--danger-soft);
@@ -90,7 +94,7 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .head .voice {
     flex: 0 1 132px;
     min-width: 64px;
-    height: 24px;
+    height: 26px;
     padding: 0 20px 0 8px;
     border: 1px solid #30303a;
     border-radius: var(--btn-radius);
