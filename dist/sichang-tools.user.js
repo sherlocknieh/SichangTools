@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2153
+// @version      2026.11.27.2200
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -2973,10 +2973,26 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .sichang-delete-menu button:hover { background: var(--muted, rgba(127, 127, 127, .15)); }
 .sichang-delete-menu button[data-sichang-delete-mode="one"] { color: #c0392b; }
 @keyframes sichang-delete-spin { to { transform: rotate(360deg); } }
-@keyframes sichang-delete-pulse { 50% { opacity: .35; } }
-button[${BUSY_ATTR}] { pointer-events: none; opacity: .7; }
-button[${BUSY_ATTR}] svg { animation: sichang-delete-spin .8s linear infinite; }
-button[${BUSY_ATTR}]:not(:has(svg)) { animation: sichang-delete-pulse .9s ease-in-out infinite; }
+/* 操作中换成一个旋转箭头图标：用伪元素避免改动官方 React 管理的按钮子节点。 */
+button[${BUSY_ATTR}] {
+    --sichang-delete-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E");
+    position: relative;
+    pointer-events: none;
+}
+button[${BUSY_ATTR}] > * { visibility: hidden; }
+button[${BUSY_ATTR}]::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    background: currentColor;
+    -webkit-mask: var(--sichang-delete-arrow) center / contain no-repeat;
+    mask: var(--sichang-delete-arrow) center / contain no-repeat;
+    animation: sichang-delete-spin .8s linear infinite;
+}
 `;
 	function createMessageDelete(host) {
 		const state = {
