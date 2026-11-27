@@ -1,5 +1,6 @@
-// 接管官方「删除消息」：官方只提供“从这条起全部删除”，这里改成只删这一条。
-// 实现仍是先 DELETE 截断，再用 /api/conversations/import 补回后面的消息；
+// 接管官方「删除消息」：点按钮先弹选项，再决定删单条还是删后续。
+// 单条删除仍是先 DELETE 截断，再用 /api/conversations/import 补回后面的消息；
+// 删后续直接走官方 DELETE 截断语义，不补回尾部。
 // 成功后把剩余消息写回官方前端的 React 状态，由官方自己立即重绘，避免整页刷新。
 import {
     CONVERSATION_IMPORT_MAX_CHARS,
@@ -16,11 +17,108 @@ import {
 import { messageText } from './conversation-copy.js';
 import { officialContext } from './official-page.js';
 
+const MENU_SELECTOR = '[data-sichang-delete-menu]';
+const MODE_SELECTOR = '[data-sichang-delete-mode]';
+const MENU_STYLE_ID = 'sichang-delete-menu-style';
+const BUSY_ATTR = 'data-sichang-deleting';
+const MENU_CSS = `
+.sichang-delete-menu {
+    position: fixed;
+    z-index: 2147483647;
+    min-width: 150px;
+    padding: 4px;
+    border: 1px solid var(--border, rgba(127, 127, 127, .28));
+    border-radius: 12px;
+    background: var(--card, #fff);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
+    color: var(--foreground, #111);
+    font: inherit;
+}
+.sichang-delete-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font-size: 13px;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.sichang-delete-menu button:hover { background: var(--muted, rgba(127, 127, 127, .15)); }
+.sichang-delete-menu button[data-sichang-delete-mode="one"] { color: #c0392b; }
+@keyframes sichang-delete-spin { to { transform: rotate(360deg); } }
+@keyframes sichang-delete-pulse { 50% { opacity: .35; } }
+button[${BUSY_ATTR}] { pointer-events: none; opacity: .7; }
+button[${BUSY_ATTR}] svg { animation: sichang-delete-spin .8s linear infinite; }
+button[${BUSY_ATTR}]:not(:has(svg)) { animation: sichang-delete-pulse .9s ease-in-out infinite; }
+`;
+
 export function createMessageDelete(host) {
     const state = {
         busy: false,
         cid: '',
+        menu: null,
+        anchor: null,
     };
+
+    // ---------- 菜单与操作中动画 ----------
+
+    function ensureMenuStyle() {
+        if (document.getElementById(MENU_STYLE_ID)) return;
+        const style = document.createElement('style');
+        style.id = MENU_STYLE_ID;
+        style.textContent = MENU_CSS;
+        document.head.appendChild(style);
+    }
+
+    function closeMenu() {
+        state.menu?.remove();
+        state.menu = null;
+        state.anchor = null;
+    }
+
+    function positionMenu() {
+        if (!state.menu || !state.anchor?.isConnected) return;
+        const rect = state.anchor.getBoundingClientRect();
+        const menuHeight = state.menu.offsetHeight;
+        // 默认向上弹；顶部空间不足时改到按钮下方，避免菜单被视口裁掉。
+        if (rect.top < menuHeight + 12) {
+            state.menu.style.top = `${rect.bottom + 8}px`;
+            state.menu.style.bottom = '';
+        } else {
+            state.menu.style.top = '';
+            state.menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+        }
+        state.menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+    }
+
+    function openMenu(anchor) {
+        ensureMenuStyle();
+        closeMenu();
+        const menu = document.createElement('div');
+        menu.setAttribute('data-sichang-delete-menu', '');
+        menu.className = 'sichang-delete-menu';
+        menu.setAttribute('role', 'menu');
+        menu.innerHTML = `
+            <button type="button" role="menuitem" data-sichang-delete-mode="one">删除本条</button>
+            <button type="button" role="menuitem" data-sichang-delete-mode="after">删除后续（走官方）</button>
+        `;
+        document.body.appendChild(menu);
+        state.menu = menu;
+        state.anchor = anchor;
+        positionMenu();
+    }
+
+    // 操作中给被点的官方按钮加旋转/呼吸动画；不直接删 DOM，避免和 React 状态脱节。
+    function setButtonBusy(button, busy) {
+        if (!button) return;
+        if (busy) button.setAttribute(BUSY_ATTR, '');
+        else button.removeAttribute(BUSY_ATTR);
+        button.setAttribute('aria-busy', busy ? 'true' : 'false');
+    }
 
     // ---------- 写入与恢复 ----------
 
@@ -130,6 +228,32 @@ export function createMessageDelete(host) {
         }
     }
 
+    async function applyDeleteAfter(resolveTarget) {
+        if (state.busy || !state.cid) return null;
+        state.busy = true;
+        try {
+            const fresh = await loadMessages(state.cid);
+            const target = resolveTarget(fresh);
+            const index = indexOfId(fresh, target.id);
+            if (index < 0) throw new Error('选中的消息已不存在，请刷新后重试。');
+
+            // 官方 DELETE 的语义就是“从目标起全部删除”，这里不补回尾部。
+            await request(
+                `/api/conversations/${encodeURIComponent(state.cid)}/messages/${encodeURIComponent(target.id)}`,
+                { method: 'DELETE' },
+            );
+            const after = await loadMessages(state.cid);
+            if (!sameOrder(after, fresh.slice(0, index))) {
+                throw new Error('删除后续失败：官方消息列表与预期不一致，可能被其他窗口改动了。');
+            }
+            return { ok: true, messages: after, targetId: target.id };
+        } catch (error) {
+            return { ok: false, message: `删除后续失败：${errorMessage(error)}` };
+        } finally {
+            state.busy = false;
+        }
+    }
+
     // ---------- 让官方页面立即同步 ----------
 
     function syncOfficialPage(context, conversation, messages, targetId) {
@@ -156,44 +280,87 @@ export function createMessageDelete(host) {
         return Array.from(document.querySelectorAll(OFFICIAL_MESSAGE_DELETE_SELECTOR));
     }
 
-    async function interceptOfficialDelete(button, buttonsAtClick, indexAtClick, context, conversation) {
-        const result = await applyDelete(fresh => {
-            if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) {
-                throw new Error('官方消息列表已变化，已取消删除，请刷新后重试。');
-            }
-            const buttonsNow = officialDeleteButtons();
-            const sameButtons = buttonsNow.length === buttonsAtClick.length
-                && buttonsNow.every((item, index) => item === buttonsAtClick[index]);
-            if (!sameButtons || buttonsNow[indexAtClick] !== button) {
-                throw new Error('官方消息列表已变化，已取消删除，请刷新后重试。');
-            }
-            if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) {
-                throw new Error('无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。');
-            }
-            return fresh[indexAtClick];
-        });
+    // 按钮和消息按文档顺序一一对应；数量或节点变化时不猜 ID。
+    function resolveTarget(button, fresh, buttonsAtClick, indexAtClick) {
+        if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) {
+            throw new Error('官方消息列表已变化，已取消删除，请刷新后重试。');
+        }
+        const buttonsNow = officialDeleteButtons();
+        const sameButtons = buttonsNow.length === buttonsAtClick.length
+            && buttonsNow.every((item, index) => item === buttonsAtClick[index]);
+        if (!sameButtons || buttonsNow[indexAtClick] !== button) {
+            throw new Error('官方消息列表已变化，已取消删除，请刷新后重试。');
+        }
+        if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) {
+            throw new Error('无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。');
+        }
+        return fresh[indexAtClick];
+    }
 
-        if (!result) return;
-        if (!result.ok) {
-            console.warn(`[SichangTools] ${result.message}`);
+    async function runMode(mode) {
+        const anchor = state.anchor;
+        closeMenu();
+        if (!anchor || state.busy) return;
+
+        const cid = readConversationId();
+        // 匿名/本地对话没有云端消息接口；菜单是脚本加的，这里直接放弃。
+        if (!cid || cid.startsWith('conv__anonymous__')) return;
+        state.cid = cid;
+
+        const buttonsAtClick = officialDeleteButtons();
+        const indexAtClick = buttonsAtClick.indexOf(anchor);
+        if (indexAtClick < 0) {
+            console.warn('[SichangTools] 官方消息列表已变化，已取消删除，请刷新后重试。');
             return;
         }
-        if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
-        // 官方内部状态结构变化时退回整页刷新，保证服务端和页面至少一致。
-        window.location.reload();
+        const context = officialContext(anchor);
+        const conversation = context?.activeConversation ?? null;
+
+        const resolve = fresh => resolveTarget(anchor, fresh, buttonsAtClick, indexAtClick);
+        setButtonBusy(anchor, true);
+        try {
+            const result = mode === 'after'
+                ? await applyDeleteAfter(resolve)
+                : await applyDelete(resolve);
+            if (!result) return;
+            if (!result.ok) {
+                console.warn(`[SichangTools] ${result.message}`);
+                return;
+            }
+            if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
+            // 官方内部状态结构变化时退回整页刷新，保证服务端和页面至少一致。
+            window.location.reload();
+        } finally {
+            setButtonBusy(anchor, false);
+        }
     }
 
     function onOfficialDeleteClick(event) {
         const target = event.target;
         if (!(target instanceof Element)) return;
+
+        // 菜单项：按用户选的模式执行。
+        const option = target.closest(MODE_SELECTOR);
+        if (option) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            runMode(option.getAttribute('data-sichang-delete-mode') === 'after' ? 'after' : 'one');
+            return;
+        }
+
         const button = target.closest(OFFICIAL_MESSAGE_DELETE_SELECTOR);
-        if (!button) return;
+        if (!button) {
+            // 点菜单外关闭，不拦截页面自己的点击。
+            if (state.menu && !target.closest(MENU_SELECTOR)) closeMenu();
+            return;
+        }
 
         const cid = readConversationId();
         // 匿名/本地对话没有云端消息接口；不拦官方本地删除。
         if (!cid || cid.startsWith('conv__anonymous__')) return;
 
-        // 必须在官方 React handler 之前同步截获，失败时也绝不回退官方“全删到末尾”。
+        // 必须在官方 React handler 之前同步截获，改成弹脚本菜单，失败时也绝不回退官方“全删到末尾”。
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -203,20 +370,31 @@ export function createMessageDelete(host) {
             return;
         }
 
-        const buttonsAtClick = officialDeleteButtons();
-        const indexAtClick = buttonsAtClick.indexOf(button);
-        const context = officialContext(button);
-        const conversation = context?.activeConversation ?? null;
-        state.cid = cid;
-        interceptOfficialDelete(button, buttonsAtClick, indexAtClick, context, conversation);
+        if (state.menu && state.anchor === button) closeMenu();
+        else openMenu(button);
+    }
+
+    function onMenuKeyDown(event) {
+        if (event.key === 'Escape' && state.menu) closeMenu();
     }
 
     window.addEventListener('click', onOfficialDeleteClick, { capture: true });
+    window.addEventListener('keydown', onMenuKeyDown, true);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('resize', closeMenu);
 
     return {
         api: {},
         dispose: () => {
             window.removeEventListener('click', onOfficialDeleteClick, { capture: true });
+            window.removeEventListener('keydown', onMenuKeyDown, true);
+            window.removeEventListener('scroll', closeMenu, true);
+            window.removeEventListener('resize', closeMenu);
+            closeMenu();
+            document.getElementById(MENU_STYLE_ID)?.remove();
+            for (const button of document.querySelectorAll(`[${BUSY_ATTR}]`)) {
+                setButtonBusy(button, false);
+            }
         },
     };
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2143
+// @version      2026.11.27.2153
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -2940,11 +2940,98 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		else element.value = value;
 		element.dispatchEvent(new Event("input", { bubbles: true }));
 	}
+	var MENU_SELECTOR$1 = "[data-sichang-delete-menu]";
+	var MODE_SELECTOR = "[data-sichang-delete-mode]";
+	var MENU_STYLE_ID$1 = "sichang-delete-menu-style";
+	var BUSY_ATTR = "data-sichang-deleting";
+	var MENU_CSS$1 = `
+.sichang-delete-menu {
+    position: fixed;
+    z-index: 2147483647;
+    min-width: 150px;
+    padding: 4px;
+    border: 1px solid var(--border, rgba(127, 127, 127, .28));
+    border-radius: 12px;
+    background: var(--card, #fff);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
+    color: var(--foreground, #111);
+    font: inherit;
+}
+.sichang-delete-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font-size: 13px;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.sichang-delete-menu button:hover { background: var(--muted, rgba(127, 127, 127, .15)); }
+.sichang-delete-menu button[data-sichang-delete-mode="one"] { color: #c0392b; }
+@keyframes sichang-delete-spin { to { transform: rotate(360deg); } }
+@keyframes sichang-delete-pulse { 50% { opacity: .35; } }
+button[${BUSY_ATTR}] { pointer-events: none; opacity: .7; }
+button[${BUSY_ATTR}] svg { animation: sichang-delete-spin .8s linear infinite; }
+button[${BUSY_ATTR}]:not(:has(svg)) { animation: sichang-delete-pulse .9s ease-in-out infinite; }
+`;
 	function createMessageDelete(host) {
 		const state = {
 			busy: false,
-			cid: ""
+			cid: "",
+			menu: null,
+			anchor: null
 		};
+		function ensureMenuStyle() {
+			if (document.getElementById(MENU_STYLE_ID$1)) return;
+			const style = document.createElement("style");
+			style.id = MENU_STYLE_ID$1;
+			style.textContent = MENU_CSS$1;
+			document.head.appendChild(style);
+		}
+		function closeMenu() {
+			state.menu?.remove();
+			state.menu = null;
+			state.anchor = null;
+		}
+		function positionMenu() {
+			if (!state.menu || !state.anchor?.isConnected) return;
+			const rect = state.anchor.getBoundingClientRect();
+			const menuHeight = state.menu.offsetHeight;
+			if (rect.top < menuHeight + 12) {
+				state.menu.style.top = `${rect.bottom + 8}px`;
+				state.menu.style.bottom = "";
+			} else {
+				state.menu.style.top = "";
+				state.menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+			}
+			state.menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+		}
+		function openMenu(anchor) {
+			ensureMenuStyle();
+			closeMenu();
+			const menu = document.createElement("div");
+			menu.setAttribute("data-sichang-delete-menu", "");
+			menu.className = "sichang-delete-menu";
+			menu.setAttribute("role", "menu");
+			menu.innerHTML = `
+            <button type="button" role="menuitem" data-sichang-delete-mode="one">删除本条</button>
+            <button type="button" role="menuitem" data-sichang-delete-mode="after">删除后续（走官方）</button>
+        `;
+			document.body.appendChild(menu);
+			state.menu = menu;
+			state.anchor = anchor;
+			positionMenu();
+		}
+		function setButtonBusy(button, busy) {
+			if (!button) return;
+			if (busy) button.setAttribute(BUSY_ATTR, "");
+			else button.removeAttribute(BUSY_ATTR);
+			button.setAttribute("aria-busy", busy ? "true" : "false");
+		}
 		function indexOfId(list, id) {
 			return list.findIndex((item) => item.id === id);
 		}
@@ -3041,6 +3128,31 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				state.busy = false;
 			}
 		}
+		async function applyDeleteAfter(resolveTarget) {
+			if (state.busy || !state.cid) return null;
+			state.busy = true;
+			try {
+				const fresh = await loadMessages(state.cid);
+				const target = resolveTarget(fresh);
+				const index = indexOfId(fresh, target.id);
+				if (index < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
+				await request(`/api/conversations/${encodeURIComponent(state.cid)}/messages/${encodeURIComponent(target.id)}`, { method: "DELETE" });
+				const after = await loadMessages(state.cid);
+				if (!sameOrder(after, fresh.slice(0, index))) throw new Error("删除后续失败：官方消息列表与预期不一致，可能被其他窗口改动了。");
+				return {
+					ok: true,
+					messages: after,
+					targetId: target.id
+				};
+			} catch (error) {
+				return {
+					ok: false,
+					message: `删除后续失败：${errorMessage(error)}`
+				};
+			} finally {
+				state.busy = false;
+			}
+		}
 		function syncOfficialPage(context, conversation, messages, targetId) {
 			if (!context || !conversation || conversation.id !== state.cid) return false;
 			const byId = new Map(messages.map((message) => [message.id, message]));
@@ -3067,27 +3179,59 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function officialDeleteButtons() {
 			return Array.from(document.querySelectorAll(OFFICIAL_MESSAGE_DELETE_SELECTOR));
 		}
-		async function interceptOfficialDelete(button, buttonsAtClick, indexAtClick, context, conversation) {
-			const result = await applyDelete((fresh) => {
-				if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
-				const buttonsNow = officialDeleteButtons();
-				if (!(buttonsNow.length === buttonsAtClick.length && buttonsNow.every((item, index) => item === buttonsAtClick[index])) || buttonsNow[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
-				if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) throw new Error("无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。");
-				return fresh[indexAtClick];
-			});
-			if (!result) return;
-			if (!result.ok) {
-				console.warn(`[SichangTools] ${result.message}`);
+		function resolveTarget(button, fresh, buttonsAtClick, indexAtClick) {
+			if (!button.isConnected || buttonsAtClick[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
+			const buttonsNow = officialDeleteButtons();
+			if (!(buttonsNow.length === buttonsAtClick.length && buttonsNow.every((item, index) => item === buttonsAtClick[index])) || buttonsNow[indexAtClick] !== button) throw new Error("官方消息列表已变化，已取消删除，请刷新后重试。");
+			if (buttonsNow.length !== fresh.length || indexAtClick < 0 || indexAtClick >= fresh.length) throw new Error("无法安全对应官方删除按钮与消息 ID，已取消删除，不会回退到官方截断。");
+			return fresh[indexAtClick];
+		}
+		async function runMode(mode) {
+			const anchor = state.anchor;
+			closeMenu();
+			if (!anchor || state.busy) return;
+			const cid = readConversationId();
+			if (!cid || cid.startsWith("conv__anonymous__")) return;
+			state.cid = cid;
+			const buttonsAtClick = officialDeleteButtons();
+			const indexAtClick = buttonsAtClick.indexOf(anchor);
+			if (indexAtClick < 0) {
+				console.warn("[SichangTools] 官方消息列表已变化，已取消删除，请刷新后重试。");
 				return;
 			}
-			if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
-			window.location.reload();
+			const context = officialContext(anchor);
+			const conversation = context?.activeConversation ?? null;
+			const resolve = (fresh) => resolveTarget(anchor, fresh, buttonsAtClick, indexAtClick);
+			setButtonBusy(anchor, true);
+			try {
+				const result = mode === "after" ? await applyDeleteAfter(resolve) : await applyDelete(resolve);
+				if (!result) return;
+				if (!result.ok) {
+					console.warn(`[SichangTools] ${result.message}`);
+					return;
+				}
+				if (syncOfficialPage(context, conversation, result.messages, result.targetId)) return;
+				window.location.reload();
+			} finally {
+				setButtonBusy(anchor, false);
+			}
 		}
 		function onOfficialDeleteClick(event) {
 			const target = event.target;
 			if (!(target instanceof Element)) return;
+			const option = target.closest(MODE_SELECTOR);
+			if (option) {
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
+				runMode(option.getAttribute("data-sichang-delete-mode") === "after" ? "after" : "one");
+				return;
+			}
 			const button = target.closest(OFFICIAL_MESSAGE_DELETE_SELECTOR);
-			if (!button) return;
+			if (!button) {
+				if (state.menu && !target.closest(MENU_SELECTOR$1)) closeMenu();
+				return;
+			}
 			const cid = readConversationId();
 			if (!cid || cid.startsWith("conv__anonymous__")) return;
 			event.preventDefault();
@@ -3097,18 +3241,26 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				console.warn("[SichangTools] 正在删除上一条消息，请稍后再试。");
 				return;
 			}
-			const buttonsAtClick = officialDeleteButtons();
-			const indexAtClick = buttonsAtClick.indexOf(button);
-			const context = officialContext(button);
-			const conversation = context?.activeConversation ?? null;
-			state.cid = cid;
-			interceptOfficialDelete(button, buttonsAtClick, indexAtClick, context, conversation);
+			if (state.menu && state.anchor === button) closeMenu();
+			else openMenu(button);
+		}
+		function onMenuKeyDown(event) {
+			if (event.key === "Escape" && state.menu) closeMenu();
 		}
 		window.addEventListener("click", onOfficialDeleteClick, { capture: true });
+		window.addEventListener("keydown", onMenuKeyDown, true);
+		window.addEventListener("scroll", closeMenu, true);
+		window.addEventListener("resize", closeMenu);
 		return {
 			api: {},
 			dispose: () => {
 				window.removeEventListener("click", onOfficialDeleteClick, { capture: true });
+				window.removeEventListener("keydown", onMenuKeyDown, true);
+				window.removeEventListener("scroll", closeMenu, true);
+				window.removeEventListener("resize", closeMenu);
+				closeMenu();
+				document.getElementById(MENU_STYLE_ID$1)?.remove();
+				for (const button of document.querySelectorAll(`[${BUSY_ATTR}]`)) setButtonBusy(button, false);
 			}
 		};
 	}
