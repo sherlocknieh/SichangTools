@@ -48,7 +48,7 @@ export default function initSichangHandler() {
                 part.row.classList.toggle('selected', chosen);
             }
         }
-        host.updateComposeMeta();
+        host.syncGoButton();
     }
     function selectRecord(record) {
         if (host.selection.record === record && !host.selection.segment) return;
@@ -65,7 +65,7 @@ export default function initSichangHandler() {
     function mirrorPlayingText(record, segment) {
         if (!segment || !String(segment.text || '').trim()) return;
         if (host.selection.record === record && host.selection.segment === segment) return;
-        if (host.inputTyping || ui.input.getRootNode().activeElement === ui.input) return;
+        if (host.hasPendingInput() || host.isInputFocused()) return;
         applySelection(record, segment);
         host.setInputText(segment.text);
     }
@@ -93,7 +93,7 @@ export default function initSichangHandler() {
     Object.assign(host, createRegenerator({
         records: host.records,
         selection: host.selection,
-        input: ui.input,
+        inputText: () => host.getInputText(),
         sampleRateOf: host.sampleRateOf,
         segmentIndex: host.segmentIndex,
         segmentSpans: host.segmentSpans,

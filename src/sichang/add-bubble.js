@@ -7,7 +7,6 @@ import {
     ADD_BUBBLE_BUTTON_SELECTOR,
     CONVERSATION_IMPORT_MAX_CHARS,
     OFFICIAL_ATTACH_SELECTOR,
-    OFFICIAL_SEND_SELECTOR,
 } from './constants.js';
 import { setBusyIcon } from './busy-icon.js';
 import {
@@ -22,7 +21,7 @@ import {
     request,
 } from './conversation-api.js';
 import { messageText } from './conversation-copy.js';
-import { officialContext, setNativeValue } from './official-page.js';
+import { findComposer, officialContext, setNativeValue } from './official-page.js';
 
 const PLUS_ICON = `
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
@@ -70,21 +69,6 @@ const MENU_CSS = `
 function deriveTitle(content) {
     const text = String(content || '').trim();
     return text ? `${text.slice(0, 30)}${text.length > 30 ? '…' : ''}` : '新对话';
-}
-
-function findComposer() {
-    for (const send of document.querySelectorAll(OFFICIAL_SEND_SELECTOR)) {
-        const row = send.parentElement;
-        if (!row) continue;
-        // textarea 和发送按钮不在同一层：向上找最近的、同时包住两者的输入区容器。
-        let container = row;
-        for (let depth = 0; container && depth < 5; depth += 1) {
-            const textarea = container.querySelector('textarea');
-            if (textarea) return { send, row, textarea };
-            container = container.parentElement;
-        }
-    }
-    return null;
 }
 
 export function createAddBubble() {
@@ -151,7 +135,7 @@ export function createAddBubble() {
             return;
         }
         const composer = findComposer();
-        if (!composer) return;
+        if (!composer?.send || !composer.row) return;
         const existing = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
         if (existing) {
             button = existing;
@@ -195,7 +179,7 @@ export function createAddBubble() {
 
     async function addBubble(role) {
         const composer = findComposer();
-        if (!composer) throw new Error('AI 正在回复或输入区不可用，请等当前回复结束后再添加。');
+        if (!composer?.send) throw new Error('AI 正在回复或输入区不可用，请等当前回复结束后再添加。');
         const content = readInput(composer.textarea);
         const cid = readConversationId();
         const owner = conversationOwner(cid);

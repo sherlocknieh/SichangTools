@@ -6,7 +6,12 @@ import { PANEL_CSS } from './styles.js';
 export function createPanel() {
     const host = document.createElement('div');
     host.id = PANEL_ID;
-    host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;';
+    // 面板嵌在官方输入卡片顶部，位置和宽度交给卡片；没有输入区时由 panel-layout 隐藏
+    host.style.cssText = 'display:block;';
+    // 面板嵌在官方输入卡片里，交互不要冒泡给站点的输入区/快捷键
+    for (const type of ['click', 'pointerdown', 'keydown', 'keyup', 'change']) {
+        host.addEventListener(type, event => event.stopPropagation());
+    }
     const root = host.attachShadow({ mode: 'open' });
     // 构造式样式表不受页面 style-src 限制，站点收紧 CSP 时面板样式也不会失效
     if ('adoptedStyleSheets' in root) {
@@ -26,8 +31,7 @@ export function createPanel() {
         </optgroup>
     `).join('');
     panel.innerHTML = `
-        <div class="head" title="单击收起/展开，拖动移动，双击复位">
-            <span class="grip" aria-hidden="true">⠿</span>
+        <div class="head" title="单击收起/展开">
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
@@ -36,29 +40,18 @@ export function createPanel() {
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="body">
-            <div class="empty">点消息下的「朗读」，或在下方输入文本合成</div>
+            <div class="empty">点消息下的「朗读」，或在官方输入框写文字后点「合成」</div>
             <div class="list"></div>
         </div>
         <div class="compose">
-            <div class="inputWrap">
-                <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
-                <button class="clearInput" hidden aria-label="清空输入" title="清空输入">×</button>
-            </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${groups}</select>
-                <button class="go">合成</button>
+                <button class="go" title="读取官方输入框文字合成语音">合成</button>
             </div>
         </div>
     `;
     root.appendChild(panel);
     document.documentElement.appendChild(host);
-    // 站点用客户端水合重建根节点时，会把脚本提前插入的面板一起清掉（表现为「闪一下就没了」）。
-    // 只监听 documentElement 的直接子节点；面板被移除就挂回去，不要轮询。
-    const keepMounted = new MutationObserver(() => {
-        if (host.isConnected) return;
-        document.documentElement.appendChild(host);
-    });
-    keepMounted.observe(document.documentElement, { childList: true });
     return {
         host,
         root,
@@ -72,12 +65,9 @@ export function createPanel() {
         clear: panel.querySelector('.clear'),
         fold: panel.querySelector('.fold'),
         compose: panel.querySelector('.compose'),
-        input: panel.querySelector('.input'),
-        clearInput: panel.querySelector('.clearInput'),
         voice: panel.querySelector('.voice'),
         go: panel.querySelector('.go'),
         dispose() {
-            keepMounted.disconnect();
             host.remove();
         },
     };

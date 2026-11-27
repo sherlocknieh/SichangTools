@@ -18,9 +18,9 @@ src/
   main.js              # 唯一入口：注册 handler、登记清理、处理重复注入
   handler.js           # 装配：共享状态、选中逻辑、模块接线与清理
   sichang/             # 思畅站点的功能模块
-    panel.js           # 面板骨架（Shadow DOM）、挂载保活与剪贴板兜底
-    panel-layout.js    # 折叠、拖动、贴底避让与窗口尺寸变化
-    compose.js         # 输入区：草稿、预填试听、合成/暂停入口
+    panel.js           # 面板骨架（Shadow DOM）与剪贴板兜底
+    panel-layout.js    # 挂载到官方输入卡片顶部、折叠与重渲染后重新挂载
+    compose.js         # 读写官方输入框文字、合成/暂停入口
     record-view.js     # 记录条目与分段条目的 DOM、折叠、菜单、下载、删除
     segments.js        # 分段状态/时长/展开面板与按钮可用性
     chain.js           # 分段顺序播放与记录头播放按钮
@@ -29,7 +29,7 @@ src/
     regenerate.js      # 单段/整条重生成流程（整条复用逐段流程）
     conversation-api.js # 官方会话接口共享封装：读取、import、错误文案
     conversation-copy.js # 会话复制：云端/匿名接口复制与本地回退
-    official-page.js   # 官方 React context 与受控输入工具
+    official-page.js   # 官方 React context、输入区定位与受控输入工具
     busy-icon.js       # 共享「操作中」按钮动画：旋转箭头
     delete-message.js  # 接管官方删除按钮：菜单选择单条删除或删后续，同步官方视图
     clone-conversation.js # 顶栏「克隆会话」按钮：新建副本并导入全部消息
@@ -47,8 +47,8 @@ src/
 - `src/handler.js`：放在入口同层的装配层，判断 `sichang.xyz` 域名后创建 `host`（记录、选中、正在播放的音频/会话/时间线等共享状态），登记选中逻辑与各模块；清理时逆序撤销监听器与 `fetch` 包装。接管与播放行为见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
 - `src/sichang/`：按职责分文件，改哪块只读哪块。新增功能先判断属于哪个已有模块，不要往 handler 里堆。
   - 模块统一导出 `createX(host)`，返回 `{ api, dispose }`；handler 用 `adopt()` 合并到 `host`，创建顺序为 compose → record-view → segments → chain → timeline → regenerate → synthesis → panel-layout → delete-message → clone-conversation → add-bubble → fork-message。跨模块调用一律 `host.fn()`，共享状态读写 `host.records` 等字段。
-  - `panel.js` / `panel-layout.js`：面板骨架与位置/折叠，不碰记录和播放状态。
-  - `compose.js`：输入区草稿、预填试听与「合成/暂停」入口。
+  - `panel.js` / `panel-layout.js`：面板骨架与挂载/折叠；面板嵌在官方输入卡片顶部，输入区被水合或切会话替换后由 `findComposer()` 重新挂载，不碰记录和播放状态。
+  - `compose.js`：把语音面板接到官方 textarea 上（`bindInput`/`getInputText`/`setInputText`）并管理「合成/暂停」入口；选中、播放跟随和重生成共用这一份文字，不再维护独立草稿。
   - `record-view.js`：记录条目与分段条目的 DOM、记录折叠、菜单、下载、删除。
   - `segments.js`：分段状态文案、时长进度、展开面板与按钮可用性。
   - `chain.js`：分段顺序播放（自动接段、等待下一段）与记录头整条播放按钮。
@@ -59,7 +59,7 @@ src/
   - `conversation-api.js`：官方会话接口的共享封装（`readConversationId`、读取元数据与分页消息、`createConversation`、`importMessages`、`errorMessage`）。删除、克隆与 fork 都走这一份契约，站点改版时只改这里。
   - `conversation-copy.js`：会话复制实现，整条克隆与消息级 fork 共用；负责空正文占位、新 ID/seq、写入校验、失败清理，以及匿名/本地接口不可达时退回官方 context 写 IndexedDB。
   - `clone-conversation.js`：在官方聊天页顶栏「新建对话」左侧注入「克隆会话」按钮；读取当前会话（云端或匿名）的元数据和全部消息，经 `conversation-copy.js` 新建副本。成功后进入副本，失败只写控制台。实现与接口细节见 `logic/conversation-clone.md`。
-  - `official-page.js`：官方 React 页面的共享工具（从 DOM fiber 找 context、通过原生 setter 改受控 textarea）。删除与加气泡模块共用。
+  - `official-page.js`：官方 React 页面的共享工具（从 DOM fiber 找 context、`findComposer()` 定位输入卡片、通过原生 setter 改受控 textarea）。删除、加气泡和语音面板共用。
   - `busy-icon.js`：共享的操作中按钮动画。通过 `data-sichang-busy` 和伪元素把按钮内容替换成旋转箭头，删除、加气泡、克隆和 fork 共用。
   - `add-bubble.js`：在官方输入区「发送消息」左侧注入加号按钮；点击后把输入框文字（可为空，用零宽空格占位）作为一条 `user` 消息经 import 写入当前云端会话，不请求 AI 回复。写入成功后用官方 context 立即插入气泡并清空输入框。细节见 `logic/add-bubble.md`。
   - `fork-message.js`：在每条官方消息的操作行注入 fork 按钮；按按钮文档顺序映射到消息，截取到该条为止后复用 `conversation-copy.js` 新建副本。映射数量不一致时安全拒绝。细节见 `logic/fork-message.md`。

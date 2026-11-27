@@ -1,13 +1,13 @@
 // 面板样式：注入 Shadow DOM，选择器都在这里维护。
 export const PANEL_CSS = `
-:host { all: initial; }
+:host { all: initial; display: block; margin: 0 0 6px; }
 .panel {
-    width: 300px;
+    box-sizing: border-box;
+    width: 100%;
     background: #16161a;
     color: #e8e8ea;
     border: 1px solid #2c2c33;
-    border-radius: 12px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+    border-radius: 10px;
     font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
     overflow: hidden;
 }
@@ -15,16 +15,13 @@ export const PANEL_CSS = `
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 7px 8px 7px 10px;
+    padding: 6px 8px 6px 10px;
     background: #1d1d22;
     border-bottom: 1px solid #2c2c33;
-    cursor: move;
+    cursor: pointer;
     user-select: none;
-    touch-action: none;
 }
-.panel.dragging { opacity: .92; }
 .title { font-size: 12px; font-weight: 600; }
-.grip { color: #5a5a64; font-size: 11px; letter-spacing: -1px; }
 .count {
     min-width: 18px;
     padding: 0 5px;
@@ -50,44 +47,10 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .head .rateCycle { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
 .head .clear.confirm { background: #3a2226; color: #ff9a9a; }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
-.compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-top: 1px solid #232329; }
-.compose .inputWrap { position: relative; }
-.compose textarea {
-    box-sizing: border-box;
-    width: 100%;
-    min-height: 44px;
-    max-height: 132px;
-    padding: 7px 26px 7px 8px;
-    border: 1px solid #2c2c33;
-    border-radius: 7px;
-    background: #101014;
-    color: #e8e8ea;
-    font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    resize: none;
-    outline: none;
-    scrollbar-width: none;
-}
-.compose textarea::-webkit-scrollbar { display: none; }
-.compose .clearInput {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    color: #6f6f79;
-    font-size: 14px;
-    line-height: 18px;
-    text-align: center;
-}
-.compose .clearInput:hover { background: #2c2c33; color: #fff; }
-.compose .clearInput[hidden] { display: none; }
-.compose textarea:focus { outline: none; border-color: #4a4a56; }
-.compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
-.compose textarea::placeholder { color: #6f6f79; }
-.compose textarea.is-default { color: #6f6f79; }
+.compose { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-top: 1px solid #232329; }
+.compose select:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose .row { display: flex; align-items: center; gap: 6px; }
-.compose select, .compose input {
+.compose select {
     height: 26px;
     padding: 0 6px;
     border: 1px solid #2c2c33;
@@ -108,10 +71,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .compose .go:hover { background: #3a5f43; color: #fff; }
 .compose .go.paused { background: #4a3a22; color: #f0cd8a; }
 .compose .go.paused:hover { background: #5a4728; color: #fff; }
-.panel.folded { width: auto; }
 .panel.folded .compose, .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
-.body { max-height: 360px; overflow: auto; }
+.body { max-height: min(360px, 42vh); overflow: auto; }
 .empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { padding: 7px 10px 8px; border-bottom: 1px solid #232329; }
 .item:last-child { border-bottom: 0; }
@@ -317,7 +279,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segAction.synth { color: #d8b46a; }
 .segAction.synth:hover { background: #3a3022; color: #f0cd8a; }
 @media (max-width: 480px) {
-    .panel { width: calc(100vw - 24px); }
+    .body { max-height: 38vh; }
 }
 button:focus-visible, select:focus-visible, input:focus-visible {
     outline: 2px solid #5a9e6b;

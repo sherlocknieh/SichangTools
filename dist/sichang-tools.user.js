@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2211
+// @version      2026.11.27.2225
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -24,6 +24,7 @@
 	var CLONE_BUTTON_LABEL = "克隆会话";
 	var CLONE_TITLE_SUFFIX = "（副本）";
 	var OFFICIAL_SEND_SELECTOR = "button[aria-label=\"发送消息\"], button[title=\"发送消息\"]";
+	var OFFICIAL_ATTACH_SELECTOR = "button[aria-label=\"发送附件\"], button[title=\"发送附件\"]";
 	var ADD_BUBBLE_BUTTON_SELECTOR = "button[data-sichang-add-bubble]";
 	var ADD_BUBBLE_BUTTON_LABEL = "添加消息气泡";
 	var OFFICIAL_COPY_SELECTOR = "button[aria-label=\"复制消息\"], button[title=\"复制消息\"], button[aria-label=\"Copy message\"], button[title=\"Copy message\"]";
@@ -32,12 +33,9 @@
 	var PANEL_ID = "sichang-tts-capture";
 	var DEFAULT_SAMPLE_RATE = 24e3;
 	var SEGMENT_HEADER = "X-Sichang-Segment";
-	var DEFAULT_INPUT_TEXT = "你好，我是思畅，今天天气不错。";
 	var VOICE_STORE_KEY = "sichang-tts-voice";
 	var PLAYBACK_RATE_STORE_KEY = "sichang-tts-playback-rate";
 	var FOLD_STORE_KEY = "sichang-tts-folded";
-	var DRAFT_STORE_KEY = "sichang-tts-draft";
-	var POS_STORE_KEY = "sichang-tts-pos";
 	var PLAYBACK_RATES = [
 		1,
 		1.25,
@@ -95,14 +93,14 @@
 		return label.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "") || label;
 	}
 	var PANEL_CSS = `
-:host { all: initial; }
+:host { all: initial; display: block; margin: 0 0 6px; }
 .panel {
-    width: 300px;
+    box-sizing: border-box;
+    width: 100%;
     background: #16161a;
     color: #e8e8ea;
     border: 1px solid #2c2c33;
-    border-radius: 12px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+    border-radius: 10px;
     font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
     overflow: hidden;
 }
@@ -110,16 +108,13 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 7px 8px 7px 10px;
+    padding: 6px 8px 6px 10px;
     background: #1d1d22;
     border-bottom: 1px solid #2c2c33;
-    cursor: move;
+    cursor: pointer;
     user-select: none;
-    touch-action: none;
 }
-.panel.dragging { opacity: .92; }
 .title { font-size: 12px; font-weight: 600; }
-.grip { color: #5a5a64; font-size: 11px; letter-spacing: -1px; }
 .count {
     min-width: 18px;
     padding: 0 5px;
@@ -145,44 +140,10 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .head .rateCycle { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
 .head .clear.confirm { background: #3a2226; color: #ff9a9a; }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
-.compose { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-top: 1px solid #232329; }
-.compose .inputWrap { position: relative; }
-.compose textarea {
-    box-sizing: border-box;
-    width: 100%;
-    min-height: 44px;
-    max-height: 132px;
-    padding: 7px 26px 7px 8px;
-    border: 1px solid #2c2c33;
-    border-radius: 7px;
-    background: #101014;
-    color: #e8e8ea;
-    font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
-    resize: none;
-    outline: none;
-    scrollbar-width: none;
-}
-.compose textarea::-webkit-scrollbar { display: none; }
-.compose .clearInput {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    color: #6f6f79;
-    font-size: 14px;
-    line-height: 18px;
-    text-align: center;
-}
-.compose .clearInput:hover { background: #2c2c33; color: #fff; }
-.compose .clearInput[hidden] { display: none; }
-.compose textarea:focus { outline: none; border-color: #4a4a56; }
-.compose select:focus, .compose input:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
-.compose textarea::placeholder { color: #6f6f79; }
-.compose textarea.is-default { color: #6f6f79; }
+.compose { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-top: 1px solid #232329; }
+.compose select:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
 .compose .row { display: flex; align-items: center; gap: 6px; }
-.compose select, .compose input {
+.compose select {
     height: 26px;
     padding: 0 6px;
     border: 1px solid #2c2c33;
@@ -203,10 +164,9 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .compose .go:hover { background: #3a5f43; color: #fff; }
 .compose .go.paused { background: #4a3a22; color: #f0cd8a; }
 .compose .go.paused:hover { background: #5a4728; color: #fff; }
-.panel.folded { width: auto; }
 .panel.folded .compose, .panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
-.body { max-height: 360px; overflow: auto; }
+.body { max-height: min(360px, 42vh); overflow: auto; }
 .empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { padding: 7px 10px 8px; border-bottom: 1px solid #232329; }
 .item:last-child { border-bottom: 0; }
@@ -412,7 +372,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segAction.synth { color: #d8b46a; }
 .segAction.synth:hover { background: #3a3022; color: #f0cd8a; }
 @media (max-width: 480px) {
-    .panel { width: calc(100vw - 24px); }
+    .body { max-height: 38vh; }
 }
 button:focus-visible, select:focus-visible, input:focus-visible {
     outline: 2px solid #5a9e6b;
@@ -422,7 +382,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 	function createPanel() {
 		const host = document.createElement("div");
 		host.id = PANEL_ID;
-		host.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483647;";
+		host.style.cssText = "display:block;";
+		for (const type of [
+			"click",
+			"pointerdown",
+			"keydown",
+			"keyup",
+			"change"
+		]) host.addEventListener(type, (event) => event.stopPropagation());
 		const root = host.attachShadow({ mode: "open" });
 		if ("adoptedStyleSheets" in root) {
 			const sheet = new CSSStyleSheet();
@@ -436,8 +403,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		const panel = document.createElement("div");
 		panel.className = "panel";
 		panel.innerHTML = `
-        <div class="head" title="单击收起/展开，拖动移动，双击复位">
-            <span class="grip" aria-hidden="true">⠿</span>
+        <div class="head" title="单击收起/展开">
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
@@ -446,31 +412,22 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="body">
-            <div class="empty">点消息下的「朗读」，或在下方输入文本合成</div>
+            <div class="empty">点消息下的「朗读」，或在官方输入框写文字后点「合成」</div>
             <div class="list"></div>
         </div>
         <div class="compose">
-            <div class="inputWrap">
-                <textarea class="input" rows="2" placeholder="输入或粘贴文本，Ctrl+Enter 合成"></textarea>
-                <button class="clearInput" hidden aria-label="清空输入" title="清空输入">×</button>
-            </div>
             <div class="row">
                 <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
         <optgroup label="${group.label}">
             ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
         </optgroup>
     `).join("")}</select>
-                <button class="go">合成</button>
+                <button class="go" title="读取官方输入框文字合成语音">合成</button>
             </div>
         </div>
     `;
 		root.appendChild(panel);
 		document.documentElement.appendChild(host);
-		const keepMounted = new MutationObserver(() => {
-			if (host.isConnected) return;
-			document.documentElement.appendChild(host);
-		});
-		keepMounted.observe(document.documentElement, { childList: true });
 		return {
 			host,
 			root,
@@ -484,15 +441,50 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
 			compose: panel.querySelector(".compose"),
-			input: panel.querySelector(".input"),
-			clearInput: panel.querySelector(".clearInput"),
 			voice: panel.querySelector(".voice"),
 			go: panel.querySelector(".go"),
 			dispose() {
-				keepMounted.disconnect();
 				host.remove();
 			}
 		};
+	}
+	function findComposer() {
+		const candidates = [...document.querySelectorAll("textarea")].filter((textarea) => textarea.getBoundingClientRect().width > 0);
+		for (const textarea of candidates) {
+			let container = textarea.parentElement;
+			for (let depth = 0; container && depth < 4; depth += 1) {
+				const send = container.querySelector(OFFICIAL_SEND_SELECTOR);
+				const attach = container.querySelector(OFFICIAL_ATTACH_SELECTOR);
+				if (send || attach) return {
+					textarea,
+					container,
+					send,
+					row: send?.parentElement ?? null
+				};
+				container = container.parentElement;
+			}
+		}
+		return null;
+	}
+	function officialContext(element) {
+		let fiber = null;
+		for (const key of Object.getOwnPropertyNames(element)) if (key.startsWith("__reactFiber$")) {
+			fiber = element[key];
+			break;
+		}
+		for (let depth = 0; fiber && depth < 500; depth += 1) {
+			const value = fiber.memoizedProps?.value;
+			if (value && typeof value.upsertConversation === "function" && typeof value.activeConversation === "object" && Array.isArray(value.conversations)) return value;
+			fiber = fiber.return;
+		}
+		return null;
+	}
+	function setNativeValue(element, value) {
+		const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+		const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+		if (setter) setter.call(element, value);
+		else element.value = value;
+		element.dispatchEvent(new Event("input", { bubbles: true }));
 	}
 	function createPanelLayout(host) {
 		const { ui } = host;
@@ -503,130 +495,55 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			try {
 				localStorage.setItem(FOLD_STORE_KEY, folded ? "1" : "0");
 			} catch {}
-			if (!folded) host.autoGrowInput();
 		}
 		ui.fold.addEventListener("click", () => applyFold(!ui.panel.classList.contains("folded")));
 		try {
 			if (localStorage.getItem("sichang-tts-folded") === "1") applyFold(true);
 		} catch {}
-		let manualPosition = false;
-		function clampPosition(left, top) {
-			const rect = ui.host.getBoundingClientRect();
-			return {
-				left: Math.max(4, Math.min(window.innerWidth - rect.width - 4, left)),
-				top: Math.max(4, Math.min(window.innerHeight - rect.height - 4, top))
-			};
-		}
-		function applyPosition(position) {
-			ui.host.style.left = `${Math.round(position.left)}px`;
-			ui.host.style.top = `${Math.round(position.top)}px`;
-			ui.host.style.right = "auto";
-			ui.host.style.bottom = "auto";
-		}
-		function resetPosition() {
-			manualPosition = false;
-			try {
-				localStorage.removeItem(POS_STORE_KEY);
-			} catch {}
-			ui.host.style.left = "";
-			ui.host.style.top = "";
-			ui.host.style.right = "16px";
-			ui.host.style.bottom = "16px";
-			placePanel();
-		}
-		function placePanel() {
-			if (manualPosition) return;
-			const box = [...document.querySelectorAll("textarea, [contenteditable=\"true\"]")].find((element) => {
-				const rect = element.getBoundingClientRect();
-				return rect.width > 160 && rect.bottom > window.innerHeight - 160;
-			});
-			const bottom = box ? Math.max(16, window.innerHeight - box.getBoundingClientRect().top + 12) : 16;
-			ui.host.style.bottom = `${Math.round(bottom)}px`;
-		}
-		try {
-			const saved = JSON.parse(localStorage.getItem("sichang-tts-pos") || "null");
-			if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
-				applyPosition(clampPosition(saved.left, saved.top));
-				manualPosition = true;
-			}
-		} catch {}
-		placePanel();
-		let drag = null;
-		let ignoreClick = false;
-		ui.head.addEventListener("pointerdown", (event) => {
-			if (event.button !== 0 || event.target.closest("button, select")) return;
-			const rect = ui.host.getBoundingClientRect();
-			drag = {
-				dx: event.clientX - rect.left,
-				dy: event.clientY - rect.top,
-				startX: event.clientX,
-				startY: event.clientY,
-				moved: false
-			};
-			ui.head.setPointerCapture(event.pointerId);
-			ui.panel.classList.add("dragging");
-		});
-		ui.head.addEventListener("pointermove", (event) => {
-			if (!drag) return;
-			if (!drag.moved) {
-				if (Math.abs(event.clientX - drag.startX) + Math.abs(event.clientY - drag.startY) < 6) return;
-				drag.moved = true;
-			}
-			applyPosition(clampPosition(event.clientX - drag.dx, event.clientY - drag.dy));
-		});
-		function endDrag() {
-			if (!drag) return;
-			const moved = drag.moved;
-			drag = null;
-			ui.panel.classList.remove("dragging");
-			if (!moved) return;
-			ignoreClick = true;
-			setTimeout(() => {
-				ignoreClick = false;
-			}, 0);
-			manualPosition = true;
-			const rect = ui.host.getBoundingClientRect();
-			try {
-				localStorage.setItem(POS_STORE_KEY, JSON.stringify({
-					left: rect.left,
-					top: rect.top
-				}));
-			} catch {}
-		}
-		ui.head.addEventListener("pointerup", endDrag);
-		ui.head.addEventListener("pointercancel", endDrag);
 		ui.head.addEventListener("click", (event) => {
 			if (event.target.closest("button, select")) return;
-			if (ignoreClick) {
-				ignoreClick = false;
-				return;
-			}
 			applyFold(!ui.panel.classList.contains("folded"));
 		});
-		ui.head.addEventListener("dblclick", (event) => {
-			if (event.target.closest("button, select")) return;
-			resetPosition();
-		});
-		const onResize = () => {
-			if (!manualPosition) {
-				placePanel();
+		function placePanel() {
+			const composer = findComposer();
+			if (!composer) {
+				ui.host.style.display = "none";
 				return;
 			}
-			const rect = ui.host.getBoundingClientRect();
-			applyPosition(clampPosition(rect.left, rect.top));
-		};
-		window.addEventListener("resize", onResize);
+			ui.host.style.display = "block";
+			const { container, textarea } = composer;
+			if (ui.host.parentElement !== container || container.firstElementChild !== ui.host) container.insertBefore(ui.host, container.firstChild);
+			host.bindInput(textarea);
+		}
+		let timer = 0;
+		function schedulePlace() {
+			if (timer) return;
+			timer = window.setTimeout(() => {
+				timer = 0;
+				placePanel();
+			}, 120);
+		}
+		const observer = new MutationObserver(schedulePlace);
+		observer.observe(document.documentElement, {
+			childList: true,
+			subtree: true
+		});
+		placePanel();
 		return {
 			api: {
 				applyFold,
-				placePanel,
-				resetPosition
+				placePanel
 			},
-			dispose: () => window.removeEventListener("resize", onResize)
+			dispose: () => {
+				observer.disconnect();
+				if (timer) window.clearTimeout(timer);
+			}
 		};
 	}
 	function createCompose(host) {
 		const { ui } = host;
+		let textarea = null;
+		let writing = false;
 		ui.voice.addEventListener("change", () => {
 			try {
 				localStorage.setItem(VOICE_STORE_KEY, ui.voice.value);
@@ -659,96 +576,70 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			ui.go.textContent = "合成";
 			ui.go.classList.remove("paused");
-			ui.go.title = "合成";
-			ui.go.setAttribute("aria-label", "合成");
-			ui.go.disabled = !ui.input.value.trim();
+			ui.go.title = "读取官方输入框文字合成语音";
+			ui.go.setAttribute("aria-label", "合成语音");
+			ui.go.disabled = !getInputText().trim();
 		}
-		function autoGrowInput() {
-			if (ui.panel.classList.contains("folded")) return;
-			ui.input.style.height = "auto";
-			ui.input.style.height = `${Math.min(ui.input.scrollHeight + 2, 132)}px`;
+		function getInputText() {
+			return textarea?.isConnected ? String(textarea.value || "") : "";
 		}
-		let inputIsDefault = false;
-		function setInputDefault(isDefault) {
-			inputIsDefault = isDefault;
-			if (isDefault) host.inputTyping = false;
-			ui.input.classList.toggle("is-default", isDefault);
+		function isInputFocused() {
+			return Boolean(textarea?.isConnected) && textarea.getRootNode().activeElement === textarea;
 		}
-		function saveDraft() {
-			try {
-				localStorage.setItem(DRAFT_STORE_KEY, inputIsDefault ? "" : ui.input.value);
-			} catch {}
+		function hasPendingInput() {
+			if (!host.inputTyping) return false;
+			if (!getInputText().trim()) {
+				host.inputTyping = false;
+				return false;
+			}
+			return true;
 		}
 		function setInputText(text) {
-			ui.input.value = text;
+			if (!textarea?.isConnected) return;
+			writing = true;
+			try {
+				setNativeValue(textarea, String(text ?? ""));
+			} finally {
+				writing = false;
+			}
 			host.inputTyping = false;
-			setInputDefault(false);
-			autoGrowInput();
-			updateComposeMeta();
-			saveDraft();
-		}
-		function updateComposeMeta() {
-			ui.clearInput.hidden = inputIsDefault || !ui.input.value;
 			syncGoButton();
 		}
-		function onInputChange() {
-			autoGrowInput();
-			updateComposeMeta();
-			saveDraft();
-		}
-		ui.input.addEventListener("input", () => {
+		function onUserInput() {
+			if (writing) return;
 			host.inputTyping = true;
-			setInputDefault(false);
-			onInputChange();
-		});
-		ui.input.addEventListener("focus", () => {
-			if (!inputIsDefault) return;
-			ui.input.value = "";
+			syncGoButton();
+		}
+		function onKeydown(event) {
+			if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			submitCompose();
+		}
+		function bindInput(next) {
+			if (!next || next === textarea) {
+				syncGoButton();
+				return;
+			}
+			if (textarea) {
+				textarea.removeEventListener("input", onUserInput);
+				textarea.removeEventListener("keydown", onKeydown);
+			}
+			textarea = next;
+			textarea.addEventListener("input", onUserInput);
+			textarea.addEventListener("keydown", onKeydown);
 			host.inputTyping = false;
-			setInputDefault(false);
-			autoGrowInput();
-			updateComposeMeta();
-		});
-		ui.input.addEventListener("blur", () => {
-			if (host.selection.record) return;
-			if (ui.input.value.trim()) return;
-			ui.input.value = DEFAULT_INPUT_TEXT;
-			setInputDefault(true);
-			autoGrowInput();
-			updateComposeMeta();
-			saveDraft();
-		});
-		ui.clearInput.addEventListener("click", () => {
-			ui.input.value = "";
-			host.inputTyping = false;
-			setInputDefault(false);
-			host.applySelection(null, null);
-			onInputChange();
-			ui.input.focus();
-		});
+			syncGoButton();
+		}
 		try {
 			const savedVoice = localStorage.getItem(VOICE_STORE_KEY);
 			if (savedVoice && [...ui.voice.options].some((option) => option.value === savedVoice)) ui.voice.value = savedVoice;
 		} catch {}
-		try {
-			const draft = localStorage.getItem(DRAFT_STORE_KEY);
-			if (draft && draft.trim()) {
-				ui.input.value = draft;
-				setInputDefault(false);
-			} else {
-				ui.input.value = DEFAULT_INPUT_TEXT;
-				setInputDefault(true);
-			}
-		} catch {
-			ui.input.value = DEFAULT_INPUT_TEXT;
-			setInputDefault(true);
-		}
-		autoGrowInput();
-		updateComposeMeta();
+		syncGoButton();
 		function submitCompose() {
-			const text = ui.input.value.trim();
+			const text = getInputText().trim();
 			if (!text) {
-				ui.input.focus();
+				textarea?.focus();
 				return;
 			}
 			const { voice, rate } = currentTts();
@@ -772,25 +663,16 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			submitCompose();
 		}
 		ui.go.addEventListener("click", triggerCompose);
-		ui.compose.addEventListener("keydown", (event) => {
-			event.stopPropagation();
-			if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-				event.preventDefault();
-				submitCompose();
-			}
-		});
-		ui.compose.addEventListener("keyup", (event) => event.stopPropagation());
 		return { api: {
 			currentTts,
-			autoGrowInput,
-			setInputDefault,
-			saveDraft,
 			setInputText,
-			updateComposeMeta,
-			onInputChange,
+			getInputText,
+			isInputFocused,
+			hasPendingInput,
+			bindInput,
+			syncGoButton,
 			submitCompose,
-			activeSynthesis,
-			syncGoButton
+			activeSynthesis
 		} };
 	}
 	function formatDuration(seconds) {
@@ -2497,14 +2379,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		};
 	}
 	function createRegenerator(host) {
-		const { records, selection, input, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, openSegmentPanel, playChainSegment, flashSegmentRegenButton, currentTts } = host;
+		const { records, selection, inputText, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, openSegmentPanel, playChainSegment, flashSegmentRegenButton, currentTts } = host;
 		async function regenerateSegment(record, segment, options = {}) {
 			const { text: textOverride, autoPlay = true, keepLock = false, allowEmpty = false, deferRebuild = false } = options;
 			if (!segment || !records.includes(record) || segment.busy) return false;
 			if (!keepLock && record.regenerating) return false;
 			if (!allowEmpty && (!segment.complete || !segment.bytes)) return false;
 			const editing = selection.record === record && selection.segment === segment;
-			const text = String(textOverride ?? (editing ? input.value : segment.text) ?? "").trim();
+			const text = String(textOverride ?? (editing ? inputText?.() ?? "" : segment.text) ?? "").trim();
 			if (!text) {
 				flashSegmentRegenButton(segment, "文本为空");
 				return false;
@@ -2580,7 +2462,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!targets.length) return;
 			let texts = null;
 			if (selection.record === record && !selection.segment) {
-				const edited = splitText(input.value);
+				const edited = splitText(inputText?.() ?? "");
 				if (edited.length === record.segments.length) texts = edited;
 			}
 			record.regenerating = true;
@@ -2972,26 +2854,6 @@ button[${BUSY_ATTR}]::before {
 			});
 			throw error;
 		}
-	}
-	function officialContext(element) {
-		let fiber = null;
-		for (const key of Object.getOwnPropertyNames(element)) if (key.startsWith("__reactFiber$")) {
-			fiber = element[key];
-			break;
-		}
-		for (let depth = 0; fiber && depth < 500; depth += 1) {
-			const value = fiber.memoizedProps?.value;
-			if (value && typeof value.upsertConversation === "function" && typeof value.activeConversation === "object" && Array.isArray(value.conversations)) return value;
-			fiber = fiber.return;
-		}
-		return null;
-	}
-	function setNativeValue(element, value) {
-		const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-		const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-		if (setter) setter.call(element, value);
-		else element.value = value;
-		element.dispatchEvent(new Event("input", { bubbles: true }));
 	}
 	var MENU_SELECTOR$1 = "[data-sichang-delete-menu]";
 	var MODE_SELECTOR = "[data-sichang-delete-mode]";
@@ -3462,23 +3324,6 @@ button[${BUSY_ATTR}]::before {
 		const text = String(content || "").trim();
 		return text ? `${text.slice(0, 30)}${text.length > 30 ? "…" : ""}` : "新对话";
 	}
-	function findComposer() {
-		for (const send of document.querySelectorAll(OFFICIAL_SEND_SELECTOR)) {
-			const row = send.parentElement;
-			if (!row) continue;
-			let container = row;
-			for (let depth = 0; container && depth < 5; depth += 1) {
-				const textarea = container.querySelector("textarea");
-				if (textarea) return {
-					send,
-					row,
-					textarea
-				};
-				container = container.parentElement;
-			}
-		}
-		return null;
-	}
 	function createAddBubble() {
 		const state = {
 			busy: false,
@@ -3535,7 +3380,7 @@ button[${BUSY_ATTR}]::before {
 				return;
 			}
 			const composer = findComposer();
-			if (!composer) return;
+			if (!composer?.send || !composer.row) return;
 			const existing = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
 			if (existing) {
 				button = existing;
@@ -3571,7 +3416,7 @@ button[${BUSY_ATTR}]::before {
 		}
 		async function addBubble(role) {
 			const composer = findComposer();
-			if (!composer) throw new Error("AI 正在回复或输入区不可用，请等当前回复结束后再添加。");
+			if (!composer?.send) throw new Error("AI 正在回复或输入区不可用，请等当前回复结束后再添加。");
 			const content = readInput(composer.textarea);
 			const cid = readConversationId();
 			const owner = conversationOwner(cid);
@@ -3824,7 +3669,7 @@ button[${BUSY_ATTR}]::before {
 					part.row.classList.toggle("selected", chosen);
 				}
 			}
-			host.updateComposeMeta();
+			host.syncGoButton();
 		}
 		function selectRecord(record) {
 			if (host.selection.record === record && !host.selection.segment) return;
@@ -3839,7 +3684,7 @@ button[${BUSY_ATTR}]::before {
 		function mirrorPlayingText(record, segment) {
 			if (!segment || !String(segment.text || "").trim()) return;
 			if (host.selection.record === record && host.selection.segment === segment) return;
-			if (host.inputTyping || ui.input.getRootNode().activeElement === ui.input) return;
+			if (host.hasPendingInput() || host.isInputFocused()) return;
 			applySelection(record, segment);
 			host.setInputText(segment.text);
 		}
@@ -3862,7 +3707,7 @@ button[${BUSY_ATTR}]::before {
 		Object.assign(host, createRegenerator({
 			records: host.records,
 			selection: host.selection,
-			input: ui.input,
+			inputText: () => host.getInputText(),
 			sampleRateOf: host.sampleRateOf,
 			segmentIndex: host.segmentIndex,
 			segmentSpans: host.segmentSpans,

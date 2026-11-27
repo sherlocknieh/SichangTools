@@ -1,14 +1,15 @@
-// 输入区：草稿、预填试听文本与「合成」入口。
-// 选中记录或分段后由 selection 侧调用 setInputText 把文本填进来。
-import {
-    DEFAULT_INPUT_TEXT,
-    DRAFT_STORE_KEY,
-    VOICE_STORE_KEY,
-} from './constants.js';
+// 输入区：语音面板不再自带文本框，直接读写官方输入框里的文字。
+// 选中记录/分段、播放跟随和重生成都走同一个 textarea；这里只负责绑定和同步按钮状态。
+import { VOICE_STORE_KEY } from './constants.js';
 import { DEFAULT_VOICE } from './voices.js';
+import { setNativeValue } from './official-page.js';
 
 export function createCompose(host) {
     const { ui } = host;
+    // 官方输入区会随水合/切会话整体替换，始终以最新绑定到的 textarea 为准
+    let textarea = null;
+    // 程序化写入时 setNativeValue 也会派发 input，用它区分“用户手输”
+    let writing = false;
 
     // 选完立刻记住：官方按钮也走面板音色，不点「合成」也不会丢这次选择
     ui.voice.addEventListener('change', () => {
@@ -45,112 +46,85 @@ export function createCompose(host) {
         }
         ui.go.textContent = '合成';
         ui.go.classList.remove('paused');
-        ui.go.title = '合成';
-        ui.go.setAttribute('aria-label', '合成');
-        ui.go.disabled = !ui.input.value.trim();
+        ui.go.title = '读取官方输入框文字合成语音';
+        ui.go.setAttribute('aria-label', '合成语音');
+        ui.go.disabled = !getInputText().trim();
     }
 
-    // 输入区随内容长高，超过上限就内部滚动
-    function autoGrowInput() {
-        if (ui.panel.classList.contains('folded')) return;
-        ui.input.style.height = 'auto';
-        ui.input.style.height = `${Math.min(ui.input.scrollHeight + 2, 132)}px`;
+    function getInputText() {
+        return textarea?.isConnected ? String(textarea.value || '') : '';
     }
 
-    // 预填的试听文本不是用户草稿，落库时按空处理；灰暗显示提示它不是用户内容
-    let inputIsDefault = false;
-
-    function setInputDefault(isDefault) {
-        inputIsDefault = isDefault;
-        if (isDefault) host.inputTyping = false;
-        ui.input.classList.toggle('is-default', isDefault);
+    function isInputFocused() {
+        return Boolean(textarea?.isConnected) && textarea.getRootNode().activeElement === textarea;
     }
 
-    function saveDraft() {
-        try {
-            localStorage.setItem(DRAFT_STORE_KEY, inputIsDefault ? '' : ui.input.value);
-        } catch {}
+    // 输入框里有用户还没提交的草稿时才挡播放跟随；官方发送后清空输入框会自动解除
+    function hasPendingInput() {
+        if (!host.inputTyping) return false;
+        if (!getInputText().trim()) {
+            host.inputTyping = false;
+            return false;
+        }
+        return true;
     }
 
-    // 选中整条/分段后把文本写进输入框，走和手动输入相同的统计与草稿逻辑
+    // 选中记录/分段或播放跟随时写回官方输入框；必须走原生 setter，React 受控值才不会回弹
     function setInputText(text) {
-        ui.input.value = text;
+        if (!textarea?.isConnected) return;
+        writing = true;
+        try {
+            setNativeValue(textarea, String(text ?? ''));
+        } finally {
+            writing = false;
+        }
         host.inputTyping = false;
-        setInputDefault(false);
-        autoGrowInput();
-        updateComposeMeta();
-        saveDraft();
-    }
-
-    function updateComposeMeta() {
-        // 预填的试听文本不是用户内容，不显示清空入口；空框也无需清空
-        ui.clearInput.hidden = inputIsDefault || !ui.input.value;
         syncGoButton();
     }
 
-    function onInputChange() {
-        autoGrowInput();
-        updateComposeMeta();
-        saveDraft();
-    }
-    ui.input.addEventListener('input', () => {
+    function onUserInput() {
+        if (writing) return;
         host.inputTyping = true;
-        setInputDefault(false);
-        onInputChange();
-    });
-    // 聚焦即进入编辑：清掉预填的试听文本，让用户从空框开始打
-    ui.input.addEventListener('focus', () => {
-        if (!inputIsDefault) return;
-        ui.input.value = '';
+        syncGoButton();
+    }
+
+    function onKeydown(event) {
+        // Ctrl/Cmd+Enter 改成“合成语音”；冒泡阶段拦下，官方 Enter 发送逻辑不受影响
+        if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        submitCompose();
+    }
+
+    // 面板每次重新挂载到官方输入卡片时，把事件绑到当前的 textarea 上
+    function bindInput(next) {
+        if (!next || next === textarea) {
+            syncGoButton();
+            return;
+        }
+        if (textarea) {
+            textarea.removeEventListener('input', onUserInput);
+            textarea.removeEventListener('keydown', onKeydown);
+        }
+        textarea = next;
+        textarea.addEventListener('input', onUserInput);
+        textarea.addEventListener('keydown', onKeydown);
         host.inputTyping = false;
-        setInputDefault(false);
-        autoGrowInput();
-        updateComposeMeta();
-    });
-    // 失焦后仍为空就恢复预填，保证空框里始终有段试听文本；
-    // 正在编辑选中记录/分段时保持空框，不能把试听文本塞进重生成请求
-    ui.input.addEventListener('blur', () => {
-        if (host.selection.record) return;
-        if (ui.input.value.trim()) return;
-        ui.input.value = DEFAULT_INPUT_TEXT;
-        setInputDefault(true);
-        autoGrowInput();
-        updateComposeMeta();
-        saveDraft();
-    });
-    ui.clearInput.addEventListener('click', () => {
-        ui.input.value = '';
-        host.inputTyping = false;
-        setInputDefault(false);
-        host.applySelection(null, null);
-        onInputChange();
-        ui.input.focus();
-    });
+        syncGoButton();
+    }
+
     try {
         const savedVoice = localStorage.getItem(VOICE_STORE_KEY);
         if (savedVoice && [...ui.voice.options].some(option => option.value === savedVoice)) ui.voice.value = savedVoice;
     } catch {}
 
-    try {
-        const draft = localStorage.getItem(DRAFT_STORE_KEY);
-        if (draft && draft.trim()) {
-            ui.input.value = draft;
-            setInputDefault(false);
-        } else {
-            ui.input.value = DEFAULT_INPUT_TEXT;
-            setInputDefault(true);
-        }
-    } catch {
-        ui.input.value = DEFAULT_INPUT_TEXT;
-        setInputDefault(true);
-    }
-    autoGrowInput();
-    updateComposeMeta();
+    // 还没有输入区（会话列表页）时保持禁用，挂载后由 bindInput 刷新
+    syncGoButton();
 
     function submitCompose() {
-        const text = ui.input.value.trim();
+        const text = getInputText().trim();
         if (!text) {
-            ui.input.focus();
+            textarea?.focus();
             return;
         }
         const { voice, rate } = currentTts();
@@ -174,28 +148,18 @@ export function createCompose(host) {
     }
 
     ui.go.addEventListener('click', triggerCompose);
-    // 面板里的按键不要冒泡到站点，避免触发站点自己的输入/发送快捷键
-    ui.compose.addEventListener('keydown', event => {
-        event.stopPropagation();
-        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault();
-            submitCompose();
-        }
-    });
-    ui.compose.addEventListener('keyup', event => event.stopPropagation());
 
     return {
         api: {
             currentTts,
-            autoGrowInput,
-            setInputDefault,
-            saveDraft,
             setInputText,
-            updateComposeMeta,
-            onInputChange,
+            getInputText,
+            isInputFocused,
+            hasPendingInput,
+            bindInput,
+            syncGoButton,
             submitCompose,
             activeSynthesis,
-            syncGoButton,
         },
     };
 }

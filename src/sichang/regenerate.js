@@ -7,7 +7,7 @@ export function createRegenerator(host) {
     const {
         records,
         selection,
-        input,
+        inputText,
         sampleRateOf,
         segmentIndex,
         segmentSpans,
@@ -41,9 +41,9 @@ export function createRegenerator(host) {
         if (!segment || !records.includes(record) || segment.busy) return false;
         if (!keepLock && record.regenerating) return false;
         if (!allowEmpty && (!segment.complete || !segment.bytes)) return false;
-        // 选中这一段时以输入框里的文本为准；否则仍用这一段保存的原文
+        // 选中这一段时以官方输入框里的文本为准；否则仍用这一段保存的原文
         const editing = selection.record === record && selection.segment === segment;
-        const text = String(textOverride ?? (editing ? input.value : segment.text) ?? '').trim();
+        const text = String(textOverride ?? (editing ? inputText?.() ?? '' : segment.text) ?? '').trim();
         if (!text) {
             flashSegmentRegenButton(segment, '文本为空');
             return false;
@@ -151,7 +151,7 @@ export function createRegenerator(host) {
         if (!targets.length) return;
         let texts = null;
         if (selection.record === record && !selection.segment) {
-            const edited = splitText(input.value);
+            const edited = splitText(inputText?.() ?? '');
             if (edited.length === record.segments.length) texts = edited;
         }
         record.regenerating = true;

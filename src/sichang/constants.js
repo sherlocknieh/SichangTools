@@ -43,13 +43,9 @@ export const SEGMENT_HEADER = 'X-Sichang-Segment';
 // 首段先攒这么多秒再起播：开头几个网络块常比实时慢，直接播会在第一句里留小段补白
 export const MIN_START_SECONDS = 0.5;
 
-// 输入框空着时的试听文本：短到一次合成就能听完，方便换音色反复试；
-// 只是占位用的预填，聚焦进入编辑就清掉，也不写入草稿
-export const DEFAULT_INPUT_TEXT = '你好，我是思畅，今天天气不错。';
+// 面板折叠状态；文本直接读写官方输入框，不再单独存草稿或位置
 export const VOICE_STORE_KEY = 'sichang-tts-voice';
 export const PLAYBACK_RATE_STORE_KEY = 'sichang-tts-playback-rate';
 export const FOLD_STORE_KEY = 'sichang-tts-folded';
-export const DRAFT_STORE_KEY = 'sichang-tts-draft';
-export const POS_STORE_KEY = 'sichang-tts-pos';
 // 只用于已下载完成的分段音频；实时时间线不跟随
 export const PLAYBACK_RATES = [1, 1.25, 1.5, 2];
