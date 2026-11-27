@@ -30,6 +30,7 @@ export const ADD_BUBBLE_BUTTON_LABEL = '添加消息气泡';
 - 加号插在「发送消息」左侧，复用官方「发送附件」按钮的 class（没有附件按钮时用发送按钮）；图标是内联 SVG。
 - AI 回复期间官方把发送按钮换成「停止生成」，`findComposer` 找不到发送按钮，点击加号只写控制台，不弹窗。
 - 输入区会随会话切换、回复状态重绘；`MutationObserver` 监听 `document.body` 的 childList，去抖 120ms 后补插，不做轮询。
+- 加号点击只负责开/关菜单，不直接写入；菜单项点击才触发写入。
 - `dispose` 断开 observer、清定时器并移除按钮。
 
 ## 为什么不用官方 addMessage
@@ -43,9 +44,9 @@ export const ADD_BUBBLE_BUTTON_LABEL = '添加消息气泡';
 
 ## 消息与序号
 
-- 角色按**提问/回答轮流**决定：读取服务端全部消息，最后一条是 `user` 就补 `assistant`，否则（包括空会话）补 `user`。
-- 正文取输入框内容 `trim()`。**空内容允许**：官方 import 会跳过空字符串，脚本改用零宽空格 `\u200B` 占位，气泡视觉上为空；角色仍按轮流规则决定。
-- 按钮的 `title` 会提示「提问/回答轮流」。
+- 角色由用户选择：点击加号弹出「添加提问」（`user`）/「添加回答」（`assistant`）两个子选项，选哪个就用哪个角色。
+- 菜单渲染在 `document.body`，`position: fixed` 定位在加号上方，样式写在注入的 `<style id="sichang-add-bubble-style">` 里；点菜单外、Esc、页面滚动或窗口 resize 时关闭。
+- 正文取输入框内容 `trim()`。**空内容允许**：官方 import 会跳过空字符串，脚本改用零宽空格 `\u200B` 占位，气泡视觉上为空。
 - 消息 ID：`msg__<owner>__<newId>`，`owner` 从当前 URL 的 `conv__<owner>__<raw>` 里取。
 - `seq` 使用官方同款 `nextSeq`：从最后一条带 `seq` 的服务端消息往后数，没有 `seq` 时退回本地消息条数。
 - import 每条消息只带 `id/seq/role/content/createdAt/state`，`state` 固定 `complete`。
@@ -80,9 +81,9 @@ export const ADD_BUBBLE_BUTTON_LABEL = '添加消息气泡';
 2026-11-27 在临时云端会话中验证：
 
 - 加号注入在「发送消息」左侧（36×36，与附件按钮同款）；
-- 输入文字后点击加号，气泡立即出现、输入框清空，服务端新增一条 `user` 消息；
-- 连续添加三次，角色依次为 `user → assistant → user`，标题保持第一条提问；
-- 输入框为空时点击加号，服务端新增一条零宽空格消息，页面显示为空气泡；
-- 空会话第一条气泡把标题改成正文前 30 字；
+- 点加号出现「添加提问 / 添加回答」两个选项；选提问写入 `user`，选回答写入 `assistant`，气泡立即出现、输入框清空；
+- 点菜单外和按 Esc 都能关闭菜单；
+- 输入框为空时选择任一选项，服务端新增一条零宽空格消息，页面显示为空气泡；
+- 空会话第一条选择提问时，标题改成正文前 30 字；选择回答则保持「新对话」；
 - 刷新页面后气泡仍在；连续添加第二条得到 `seq=1`，标题保持第一条内容；
 - 测试会话已通过 `DELETE /api/conversations/{id}` 删除。

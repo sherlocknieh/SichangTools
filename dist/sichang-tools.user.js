@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2136
+// @version      2026.11.27.2139
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -3149,6 +3149,38 @@ button:focus-visible, select:focus-visible, input:focus-visible {
         <path d="M12 5v14"></path>
     </svg>
 `;
+	var MENU_SELECTOR = "[data-sichang-add-menu]";
+	var ROLE_SELECTOR = "[data-sichang-add-role]";
+	var MENU_STYLE_ID = "sichang-add-bubble-style";
+	var MENU_CSS = `
+.sichang-add-menu {
+    position: fixed;
+    z-index: 2147483647;
+    min-width: 132px;
+    padding: 4px;
+    border: 1px solid var(--border, rgba(127, 127, 127, .28));
+    border-radius: 12px;
+    background: var(--card, #fff);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
+    color: var(--foreground, #111);
+    font: inherit;
+}
+.sichang-add-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font-size: 13px;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.sichang-add-menu button:hover { background: var(--muted, rgba(127, 127, 127, .15)); }
+.sichang-add-menu button:disabled { opacity: .5; cursor: not-allowed; }
+`;
 	function deriveTitle(content) {
 		const text = String(content || "").trim();
 		return text ? `${text.slice(0, 30)}${text.length > 30 ? "…" : ""}` : "新对话";
@@ -3174,7 +3206,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		const state = {
 			busy: false,
 			observer: null,
-			timer: 0
+			timer: 0,
+			menu: null
 		};
 		let button = null;
 		function setBusy(busy) {
@@ -3182,6 +3215,42 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!button) return;
 			button.disabled = busy;
 			button.setAttribute("aria-busy", busy ? "true" : "false");
+			for (const option of state.menu?.querySelectorAll(ROLE_SELECTOR) ?? []) option.disabled = busy;
+		}
+		function ensureMenuStyle() {
+			if (document.getElementById(MENU_STYLE_ID)) return;
+			const style = document.createElement("style");
+			style.id = MENU_STYLE_ID;
+			style.textContent = MENU_CSS;
+			document.head.appendChild(style);
+		}
+		function closeMenu() {
+			state.menu?.remove();
+			state.menu = null;
+		}
+		function positionMenu() {
+			if (!state.menu || !button?.isConnected) return;
+			const rect = button.getBoundingClientRect();
+			state.menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+			state.menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+		}
+		function openMenu() {
+			ensureMenuStyle();
+			if (state.menu) {
+				positionMenu();
+				return;
+			}
+			const menu = document.createElement("div");
+			menu.setAttribute("data-sichang-add-menu", "");
+			menu.className = "sichang-add-menu";
+			menu.setAttribute("role", "menu");
+			menu.innerHTML = `
+            <button type="button" role="menuitem" data-sichang-add-role="user"${state.busy ? " disabled" : ""}>添加提问</button>
+            <button type="button" role="menuitem" data-sichang-add-role="assistant"${state.busy ? " disabled" : ""}>添加回答</button>
+        `;
+			document.body.appendChild(menu);
+			state.menu = menu;
+			positionMenu();
 		}
 		function ensureButton() {
 			if (button?.isConnected) {
@@ -3199,7 +3268,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const next = (composer.row.querySelector("button[aria-label=\"发送附件\"], button[title=\"发送附件\"]") || composer.send).cloneNode(false);
 			next.setAttribute("data-sichang-add-bubble", "");
 			next.setAttribute("aria-label", ADD_BUBBLE_BUTTON_LABEL);
-			next.title = `${ADD_BUBBLE_BUTTON_LABEL}（提问/回答轮流）`;
+			next.title = `${ADD_BUBBLE_BUTTON_LABEL}（选择提问或回答）`;
+			next.setAttribute("aria-haspopup", "menu");
 			next.innerHTML = PLUS_ICON;
 			composer.send.parentElement.insertBefore(next, composer.send);
 			button = next;
@@ -3210,6 +3280,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			state.timer = window.setTimeout(() => {
 				state.timer = 0;
 				ensureButton();
+				if (state.menu) {
+					if (button?.isConnected) positionMenu();
+					else closeMenu();
+				}
 			}, 120);
 		}
 		function readInput(textarea) {
@@ -3218,7 +3292,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (content.length > 2e4) throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断。`);
 			return content;
 		}
-		async function addBubble() {
+		async function addBubble(role) {
 			const composer = findComposer();
 			if (!composer) throw new Error("AI 正在回复或输入区不可用，请等当前回复结束后再添加。");
 			const content = readInput(composer.textarea);
@@ -3227,7 +3301,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!cid || !owner) throw new Error("当前还没有云端会话，先正常发送一条消息创建会话。");
 			if (owner === "anonymous") throw new Error("当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。");
 			const [meta, messages] = await Promise.all([loadConversation(cid), loadMessages(cid)]);
-			const role = messages[messages.length - 1]?.role === "user" ? "assistant" : "user";
 			const title = !messages.length && role === "user" ? deriveTitle(content) : meta.title;
 			const message = {
 				id: `msg__${owner}__${newId()}`,
@@ -3263,26 +3336,48 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			setNativeValue(composer.textarea, "");
 			return synced;
 		}
-		async function onAddClick(event) {
-			const target = event.target;
-			if (!(target instanceof Element)) return;
-			const hit = target.closest(ADD_BUBBLE_BUTTON_SELECTOR);
-			if (!hit) return;
-			event.preventDefault();
-			event.stopPropagation();
-			event.stopImmediatePropagation();
-			if (state.busy || hit.disabled) return;
+		async function runAdd(role) {
+			closeMenu();
+			if (state.busy) return;
 			setBusy(true);
 			try {
-				if (!await addBubble()) window.location.reload();
+				if (!await addBubble(role)) window.location.reload();
 			} catch (error) {
 				console.warn(`[SichangTools] 添加消息失败：${errorMessage(error)}`);
 			} finally {
 				setBusy(false);
 			}
 		}
+		function onAddClick(event) {
+			const target = event.target;
+			if (!(target instanceof Element)) return;
+			const option = target.closest(ROLE_SELECTOR);
+			if (option) {
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
+				runAdd(option.getAttribute("data-sichang-add-role") === "assistant" ? "assistant" : "user");
+				return;
+			}
+			if (target.closest("button[data-sichang-add-bubble]")) {
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
+				if (state.busy) return;
+				if (state.menu) closeMenu();
+				else openMenu();
+				return;
+			}
+			if (state.menu && !target.closest(MENU_SELECTOR)) closeMenu();
+		}
+		function onMenuKeyDown(event) {
+			if (event.key === "Escape" && state.menu) closeMenu();
+		}
 		ensureButton();
 		document.addEventListener("click", onAddClick, { capture: true });
+		window.addEventListener("keydown", onMenuKeyDown, true);
+		window.addEventListener("scroll", closeMenu, true);
+		window.addEventListener("resize", closeMenu);
 		state.observer = new MutationObserver(scheduleEnsure);
 		state.observer.observe(document.body, {
 			childList: true,
@@ -3292,6 +3387,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			api: {},
 			dispose: () => {
 				document.removeEventListener("click", onAddClick, { capture: true });
+				window.removeEventListener("keydown", onMenuKeyDown, true);
+				window.removeEventListener("scroll", closeMenu, true);
+				window.removeEventListener("resize", closeMenu);
+				closeMenu();
+				document.getElementById(MENU_STYLE_ID)?.remove();
 				state.observer?.disconnect();
 				state.observer = null;
 				if (state.timer) window.clearTimeout(state.timer);
