@@ -32,14 +32,13 @@ export function createPanel() {
     `).join('');
     panel.innerHTML = `
         <div class="head" title="单击收起/展开">
+            <button class="fold" aria-label="收起">−</button>
             <span class="title">语音捕获</span>
-            <span class="count">0</span>
             <span class="spacer"></span>
+            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
             <button class="go" title="读取官方输入框文字合成语音">合成</button>
-            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
-            <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="body">
             <div class="list"></div>
@@ -54,7 +53,6 @@ export function createPanel() {
         head: panel.querySelector('.head'),
         body: panel.querySelector('.body'),
         list: panel.querySelector('.list'),
-        count: panel.querySelector('.count'),
         rateCycle: panel.querySelector('.rateCycle'),
         clear: panel.querySelector('.clear'),
         fold: panel.querySelector('.fold'),

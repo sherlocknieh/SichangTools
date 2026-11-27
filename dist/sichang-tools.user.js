@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2242
+// @version      2026.11.27.2252
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -115,18 +115,6 @@
     user-select: none;
 }
 .title { font-size: 12px; font-weight: 600; flex: none; }
-.count {
-    flex: none;
-    min-width: 18px;
-    padding: 0 5px;
-    height: 16px;
-    line-height: 16px;
-    text-align: center;
-    border-radius: 8px;
-    background: #3a3a44;
-    color: #c9c9d1;
-    font-size: 10px;
-}
 .spacer { flex: 1; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 button:disabled { opacity: .4; cursor: default; pointer-events: none; }
@@ -408,18 +396,17 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		panel.className = "panel";
 		panel.innerHTML = `
         <div class="head" title="单击收起/展开">
+            <button class="fold" aria-label="收起">−</button>
             <span class="title">语音捕获</span>
-            <span class="count">0</span>
             <span class="spacer"></span>
+            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
         <optgroup label="${group.label}">
             ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
         </optgroup>
     `).join("")}</select>
             <button class="go" title="读取官方输入框文字合成语音">合成</button>
-            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
-            <button class="fold" aria-label="收起">−</button>
         </div>
         <div class="body">
             <div class="list"></div>
@@ -434,7 +421,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			head: panel.querySelector(".head"),
 			body: panel.querySelector(".body"),
 			list: panel.querySelector(".list"),
-			count: panel.querySelector(".count"),
 			rateCycle: panel.querySelector(".rateCycle"),
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
@@ -1032,7 +1018,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		}
 		function updateCount() {
 			resetClearConfirm();
-			ui.count.textContent = String(records.length);
 			ui.clear.hidden = records.length === 0;
 			ui.panel.classList.toggle("empty", records.length === 0);
 		}

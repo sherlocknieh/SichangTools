@@ -31,7 +31,6 @@ export function createRecordView(host) {
 
     function updateCount() {
         resetClearConfirm();
-        ui.count.textContent = String(records.length);
         ui.clear.hidden = records.length === 0;
         // 没有记录时不展开 body，面板只保留顶栏；提示文字也省掉，避免占高度
         ui.panel.classList.toggle('empty', records.length === 0);

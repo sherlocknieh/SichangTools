@@ -22,18 +22,6 @@ export const PANEL_CSS = `
     user-select: none;
 }
 .title { font-size: 12px; font-weight: 600; flex: none; }
-.count {
-    flex: none;
-    min-width: 18px;
-    padding: 0 5px;
-    height: 16px;
-    line-height: 16px;
-    text-align: center;
-    border-radius: 8px;
-    background: #3a3a44;
-    color: #c9c9d1;
-    font-size: 10px;
-}
 .spacer { flex: 1; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 button:disabled { opacity: .4; cursor: default; pointer-events: none; }
