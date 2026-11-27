@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2139
+// @version      2026.11.27.2143
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -2725,9 +2725,90 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		if (error?.status === 404) return "这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。";
 		return error?.message || String(error);
 	}
+	var MEDIA_FIELDS = [
+		["attachments", "附件"],
+		["files", "附件"],
+		["images", "图片"],
+		["generatedImages", "图片"],
+		["imageSuggestions", "图片"]
+	];
+	var MEDIA_URL_KEYS = [
+		"url",
+		"src",
+		"href",
+		"imageUrl",
+		"image",
+		"fileUrl",
+		"downloadUrl"
+	];
+	var IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#]|$)/i;
 	function messageText(content) {
 		const text = String(content ?? "");
 		return text.length ? text : "​";
+	}
+	function mediaItemsOf(message) {
+		const items = [];
+		for (const [key, label] of MEDIA_FIELDS) for (const holder of [message, message?.meta]) {
+			const value = holder?.[key];
+			if (Array.isArray(value)) for (const item of value) items.push({
+				label,
+				item
+			});
+		}
+		return items;
+	}
+	function mediaUrlOf(item) {
+		if (typeof item === "string") return item;
+		if (!item || typeof item !== "object") return "";
+		for (const key of MEDIA_URL_KEYS) {
+			const value = item[key];
+			if (typeof value === "string" && value) return value;
+			if (value && typeof value === "object" && typeof value.url === "string" && value.url) return value.url;
+		}
+		return "";
+	}
+	function absoluteMediaUrl(url) {
+		const raw = String(url || "").trim();
+		if (!raw || raw.startsWith("data:") || raw.startsWith("blob:")) return "";
+		try {
+			return new URL(raw, window.location.origin).href;
+		} catch {
+			return "";
+		}
+	}
+	function escapeMarkdownUrl(url) {
+		return url.replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
+	}
+	function isImageMedia(item, url, fallbackLabel) {
+		const type = typeof item === "object" ? String(item?.type || item?.mimeType || item?.mime || item?.contentType || "") : "";
+		if (type.startsWith("image/")) return true;
+		if (IMAGE_URL_RE.test(url)) return true;
+		return fallbackLabel === "图片" && !type;
+	}
+	function messageMediaMarkdown(message) {
+		const seen = new Set();
+		const lines = [];
+		for (const { label, item } of mediaItemsOf(message)) {
+			const url = absoluteMediaUrl(mediaUrlOf(item));
+			if (!url || seen.has(url)) continue;
+			seen.add(url);
+			const name = typeof item === "object" ? String(item?.name || item?.filename || item?.title || "") : "";
+			const image = isImageMedia(item, url, label);
+			const text = (image ? name || "图片" : name || label).replace(/[[\]]/g, "");
+			lines.push(`${image ? "!" : ""}[${text}](${escapeMarkdownUrl(url)})`);
+		}
+		return lines.join("\n");
+	}
+	function copyMessageText(message) {
+		const text = messageText(message.content);
+		const media = messageMediaMarkdown(message);
+		if (!media) return text;
+		const merged = `${text}\n\n${media}`;
+		if (merged.length > 2e4) {
+			console.warn(`[SichangTools] 消息 #${message.seq} 附加媒体链接后超出导入上限，只复制正文。`);
+			return text;
+		}
+		return merged;
 	}
 	function roleOf(message) {
 		return message.role === "system" ? "system" : message.role === "user" ? "user" : "assistant";
@@ -2762,7 +2843,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			id: `msg__${owner}__${newId()}`,
 			seq: index,
 			role: roleOf(message),
-			content: messageText(message.content),
+			content: copyMessageText(message),
 			createdAt: message.createdAt || now
 		}));
 		let created = false;
@@ -2790,7 +2871,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		for (const message of messages) context.addMessage(created.id, {
 			id: `msg__${owner}__${newId()}`,
 			role: roleOf(message),
-			content: messageText(message.content),
+			content: copyMessageText(message),
 			createdAt: message.createdAt || Date.now(),
 			...message.model ? { model: message.model } : {}
 		});
@@ -2820,6 +2901,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 	}
 	async function copyConversation({ sourceCid, context, meta, messages, title }) {
 		const owner = conversationOwner(sourceCid);
+		const withMedia = messages.filter((message) => messageMediaMarkdown(message)).length;
+		if (withMedia) console.info(`[SichangTools] 已把 ${withMedia} 条消息里的图片/附件地址以 Markdown 链接写入副本。`);
 		try {
 			return await copyConversationByApi({
 				owner,

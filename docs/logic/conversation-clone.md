@@ -89,7 +89,7 @@ import 请求体沿用迁移格式，每条消息只带 `id/seq/role/model/conte
 
 空正文不再拒绝：官方 import 会跳过空字符串，`conversation-copy.js` 用零宽空格（`\u200B`）占位，保证气泡仍能复制。
 
-**没有确认框**：点击即执行。分支变体、思考、图片建议、网页来源、附件/生成图不会复制，丢失项只写控制台。
+**没有确认框**：点击即执行。分支变体、思考、网页来源不会复制；图片和附件不会作为官方结构复制，但会把地址以 Markdown 追加到正文（见下节）。
 
 写入后重新读取副本，逐条比对 `content` 与 `role`，条数也必须一致；不一致视为失败。失败时：
 
@@ -98,6 +98,20 @@ import 请求体沿用迁移格式，每条消息只带 `id/seq/role/model/conte
 - 原会话全程只读，不会改动。
 
 成功后 `window.location.assign('/chat/<newId>')` 整页进入副本，确保官方侧栏和消息按服务端最新状态渲染。
+
+## 图片与附件
+
+官方 import 不接收 `meta`/`attachments`，图片、生成图和上传附件无法作为官方结构写入副本。`conversation-copy.js` 的 `messageMediaMarkdown()` 会从消息里找出这些地址，按 Markdown 追加到正文末尾：
+
+- 识别字段：`attachments`、`files`、`images`、`generatedImages`、`imageSuggestions`，消息本体和 `message.meta` 下的同名数组都读；
+- 每个条目的地址依次取 `url`/`src`/`href`/`imageUrl`/`image`/`fileUrl`/`downloadUrl`，也兼容 `{ image: { url } }` 这类嵌套写法；
+- 相对地址按 `window.location.origin` 补全，`data:`/`blob:` 地址离开页面即失效，直接跳过；
+- 按扩展名（或条目的 `type`/`mimeType`）判断是否图片：图片写成 `![名称](地址)`，其余写成 `[名称](地址)`；地址里的空格和括号会转义；
+- 同一地址在同一消息里只写一次；
+- 追加后正文超过 `CONVERSATION_IMPORT_MAX_CHARS` 时只复制纯文本并写控制台，避免整次复刻失败；
+- 有媒体链接时复制入口写一条 `[SichangTools]` 控制台日志，说明保留了几条消息里的媒体地址。
+
+这样副本里能继续看到原图，但链接不是官方附件结构，不能重新编辑或基于它再次生成；单条删除的尾部重建不走这条逻辑，仍会丢附件。
 
 ## 本地匿名回退
 
@@ -111,7 +125,7 @@ import 请求体沿用迁移格式，每条消息只带 `id/seq/role/model/conte
 ## 限制
 
 - 官方 import 一次最多 500 条消息，超过上限的会话需要先拆分。
-- import 不接收 `meta`/`attachments`，副本只保留纯文本历史。
+- import 不接收 `meta`/`attachments`，副本只保留纯文本历史；图片/附件仅以 Markdown 链接形式保留。
 - 依赖官方顶栏 class、按钮 aria-label、create/import 请求格式；任一项改版都会表现为按钮缺失或克隆失败。
 - 没有失败弹窗，出错时看控制台的 `[SichangTools]` 前缀。
 
