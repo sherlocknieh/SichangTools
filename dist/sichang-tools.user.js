@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2039
+// @version      2026.11.27.2044
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持对话结构管理与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -2892,7 +2892,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
                 <button type="button" data-action="insert-after">插入到此后</button>
                 <button type="button" data-action="delete">删除选中</button>
                 <button type="button" data-action="delete-turn">删除整轮</button>
-                <button type="button" data-action="move">移动/嫁接</button>
+                <button type="button" data-action="move">移动整轮</button>
                 <button type="button" data-action="move-end" hidden>移到末尾</button>
                 <button type="button" data-action="undo" hidden>撤销</button>
                 <button type="button" data-action="reload" class="primary" hidden>刷新页面</button>
@@ -3021,6 +3021,29 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			return false;
 		}
+		function turnRange(messages, from, to) {
+			let start = from;
+			while (start > 0 && messages[start].role !== "user") start -= 1;
+			let end = to;
+			while (end + 1 < messages.length && messages[end + 1].role !== "user") end += 1;
+			return {
+				start,
+				end
+			};
+		}
+		function expandedMoveRange(fresh, operation) {
+			const start = indexOfId(fresh, operation.startId);
+			const end = indexOfId(fresh, operation.endId || operation.startId);
+			if (start < 0 || end < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
+			const [from, to] = start <= end ? [start, end] : [end, start];
+			return turnRange(fresh, from, to);
+		}
+		function normalizedMoveTarget(fresh, operation) {
+			const target = indexOfId(fresh, operation.targetId);
+			if (target < 0) throw new Error("目标消息已不存在，请刷新后重试。");
+			const turn = turnRange(fresh, target, target);
+			return operation.position === "after" ? turn.end : turn.start;
+		}
 		function buildDesired(fresh, meta, operation) {
 			const idx = (id) => indexOfId(fresh, id);
 			if (operation.type === "restore") return operation.messages.map((message) => ({ ...message }));
@@ -3043,16 +3066,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				];
 			}
 			if (operation.type === "move" || operation.type === "move-end") {
-				const start = idx(operation.startId);
-				const end = idx(operation.endId || operation.startId);
-				if (start < 0 || end < 0) throw new Error("选中的消息已不存在，请刷新后重试。");
-				const [from, to] = start <= end ? [start, end] : [end, start];
+				const { start: from, end: to } = expandedMoveRange(fresh, operation);
 				const range = fresh.slice(from, to + 1);
 				const rest = [...fresh.slice(0, from), ...fresh.slice(to + 1)];
 				if (operation.type === "move-end") return [...rest, ...range];
-				const target = idx(operation.targetId);
-				if (target < 0) throw new Error("目标消息已不存在，请刷新后重试。");
-				if (target >= from && target <= to) throw new Error("目标不能落在被移动的区间内。");
+				const target = normalizedMoveTarget(fresh, operation);
+				if (target >= from && target <= to) throw new Error("目标不能落在被移动的整轮内。");
 				const at = target > to ? target - range.length : target;
 				const insertAt = operation.position === "after" ? at + 1 : at;
 				return [
@@ -3127,11 +3146,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				return operation.source === "official" ? `接管官方删除：${label}` : label;
 			}
 			if (operation.type === "delete-turn") return "删除选中消息所在的整轮";
-			if (operation.type === "move") {
+			if (operation.type === "move" || operation.type === "move-end") {
+				const { start, end } = expandedMoveRange(fresh, operation);
+				const range = start === end ? `#${fresh[start].seq}` : `#${fresh[start].seq}–#${fresh[end].seq}`;
+				if (operation.type === "move-end") return `把整轮 ${range} 移到末尾`;
+				const target = normalizedMoveTarget(fresh, operation);
 				const where = operation.position === "after" ? "之后" : "之前";
-				return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到 #${seqOf(operation.targetId)} ${where}`;
+				return `把整轮 ${range} 移到 #${fresh[target].seq} ${where}`;
 			}
-			if (operation.type === "move-end") return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到末尾`;
 			if (operation.type === "restore") return "撤销到上一次结构修改之前";
 			return firstDiff < fresh.length ? `从 #${fresh[firstDiff].seq} 起重建` : `在末尾追加 ${desired.length - fresh.length} 条`;
 		}
@@ -3352,7 +3374,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				row.draggable = true;
 				row.setAttribute("role", "option");
 				row.setAttribute("aria-selected", range && index >= range.from && index <= range.to ? "true" : "false");
-				row.title = `#${message.seq} ${ROLE_LABELS[message.role] || message.role}\n拖动调整顺序；选中区间时拖动选区内的行可整段移动\n${String(message.content || "").slice(0, 600)}`;
+				row.title = `#${message.seq} ${ROLE_LABELS[message.role] || message.role}\n拖动按整轮排序：提问会带着对应回答一起移动\n${String(message.content || "").slice(0, 600)}`;
 				if (range && index >= range.from && index <= range.to) row.classList.add("selected");
 				if (range && index === range.from) row.classList.add("selStart");
 				if (range && index === range.to) row.classList.add("selEnd");
@@ -3386,13 +3408,13 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			const range = selectionRange();
 			if (!range) {
-				dom.selection.textContent = "先点一条；Shift+点选区间；拖动行可排序";
+				dom.selection.textContent = "先点一条；Shift+点选区间；拖动行按整轮排序";
 				return;
 			}
 			const from = state.messages[range.from];
 			const to = state.messages[range.to];
 			const selected = range.from === range.to ? `已选 #${from.seq} ${ROLE_LABELS[from.role] || from.role}` : `已选 #${from.seq}–#${to.seq}（${range.to - range.from + 1} 条）`;
-			dom.selection.textContent = `${selected}；拖动可排序`;
+			dom.selection.textContent = `${selected}；拖动按整轮排序（回答随提问）`;
 		}
 		function renderForm() {
 			if (!state.form) {
@@ -3444,7 +3466,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			dom.undo.hidden = state.history.length === 0;
 			dom.undo.textContent = state.history.length > 1 ? `撤销 (${state.history.length})` : "撤销";
 			dom.moveEnd.hidden = !state.pendingMove;
-			dom.move.textContent = state.pendingMove ? "取消移动" : "移动/嫁接";
+			dom.move.textContent = state.pendingMove ? "取消移动" : "移动整轮";
 			const hasSelection = Boolean(selectionRange());
 			for (const button of overlay.querySelectorAll("button[data-action]")) {
 				const action = button.dataset.action;
@@ -3575,7 +3597,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			state.pendingMove = true;
 			state.form = "";
 			state.formRendered = "";
-			setStatus("点击目标位置：选中的消息会插入到目标消息之前。");
+			setStatus("点击目标位置：选中的整轮（提问及其后的回答）会插入到目标所在整轮之前。");
 		}
 		function moveEnd() {
 			const range = selectionRange();
@@ -3623,6 +3645,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			dragState = null;
 			renderSelection();
 		}
+		function normalizedDropIndex(messages, index, after) {
+			const turn = turnRange(messages, index, index);
+			return after ? turn.end : turn.start;
+		}
 		function moveWouldChange(from, to, target, after) {
 			if (target >= from && target <= to) return false;
 			const size = to - from + 1;
@@ -3641,8 +3667,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (index < 0) return;
 			const range = selectionRange();
 			const dragsSelection = Boolean(range && index >= range.from && index <= range.to);
-			const from = dragsSelection ? range.from : index;
-			const to = dragsSelection ? range.to : index;
+			const rawFrom = dragsSelection ? range.from : index;
+			const rawTo = dragsSelection ? range.to : index;
+			const { start: from, end: to } = turnRange(state.messages, rawFrom, rawTo);
 			dragState = {
 				from,
 				to,
@@ -3657,7 +3684,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			const rows = dom.list.querySelectorAll(".convRow");
 			for (let i = from; i <= to; i += 1) rows[i]?.classList.add("dragging");
-			dom.selection.textContent = `拖动中：落到上半区插到之前，下半区插到之后${dragsSelection ? `（整段 ${to - from + 1} 条）` : ""}`;
+			dom.selection.textContent = `拖动中：整轮 ${to - from + 1} 条一起移动；落到上半区插到之前，下半区插到之后`;
 		}
 		function onDragOver(event) {
 			if (!dragState || state.busy) return;
@@ -3681,6 +3708,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				dragState.targetId = "";
 				return;
 			}
+			targetIndex = normalizedDropIndex(state.messages, targetIndex, after);
 			clearDragMarks();
 			const rows = dom.list.querySelectorAll(".convRow");
 			for (let i = dragState.from; i <= dragState.to; i += 1) rows[i]?.classList.add("dragging");
