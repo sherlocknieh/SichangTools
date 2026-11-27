@@ -49,6 +49,7 @@ export const INSERT_BUBBLE_BUTTON_LABEL = '在下方插入消息';
 - 正文取输入框内容 `trim()`。**空内容允许**：官方 import 会跳过空字符串，脚本改用零宽空格 `\u200B` 占位，气泡视觉上为空。
 - 消息 ID：`msg__<owner>__<newId>`，`owner` 从当前 URL 的 `conv__<owner>__<raw>` 里取。
 - 追加时 `seq` 使用官方同款 `nextSeq`：从最后一条带 `seq` 的服务端消息往后数，没有 `seq` 时退回本地消息条数。
+- 插入时 `seq` 表示排序位置，`createdAt` 表示时间位置；官方页面刷新后按 `createdAt` 合并排序，所以新消息时间必须紧跟在目标消息之后（目标时间 + 1ms），否则会掉到会话底部。
 - import 每条消息只带 `id/seq/role/content/createdAt/state`，`state` 固定 `complete`。
 
 ## 插入到指定消息下方
@@ -59,9 +60,10 @@ export const INSERT_BUBBLE_BUTTON_LABEL = '在下方插入消息';
 2. 菜单项点击后重新确认按钮列表、官方 `activeConversation.messages` 数量与快照一致；不一致就直接拒绝，不猜位置；
 3. 用官方消息 ID（找不到时退回 `seq`）在完整消息列表里定位目标，读取会话元数据和全部消息；
 4. 新消息 `seq` 取原尾部第一条的 `seq`，原尾部整体后移一位并连续重排；目标已经是最后一条时用 `nextSeq` 追加；
-5. 如果目标后面还有消息，先 `DELETE /api/conversations/{id}/messages/{原尾部第一条 id}` 截断，再 `import` 新消息与原尾部；
-6. 重新读取消息，校验 ID、正文和角色顺序；成功后把新消息插进官方 React 本地数组并校正尾部 `seq`；
-7. 清空输入框。React 同步失败时整页刷新。
+5. 新消息 `createdAt` 取目标消息时间 + 1ms；官方刷新后会按 `createdAt` 合并排序本地与服务端消息，只改 `seq` 不够。尾部保持原时间，只有和目标撞在同一毫秒时才依次后移 1ms；
+6. 如果目标后面还有消息，先 `DELETE /api/conversations/{id}/messages/{原尾部第一条 id}` 截断，再 `import` 新消息与原尾部；
+7. 重新读取消息，校验 ID、正文和角色顺序；成功后把新消息插进官方 React 本地数组并校正尾部 `seq/createdAt`；
+8. 清空输入框。React 同步失败时整页刷新。
 
 失败恢复沿用删除逻辑：DELETE 已经发出后出错，会把原尾部按原 `seq` 重新 import 补回；补回失败自动下载 `sichang-message-backup-*.json` 备份。调整尾部顺序会重建目标之后的消息，这些消息原先的变体、思考内容、网页来源和附件元数据会丢失（import 不接收这些字段）。
 
@@ -84,7 +86,7 @@ export const INSERT_BUBBLE_BUTTON_LABEL = '在下方插入消息';
 插入成功后：
 
 1. 也用 `officialContext(被点消息的复制按钮)` 取同一份 context；
-2. 遍历官方本地 `activeConversation.messages`，保留原对象（媒体、变体等结构不被重导入破坏），只按服务端最新值校正被重排的 `seq`；
+2. 遍历官方本地 `activeConversation.messages`，保留原对象（媒体、变体等结构不被重导入破坏），只按服务端最新值校正被重排的 `seq/createdAt`；
 3. 在目标消息后插入服务端返回的新消息，调用 `upsertConversation`；
 4. 清空输入框。
 
@@ -110,4 +112,4 @@ export const INSERT_BUBBLE_BUTTON_LABEL = '在下方插入消息';
 - 刷新页面后气泡仍在；连续添加第二条得到 `seq=1`，标题保持第一条内容；
 - 测试会话已通过 `DELETE /api/conversations/{id}` 删除。
 
-消息操作行插入加号尚未在真机验证；下次打开站点时应确认按钮位置、中间插入、尾部 `seq` 重排、即时同步，以及删除失败后的补回流程。
+消息操作行插入加号尚未在真机验证；下次打开站点时应确认按钮位置、中间插入、尾部 `seq/createdAt` 重排、刷新后的顺序、即时同步，以及删除失败后的补回流程。

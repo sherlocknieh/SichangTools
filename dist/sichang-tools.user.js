@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2335
+// @version      2026.11.28.0026
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -3681,10 +3681,12 @@ button[${BUSY_ATTR}]::before {
 			for (const message of conversation.messages) {
 				const server = latest.get(message.id);
 				if (!server) continue;
-				next.push(server.seq === message.seq ? message : {
+				const moved = server.seq !== message.seq || server.createdAt !== message.createdAt;
+				next.push(moved ? {
 					...message,
-					seq: server.seq
-				});
+					seq: server.seq,
+					createdAt: server.createdAt
+				} : message);
 				if (message.id === targetId) {
 					next.push({ ...inserted });
 					insertedFound = true;
@@ -3695,7 +3697,7 @@ button[${BUSY_ATTR}]::before {
 				context.upsertConversation({
 					...conversation,
 					messages: next,
-					updatedAt: inserted.createdAt
+					updatedAt: Date.now()
 				});
 				return true;
 			} catch {
@@ -3728,20 +3730,29 @@ button[${BUSY_ATTR}]::before {
 			if (index < 0 && typeof local.seq === "number") index = fresh.findIndex((message) => message.seq === local.seq);
 			if (index < 0) throw new Error("在会话里找不到这条消息，请刷新后重试。");
 			const insertSeq = fresh[index + 1] ? fresh[index + 1].seq : nextSeq(fresh);
+			const targetAt = Number(fresh[index].createdAt);
+			const insertedAt = (Number.isFinite(targetAt) && targetAt > 0 ? targetAt : Date.now()) + 1;
 			const message = {
 				id: `msg__${owner}__${newId()}`,
 				seq: insertSeq,
 				role,
 				content: messageText(content),
-				createdAt: Date.now(),
+				createdAt: insertedAt,
 				state: "complete"
 			};
 			const originalTail = fresh.slice(index + 1);
-			const tail = originalTail.map((item, offset) => ({
-				...item,
-				seq: insertSeq + 1 + offset,
-				content: messageText(item.content)
-			}));
+			let previousAt = insertedAt;
+			const tail = originalTail.map((item, offset) => {
+				const originalAt = Number(item.createdAt) || 0;
+				const createdAt = originalAt > previousAt ? originalAt : previousAt + 1;
+				previousAt = createdAt;
+				return {
+					...item,
+					seq: insertSeq + 1 + offset,
+					createdAt,
+					content: messageText(item.content)
+				};
+			});
 			const tooLong = tail.find((item) => String(item.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
 			if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
 			const expected = [

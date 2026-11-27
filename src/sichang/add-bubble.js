@@ -311,8 +311,9 @@ export function createAddBubble() {
         for (const message of conversation.messages) {
             const server = latest.get(message.id);
             if (!server) continue;
-            // 保留官方前端的本地对象（媒体、变体等结构不被重导入破坏），只校正被重排后的 seq。
-            next.push(server.seq === message.seq ? message : { ...message, seq: server.seq });
+            // 保留官方前端的本地对象（媒体、变体等结构不被重导入破坏），只校正被重排后的 seq/createdAt。
+            const moved = server.seq !== message.seq || server.createdAt !== message.createdAt;
+            next.push(moved ? { ...message, seq: server.seq, createdAt: server.createdAt } : message);
             if (message.id === targetId) {
                 // 新消息在服务端已经存在；用服务端对象插到目标消息后面。
                 next.push({ ...inserted });
@@ -321,7 +322,7 @@ export function createAddBubble() {
         }
         if (!insertedFound) return false;
         try {
-            context.upsertConversation({ ...conversation, messages: next, updatedAt: inserted.createdAt });
+            context.upsertConversation({ ...conversation, messages: next, updatedAt: Date.now() });
             return true;
         } catch {
             return false;
@@ -372,20 +373,33 @@ export function createAddBubble() {
 
         // 新消息占用原尾部第一条的位置；没有尾部时接在最后。
         const insertSeq = fresh[index + 1] ? fresh[index + 1].seq : nextSeq(fresh);
+        // 官方刷新后会按 createdAt 合并并排序消息，而不是只信 seq；
+        // 新消息必须紧跟目标的时间，否则刷新后会掉到会话底部。
+        const targetAt = Number(fresh[index].createdAt);
+        const baseAt = Number.isFinite(targetAt) && targetAt > 0 ? targetAt : Date.now();
+        const insertedAt = baseAt + 1;
         const message = {
             id: `msg__${owner}__${newId()}`,
             seq: insertSeq,
             role,
             content: messageText(content),
-            createdAt: Date.now(),
+            createdAt: insertedAt,
             state: 'complete',
         };
         const originalTail = fresh.slice(index + 1);
-        const tail = originalTail.map((item, offset) => ({
-            ...item,
-            seq: insertSeq + 1 + offset,
-            content: messageText(item.content),
-        }));
+        // 尾部保持原时间；和目标撞在同一毫秒时按顺序往后挪 1ms，保证合并排序正确。
+        let previousAt = insertedAt;
+        const tail = originalTail.map((item, offset) => {
+            const originalAt = Number(item.createdAt) || 0;
+            const createdAt = originalAt > previousAt ? originalAt : previousAt + 1;
+            previousAt = createdAt;
+            return {
+                ...item,
+                seq: insertSeq + 1 + offset,
+                createdAt,
+                content: messageText(item.content),
+            };
+        });
         const tooLong = tail.find(item => String(item.content || '').length > CONVERSATION_IMPORT_MAX_CHARS);
         if (tooLong) {
             throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
