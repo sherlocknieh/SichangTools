@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2135
+// @version      2026.11.27.2136
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -3199,7 +3199,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const next = (composer.row.querySelector("button[aria-label=\"发送附件\"], button[title=\"发送附件\"]") || composer.send).cloneNode(false);
 			next.setAttribute("data-sichang-add-bubble", "");
 			next.setAttribute("aria-label", ADD_BUBBLE_BUTTON_LABEL);
-			next.title = ADD_BUBBLE_BUTTON_LABEL;
+			next.title = `${ADD_BUBBLE_BUTTON_LABEL}（提问/回答轮流）`;
 			next.innerHTML = PLUS_ICON;
 			composer.send.parentElement.insertBefore(next, composer.send);
 			button = next;
@@ -3227,11 +3227,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!cid || !owner) throw new Error("当前还没有云端会话，先正常发送一条消息创建会话。");
 			if (owner === "anonymous") throw new Error("当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。");
 			const [meta, messages] = await Promise.all([loadConversation(cid), loadMessages(cid)]);
-			const title = messages.length ? meta.title : deriveTitle(content);
+			const role = messages[messages.length - 1]?.role === "user" ? "assistant" : "user";
+			const title = !messages.length && role === "user" ? deriveTitle(content) : meta.title;
 			const message = {
 				id: `msg__${owner}__${newId()}`,
 				seq: nextSeq(messages),
-				role: "user",
+				role,
 				content: messageText(content),
 				createdAt: Date.now(),
 				state: "complete"

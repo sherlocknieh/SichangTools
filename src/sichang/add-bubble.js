@@ -85,7 +85,7 @@ export function createAddBubble() {
         const next = source.cloneNode(false);
         next.setAttribute('data-sichang-add-bubble', '');
         next.setAttribute('aria-label', ADD_BUBBLE_BUTTON_LABEL);
-        next.title = ADD_BUBBLE_BUTTON_LABEL;
+        next.title = `${ADD_BUBBLE_BUTTON_LABEL}（提问/回答轮流）`;
         next.innerHTML = PLUS_ICON;
         composer.send.parentElement.insertBefore(next, composer.send);
         button = next;
@@ -123,11 +123,15 @@ export function createAddBubble() {
             loadConversation(cid),
             loadMessages(cid),
         ]);
-        const title = messages.length ? meta.title : deriveTitle(content);
+        // 提问/回答轮流：最后一条是提问就补回答，否则补提问。
+        const last = messages[messages.length - 1];
+        const role = last?.role === 'user' ? 'assistant' : 'user';
+        // 官方只在空会话的第一条用户消息上自动定标题；回答开头不抢标题。
+        const title = !messages.length && role === 'user' ? deriveTitle(content) : meta.title;
         const message = {
             id: `msg__${owner}__${newId()}`,
             seq: nextSeq(messages),
-            role: 'user',
+            role,
             content: messageText(content),
             createdAt: Date.now(),
             state: 'complete',
