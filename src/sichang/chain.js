@@ -122,24 +122,12 @@ export function createChain(host) {
             audio.addEventListener('timeupdate', () => {
                 if (!Number.isFinite(audio.duration) || !audio.duration) return;
                 host.updateSegmentTime(record, segment, audio.currentTime, audio.duration);
-                if (record.expandedSegment === segment) host.syncSegmentPanel(record, segment);
+                host.syncSegmentButtons(record, segment);
             });
             segment.audio = audio;
         }
         segment.audio.playbackRate = host.playbackRate;
         return segment.audio;
-    }
-
-    function toggleSegmentPlay(record, segment) {
-        // 正在重生成的那一段不能播，其他段不受影响
-        if (!segment.complete || !segment.bytes || segment.busy) return;
-        if (record.state === 'failed') return;
-        if (segment.audio && !segment.audio.paused) {
-            segment.audio.pause();
-            return;
-        }
-        // 点哪段就从哪段开始顺序播放；面板随播放段落切换
-        playChainSegment(record, segment);
     }
 
     // 把这条记录从实时时间线切换到分段顺序播放。合成中只暂停声音，不中止合成
@@ -226,7 +214,7 @@ export function createChain(host) {
                 if (record.state === 'capturing' && next.status !== 'failed' && next.status !== 'skipped') {
                     record.chain = { waitingFor: next };
                     const previous = record.segments[fromIndex];
-                    if (previous) host.syncSegmentPanel(record, previous);
+                    if (previous) host.syncSegmentButtons(record, previous);
                     syncRecordPlayButton(record);
                     return;
                 }
@@ -309,7 +297,6 @@ export function createChain(host) {
             ensureSegmentUrl,
             clearSegmentAudio,
             ensureSegmentAudio,
-            toggleSegmentPlay,
             prepareRecordPlayback,
             playChainSegment,
             switchToChainAt,

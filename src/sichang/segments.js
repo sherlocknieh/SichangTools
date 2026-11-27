@@ -10,7 +10,6 @@ export const SEGMENT_ICONS = {
     pause: '⏸',
     stop: '■',
     replay: '↺',
-    download: '↓',
     synthStop: '✕',
     waiting: '…',
 };
@@ -113,13 +112,11 @@ export function createSegments(host) {
     // 分段按钮的可用性只看这一段自己的状态：一完成就能点，不必等整条合成结束。
     // 重生成只锁目标段（busy）；其他段 PCM 独立，仍可照常播放
     function refreshSegmentControls(record) {
-        const playable = record.state !== 'failed';
         for (const segment of record.segments) {
-            segment.playButton.disabled = !playable || segment.busy || !segment.complete || !segment.bytes;
             syncSegmentRegenButton(record, segment);
             if (segment.deleteButton) segment.deleteButton.disabled = Boolean(record.regenerating) || segment.busy;
-            segment.downloadButton.disabled = !segment.bytes || segment.busy;
-            if (record.expandedSegment === segment) syncSegmentPanel(record, segment);
+            // 播放/停止按钮在分段行里常驻，每次刷新都要同步，不能只在展开时更新
+            syncSegmentButtons(record, segment);
         }
         // 整条 WAV 在重生成期间还是旧的，下载先锁住，避免拿到过期文件
         record.downloadButton.disabled = Boolean(record.regenerating) || !record.url;
@@ -198,7 +195,7 @@ export function createSegments(host) {
             updateSegmentTime(record, segment, segment.audio.currentTime, segment.audio.duration);
         }
         if (switching) keepSegmentVisible(segment);
-        syncSegmentPanel(record, segment);
+        syncSegmentButtons(record, segment);
     }
 
     function closeSegmentPanel(record, segment) {
@@ -221,16 +218,17 @@ export function createSegments(host) {
         else if (boxRect.bottom > bodyRect.bottom) body.scrollTop += boxRect.bottom - bodyRect.bottom;
     }
 
-    function syncSegmentPanel(record, segment) {
-        if (record.expandedSegment !== segment) return;
-        const live = segment.mode === 'live';
+    // 分段行和展开面板共用这批按钮：播放/暂停和停止在行里，重播/停止合成在面板里。
+    // 行内按钮不依赖面板展开，所以这里按当前播放模式直接刷新，不做展开判断
+    function syncSegmentButtons(record, segment) {
+        const live = panelModeFor(record, segment) === 'live';
         const capturing = live && record.state === 'capturing';
         const synthesizing = record.state === 'capturing' && Boolean(record.session);
         const paused = record.state === 'paused';
         const audio = live ? null : segment.audio;
         const playing = Boolean(audio && !audio.paused);
-        const waiting = !live && record.chain?.waitingFor && record.expandedSegment === segment;
-        const enabled = segment.complete && segment.bytes && !segment.busy && record.state !== 'failed';
+        const waiting = !live && record.chain?.waitingFor === segment;
+        const enabled = record.state !== 'failed' && segment.complete && segment.bytes && !segment.busy;
 
         if (live) {
             segment.toggleButton.hidden = capturing;
@@ -268,7 +266,6 @@ export function createSegments(host) {
             segment.replayButton.hidden = false;
             segment.replayButton.disabled = !enabled;
         }
-        segment.downloadButton.disabled = !segment.bytes || segment.busy;
     }
 
     function setAction(button, icon, label) {
@@ -278,11 +275,7 @@ export function createSegments(host) {
     }
 
     function syncSegmentPlayState(segment) {
-        const playing = Boolean(segment.audio && !segment.audio.paused);
-        segment.playButton.textContent = playing ? '⏸' : '▶';
-        segment.playButton.setAttribute('aria-label', playing ? '暂停顺序播放' : '从本段开始顺序播放');
-        segment.playButton.classList.toggle('playing', playing);
-        if (segment.record?.expandedSegment === segment) syncSegmentPanel(segment.record, segment);
+        if (segment.record) syncSegmentButtons(segment.record, segment);
     }
 
     return {
@@ -305,7 +298,7 @@ export function createSegments(host) {
             openSegmentPanel,
             closeSegmentPanel,
             keepSegmentVisible,
-            syncSegmentPanel,
+            syncSegmentButtons,
             syncSegmentPlayState,
         },
     };

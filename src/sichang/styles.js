@@ -184,18 +184,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg[data-state="pending"] .segDur { color: #6f6f79; }
 .seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 .seg[data-state="failed"] .segDur, .seg[data-state="skipped"] .segDur { color: #c97a7a; }
-.segPlay {
-    flex: none;
-    width: 20px;
-    height: 18px;
-    padding: 0;
-    border-radius: 5px;
-    background: #2a2a32;
-    color: #c9c9d1;
-    font-size: 9px;
-}
-.segPlay:hover { background: #35353f; color: #fff; }
-.segPlay.playing { background: #2d4a33; color: #a9e6b8; }
 /* 单段「重生成」紧挨播放键：图标按钮，目标与状态放 title/aria */
 .segRegen {
     flex: none;

@@ -75,11 +75,6 @@ export function createRecordView(host) {
         const segDuration = document.createElement('span');
         segDuration.className = 'segDur';
         segDuration.textContent = '待合成';
-        const playButton = document.createElement('button');
-        playButton.className = 'segPlay';
-        playButton.textContent = '▶';
-        playButton.setAttribute('aria-label', '从本段开始顺序播放');
-        playButton.disabled = true;
         // 单段重生成紧挨该段的播放键，用图标避免挤占文本宽度
         const regenButton = document.createElement('button');
         regenButton.className = 'segRegen';
@@ -116,11 +111,13 @@ export function createRecordView(host) {
         const voiceEl = document.createElement('span');
         voiceEl.className = 'segVoice';
         voiceEl.textContent = voiceName(record.tts.voice);
+        // 播放/暂停与停止按钮放在分段行里，不用展开面板就能控制当前播放
         const toggleButton = document.createElement('button');
         toggleButton.className = 'segAction';
         toggleButton.textContent = SEGMENT_ICONS.play;
         toggleButton.title = '播放本段';
         toggleButton.setAttribute('aria-label', '播放本段');
+        toggleButton.disabled = true;
         const stopButton = document.createElement('button');
         stopButton.className = 'segAction';
         stopButton.textContent = SEGMENT_ICONS.stop;
@@ -138,23 +135,16 @@ export function createRecordView(host) {
         replayButton.textContent = SEGMENT_ICONS.replay;
         replayButton.title = '重播本段';
         replayButton.setAttribute('aria-label', '重播本段');
-        const downloadButton = document.createElement('button');
-        downloadButton.className = 'segAction';
-        downloadButton.textContent = SEGMENT_ICONS.download;
-        downloadButton.title = '下载本段';
-        downloadButton.setAttribute('aria-label', '下载本段');
-        downloadButton.disabled = true;
-        controls.append(toggleButton, timeEl, voiceEl, bar, stopButton, replayButton, downloadButton, synthButton);
+        controls.append(timeEl, voiceEl, bar, replayButton, synthButton);
         panel.append(controls);
 
-        row.append(caret, idx, label, segDuration, playButton, regenButton, deleteButton);
+        row.append(caret, idx, label, segDuration, toggleButton, stopButton, regenButton, deleteButton);
         box.append(row, panel);
         if (after) record.segList.insertBefore(box, after.box.nextSibling);
         else record.segList.appendChild(box);
         Object.assign(segment, {
-            box, row, idx, label, durationEl: segDuration, playButton, regenButton, deleteButton, caret,
+            box, row, idx, label, durationEl: segDuration, regenButton, deleteButton, caret,
             panel, bar, fill, timeEl, voiceEl, toggleButton, stopButton, synthButton, replayButton,
-            downloadButton,
         });
         host.setSegmentVoice(segment, record.tts.voice);
         host.setSegmentLabel(segment, text);
@@ -169,7 +159,6 @@ export function createRecordView(host) {
             }
             host.openSegmentPanel(record, segment, host.panelModeFor(record, segment));
         });
-        playButton.addEventListener('click', () => host.toggleSegmentPlay(record, segment));
         regenButton.addEventListener('click', event => {
             event.stopPropagation();
             host.regenerateSegment(record, segment);
@@ -179,7 +168,7 @@ export function createRecordView(host) {
             deleteSegment(record, segment);
         });
         toggleButton.addEventListener('click', () => {
-            if (segment.mode === 'live') {
+            if (host.panelModeFor(record, segment) === 'live') {
                 if (record.state === 'paused') host.resumeTimeline(record);
                 else host.pauseTimeline(record);
                 return;
@@ -192,7 +181,7 @@ export function createRecordView(host) {
             host.playChainSegment(record, segment);
         });
         stopButton.addEventListener('click', () => {
-            if (segment.mode === 'live') {
+            if (host.panelModeFor(record, segment) === 'live') {
                 if (record.state === 'capturing') record.session?.stop();
                 else host.stopTimeline(record);
                 return;
@@ -219,7 +208,6 @@ export function createRecordView(host) {
             }
             host.playChainSegment(record, segment);
         });
-        downloadButton.addEventListener('click', () => host.downloadSegment(record, segment));
         // 分段进度条自己跳转；还没播过时按需建 audio，停在目标位置
         bar.addEventListener('click', event => {
             if (!segment.complete || !segment.bytes || segment.busy) return;
@@ -463,17 +451,6 @@ export function createRecordView(host) {
         link.remove();
     }
 
-    function downloadSegment(record, segment) {
-        if (!segment.bytes) return;
-        const link = document.createElement('a');
-        link.href = host.ensureSegmentUrl(record, segment);
-        const stamp = new Date(record.time).toISOString().replace(/[:.]/g, '-');
-        link.download = `sichang-tts-${stamp}-seg${host.segmentIndex(record, segment) + 1}.wav`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-    }
-
     // 某一段被替换后整条 WAV 要重拼：旧的 blob URL 作废，播放位置归零
     function rebuildRecord(record) {
         if (record.url) URL.revokeObjectURL(record.url);
@@ -526,7 +503,6 @@ export function createRecordView(host) {
             deleteSegment,
             removeRecord,
             downloadRecord,
-            downloadSegment,
             rebuildRecord,
         },
         dispose: () => {

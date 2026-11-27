@@ -56,8 +56,9 @@ export function createTimeline(host) {
         }
         if (record.expandedSegment === segment && segment.mode === 'live') {
             host.updateSegmentTime(record, segment, position - start, duration);
-            host.syncSegmentPanel(record, segment);
         }
+        // 行内播放/停止按钮要跟着实时播放的状态走（播放、停止合成）
+        host.syncSegmentButtons(record, segment);
     }
 
     function startTimelineTicker(record, session) {
@@ -153,7 +154,7 @@ export function createTimeline(host) {
         record.timelineTicker = null;
         record.timelineTimer = null;
         record.state = 'paused';
-        if (record.expandedSegment?.mode === 'live') host.syncSegmentPanel(record, record.expandedSegment);
+        if (record.autoSegment) host.syncSegmentButtons(record, record.autoSegment);
         host.syncRecordPlayButton(record);
     }
 
