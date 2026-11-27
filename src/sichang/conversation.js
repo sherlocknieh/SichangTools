@@ -93,6 +93,8 @@ export function createConversation(host) {
     const events = new AbortController();
     const read = new AbortController();
     let formFocus = false;
+    // 拖拽期间只记录源区间和目标位置，真正写入仍走 applyOperation，避免另造一套移动逻辑。
+    let dragState = null;
 
     // ---------- 读取官方数据 ----------
 
@@ -253,7 +255,8 @@ export function createConversation(host) {
             if (target < 0) throw new Error('目标消息已不存在，请刷新后重试。');
             if (target >= from && target <= to) throw new Error('目标不能落在被移动的区间内。');
             const at = target > to ? target - range.length : target;
-            return [...rest.slice(0, at), ...range, ...rest.slice(at)];
+            const insertAt = operation.position === 'after' ? at + 1 : at;
+            return [...rest.slice(0, insertAt), ...range, ...rest.slice(insertAt)];
         }
         // delete / delete-turn
         let start = idx(operation.startId);
@@ -334,7 +337,8 @@ export function createConversation(host) {
             return '删除选中消息所在的整轮';
         }
         if (operation.type === 'move') {
-            return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到 #${seqOf(operation.targetId)} 之前`;
+            const where = operation.position === 'after' ? '之后' : '之前';
+            return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到 #${seqOf(operation.targetId)} ${where}`;
         }
         if (operation.type === 'move-end') {
             return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到末尾`;
@@ -602,9 +606,10 @@ export function createConversation(host) {
             row.className = 'convRow';
             row.dataset.id = message.id;
             row.tabIndex = 0;
+            row.draggable = true;
             row.setAttribute('role', 'option');
             row.setAttribute('aria-selected', range && index >= range.from && index <= range.to ? 'true' : 'false');
-            row.title = `#${message.seq} ${ROLE_LABELS[message.role] || message.role}\n${String(message.content || '').slice(0, 600)}`;
+            row.title = `#${message.seq} ${ROLE_LABELS[message.role] || message.role}\n拖动调整顺序；选中区间时拖动选区内的行可整段移动\n${String(message.content || '').slice(0, 600)}`;
             if (range && index >= range.from && index <= range.to) row.classList.add('selected');
             if (range && index === range.from) row.classList.add('selStart');
             if (range && index === range.to) row.classList.add('selEnd');
@@ -646,14 +651,15 @@ export function createConversation(host) {
         }
         const range = selectionRange();
         if (!range) {
-            dom.selection.textContent = '先点一条；Shift+点可选区间';
+            dom.selection.textContent = '先点一条；Shift+点选区间；拖动行可排序';
             return;
         }
         const from = state.messages[range.from];
         const to = state.messages[range.to];
-        dom.selection.textContent = range.from === range.to
+        const selected = range.from === range.to
             ? `已选 #${from.seq} ${ROLE_LABELS[from.role] || from.role}`
             : `已选 #${from.seq}–#${to.seq}（${range.to - range.from + 1} 条）`;
+        dom.selection.textContent = `${selected}；拖动可排序`;
     }
 
     function renderForm() {
@@ -778,6 +784,7 @@ export function createConversation(host) {
         state.dirty = false;
         state.history = [];
         state.recovery = '';
+        dragState = null;
         overlay.hidden = false;
         render();
         if (state.cid) refresh();
@@ -794,6 +801,7 @@ export function createConversation(host) {
         state.open = false;
         state.form = '';
         state.formRendered = '';
+        endDrag();
         render();
     }
 
@@ -896,6 +904,112 @@ export function createConversation(host) {
         setStatus('');
     }
 
+    function clearDragMarks() {
+        for (const row of dom.list.querySelectorAll('.convRow')) {
+            row.classList.remove('dragging', 'dropBefore', 'dropAfter');
+        }
+    }
+
+    function endDrag() {
+        clearDragMarks();
+        dragState = null;
+        renderSelection();
+    }
+
+    function moveWouldChange(from, to, target, after) {
+        if (target >= from && target <= to) return false;
+        const size = to - from + 1;
+        const restIndex = target > to ? target - size : target;
+        const insertAt = after ? restIndex + 1 : restIndex;
+        return insertAt !== from;
+    }
+
+    function onDragStart(event) {
+        const target = event.target;
+        if (!(target instanceof Element) || state.busy) {
+            if (state.busy) event.preventDefault();
+            return;
+        }
+        const row = target.closest('.convRow');
+        if (!row || !dom.list.contains(row)) return;
+        const index = indexOfId(state.messages, row.dataset.id);
+        if (index < 0) return;
+
+        const range = selectionRange();
+        const dragsSelection = Boolean(range && index >= range.from && index <= range.to);
+        const from = dragsSelection ? range.from : index;
+        const to = dragsSelection ? range.to : index;
+        dragState = {
+            from,
+            to,
+            startId: state.messages[from].id,
+            endId: state.messages[to].id,
+            targetId: '',
+            after: false,
+        };
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            // Firefox 需要写入数据才会启动拖拽；内容本身不参与解析。
+            event.dataTransfer.setData('text/plain', `${from}-${to}`);
+        }
+        const rows = dom.list.querySelectorAll('.convRow');
+        for (let i = from; i <= to; i += 1) rows[i]?.classList.add('dragging');
+        dom.selection.textContent = `拖动中：落到上半区插到之前，下半区插到之后${dragsSelection ? `（整段 ${to - from + 1} 条）` : ''}`;
+    }
+
+    function onDragOver(event) {
+        if (!dragState || state.busy) return;
+        const target = event.target;
+        if (!(target instanceof Element) || !dom.list.contains(target)) return;
+        event.preventDefault();
+
+        const row = target.closest('.convRow');
+        let targetIndex = -1;
+        let after = false;
+        if (row) {
+            targetIndex = indexOfId(state.messages, row.dataset.id);
+            if (targetIndex < 0) return;
+            const rect = row.getBoundingClientRect();
+            after = event.clientY >= rect.top + rect.height / 2;
+        } else if (target === dom.list) {
+            // 列表下方留白表示追加到末尾。
+            targetIndex = state.messages.length - 1;
+            after = true;
+        }
+        if (targetIndex < 0) {
+            clearDragMarks();
+            dragState.targetId = '';
+            return;
+        }
+
+        clearDragMarks();
+        const rows = dom.list.querySelectorAll('.convRow');
+        for (let i = dragState.from; i <= dragState.to; i += 1) rows[i]?.classList.add('dragging');
+        if (!moveWouldChange(dragState.from, dragState.to, targetIndex, after)) {
+            dragState.targetId = '';
+            return;
+        }
+        dragState.targetId = state.messages[targetIndex].id;
+        dragState.after = after;
+        rows[targetIndex]?.classList.add(after ? 'dropAfter' : 'dropBefore');
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    }
+
+    function onDrop(event) {
+        if (!dragState) return;
+        event.preventDefault();
+        const { startId, endId, targetId, after } = dragState;
+        endDrag();
+        if (!targetId) return;
+        applyOperation({
+            type: 'move',
+            startId,
+            endId,
+            targetId,
+            position: after ? 'after' : 'before',
+        });
+    }
+
     function downloadRecovery() {
         if (!state.recovery) return;
         const blob = new Blob([state.recovery], { type: 'application/json' });
@@ -984,6 +1098,10 @@ export function createConversation(host) {
     overlay.addEventListener('keydown', onRowKeydown, { signal: events.signal });
     overlay.addEventListener('input', onInput, { signal: events.signal });
     overlay.addEventListener('change', onChange, { signal: events.signal });
+    dom.list.addEventListener('dragstart', onDragStart, { signal: events.signal });
+    dom.list.addEventListener('dragover', onDragOver, { signal: events.signal });
+    dom.list.addEventListener('drop', onDrop, { signal: events.signal });
+    dom.list.addEventListener('dragend', endDrag, { signal: events.signal });
     ui.conv.addEventListener('click', open, { signal: events.signal });
     document.addEventListener('keydown', onKeydown, { signal: events.signal });
     // 在 React/官方处理器之前截获官方「删除消息」，不能让官方原生“从这条起全部删除”先执行。

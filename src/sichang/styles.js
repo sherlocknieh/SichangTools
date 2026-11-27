@@ -414,18 +414,33 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .convList { flex: 1; min-height: 90px; overflow: auto; }
 .convEmpty { padding: 24px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .convRow {
+    position: relative;
     display: flex;
     align-items: flex-start;
     gap: 7px;
     padding: 6px 12px;
     border-bottom: 1px solid #202026;
-    cursor: pointer;
+    cursor: grab;
 }
 .convRow:hover { background: #1b1b20; }
 .convRow.selected { background: #243027; }
 .convRow.selStart { box-shadow: inset 3px 0 #5a9e6b; }
 .convRow.selEnd { box-shadow: inset -3px 0 #5a9e6b; }
 .convRow.selStart.selEnd { box-shadow: inset 3px 0 #5a9e6b, inset -3px 0 #5a9e6b; }
+.convRow.dragging { opacity: .45; cursor: grabbing; }
+.convRow.dropBefore::after,
+.convRow.dropAfter::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    height: 2px;
+    border-radius: 2px;
+    background: #5a9e6b;
+    pointer-events: none;
+}
+.convRow.dropBefore::after { top: -1px; }
+.convRow.dropAfter::after { bottom: -1px; }
 .convIdx {
     flex: none;
     width: 34px;

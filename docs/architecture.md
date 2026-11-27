@@ -48,7 +48,7 @@ src/
   - `timeline.js`：实时时间线的 Web Audio 调度、暂停继续与跳转。
   - `synthesis.js`：按句分段请求 `/api/tts`、边收边播、整条 WAV 落盘与 `fetch` 接管。
   - `regenerate.js`：单段重生成与整条重生成流程；整条重生成原地复用逐段流程，不新建记录。记录/播放/UI 的读写通过 `createRegenerator(host)` 注入。
-  - `conversation.js`：对话结构管理。官方没有单条消息增删改接口，模块用「从分歧点 DELETE 截断 + `/api/conversations/import` 补回尾部」实现删除中间消息、插入和移动；重导入保留 id/seq/role/content/model/createdAt，会丢掉 variants/thinking/图片建议/网页来源/附件。只在云端对话可用。登录云端对话还会在 `window` 捕获阶段接管官方「删除消息」按钮，阻止官方原生截断，按官方消息文档顺序安全映射消息 ID，复用同一安全单条删除流程，成功后重载页面；映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。
+  - `conversation.js`：对话结构管理。官方没有单条消息增删改接口，模块用「从分歧点 DELETE 截断 + `/api/conversations/import` 补回尾部」实现删除中间消息、插入、拖拽排序和移动；重导入保留 id/seq/role/content/model/createdAt，会丢掉 variants/thinking/图片建议/网页来源/附件。只在云端对话可用。登录云端对话还会在 `window` 捕获阶段接管官方「删除消息」按钮，阻止官方原生截断，按官方消息文档顺序安全映射消息 ID，复用同一安全单条删除流程，成功后重载页面；映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
   - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长格式化，纯函数。
   - `constants.js`：接口路径 `TTS_PATH`、分段阈值、`localStorage` key 等契约常量。

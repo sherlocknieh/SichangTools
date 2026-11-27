@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2025
+// @version      2026.11.27.2039
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持对话结构管理与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -498,18 +498,33 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .convList { flex: 1; min-height: 90px; overflow: auto; }
 .convEmpty { padding: 24px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .convRow {
+    position: relative;
     display: flex;
     align-items: flex-start;
     gap: 7px;
     padding: 6px 12px;
     border-bottom: 1px solid #202026;
-    cursor: pointer;
+    cursor: grab;
 }
 .convRow:hover { background: #1b1b20; }
 .convRow.selected { background: #243027; }
 .convRow.selStart { box-shadow: inset 3px 0 #5a9e6b; }
 .convRow.selEnd { box-shadow: inset -3px 0 #5a9e6b; }
 .convRow.selStart.selEnd { box-shadow: inset 3px 0 #5a9e6b, inset -3px 0 #5a9e6b; }
+.convRow.dragging { opacity: .45; cursor: grabbing; }
+.convRow.dropBefore::after,
+.convRow.dropAfter::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    height: 2px;
+    border-radius: 2px;
+    background: #5a9e6b;
+    pointer-events: none;
+}
+.convRow.dropBefore::after { top: -1px; }
+.convRow.dropAfter::after { bottom: -1px; }
 .convIdx {
     flex: none;
     width: 34px;
@@ -2900,6 +2915,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		const events = new AbortController();
 		const read = new AbortController();
 		let formFocus = false;
+		let dragState = null;
 		function readConversationId() {
 			const match = CHAT_PATH_RE.exec(window.location.pathname);
 			return match ? decodeURIComponent(match[1]) : "";
@@ -3038,10 +3054,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (target < 0) throw new Error("目标消息已不存在，请刷新后重试。");
 				if (target >= from && target <= to) throw new Error("目标不能落在被移动的区间内。");
 				const at = target > to ? target - range.length : target;
+				const insertAt = operation.position === "after" ? at + 1 : at;
 				return [
-					...rest.slice(0, at),
+					...rest.slice(0, insertAt),
 					...range,
-					...rest.slice(at)
+					...rest.slice(insertAt)
 				];
 			}
 			let start = idx(operation.startId);
@@ -3110,7 +3127,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				return operation.source === "official" ? `接管官方删除：${label}` : label;
 			}
 			if (operation.type === "delete-turn") return "删除选中消息所在的整轮";
-			if (operation.type === "move") return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到 #${seqOf(operation.targetId)} 之前`;
+			if (operation.type === "move") {
+				const where = operation.position === "after" ? "之后" : "之前";
+				return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到 #${seqOf(operation.targetId)} ${where}`;
+			}
 			if (operation.type === "move-end") return `把 #${seqOf(operation.startId)}–#${seqOf(operation.endId || operation.startId)} 移到末尾`;
 			if (operation.type === "restore") return "撤销到上一次结构修改之前";
 			return firstDiff < fresh.length ? `从 #${fresh[firstDiff].seq} 起重建` : `在末尾追加 ${desired.length - fresh.length} 条`;
@@ -3329,9 +3349,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				row.className = "convRow";
 				row.dataset.id = message.id;
 				row.tabIndex = 0;
+				row.draggable = true;
 				row.setAttribute("role", "option");
 				row.setAttribute("aria-selected", range && index >= range.from && index <= range.to ? "true" : "false");
-				row.title = `#${message.seq} ${ROLE_LABELS[message.role] || message.role}\n${String(message.content || "").slice(0, 600)}`;
+				row.title = `#${message.seq} ${ROLE_LABELS[message.role] || message.role}\n拖动调整顺序；选中区间时拖动选区内的行可整段移动\n${String(message.content || "").slice(0, 600)}`;
 				if (range && index >= range.from && index <= range.to) row.classList.add("selected");
 				if (range && index === range.from) row.classList.add("selStart");
 				if (range && index === range.to) row.classList.add("selEnd");
@@ -3365,12 +3386,13 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			const range = selectionRange();
 			if (!range) {
-				dom.selection.textContent = "先点一条；Shift+点可选区间";
+				dom.selection.textContent = "先点一条；Shift+点选区间；拖动行可排序";
 				return;
 			}
 			const from = state.messages[range.from];
 			const to = state.messages[range.to];
-			dom.selection.textContent = range.from === range.to ? `已选 #${from.seq} ${ROLE_LABELS[from.role] || from.role}` : `已选 #${from.seq}–#${to.seq}（${range.to - range.from + 1} 条）`;
+			const selected = range.from === range.to ? `已选 #${from.seq} ${ROLE_LABELS[from.role] || from.role}` : `已选 #${from.seq}–#${to.seq}（${range.to - range.from + 1} 条）`;
+			dom.selection.textContent = `${selected}；拖动可排序`;
 		}
 		function renderForm() {
 			if (!state.form) {
@@ -3484,6 +3506,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			state.dirty = false;
 			state.history = [];
 			state.recovery = "";
+			dragState = null;
 			overlay.hidden = false;
 			render();
 			if (state.cid) refresh();
@@ -3499,6 +3522,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			state.open = false;
 			state.form = "";
 			state.formRendered = "";
+			endDrag();
 			render();
 		}
 		function startInsert(position) {
@@ -3591,6 +3615,98 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			state.scrollToId = id;
 			setStatus("");
 		}
+		function clearDragMarks() {
+			for (const row of dom.list.querySelectorAll(".convRow")) row.classList.remove("dragging", "dropBefore", "dropAfter");
+		}
+		function endDrag() {
+			clearDragMarks();
+			dragState = null;
+			renderSelection();
+		}
+		function moveWouldChange(from, to, target, after) {
+			if (target >= from && target <= to) return false;
+			const size = to - from + 1;
+			const restIndex = target > to ? target - size : target;
+			return (after ? restIndex + 1 : restIndex) !== from;
+		}
+		function onDragStart(event) {
+			const target = event.target;
+			if (!(target instanceof Element) || state.busy) {
+				if (state.busy) event.preventDefault();
+				return;
+			}
+			const row = target.closest(".convRow");
+			if (!row || !dom.list.contains(row)) return;
+			const index = indexOfId(state.messages, row.dataset.id);
+			if (index < 0) return;
+			const range = selectionRange();
+			const dragsSelection = Boolean(range && index >= range.from && index <= range.to);
+			const from = dragsSelection ? range.from : index;
+			const to = dragsSelection ? range.to : index;
+			dragState = {
+				from,
+				to,
+				startId: state.messages[from].id,
+				endId: state.messages[to].id,
+				targetId: "",
+				after: false
+			};
+			if (event.dataTransfer) {
+				event.dataTransfer.effectAllowed = "move";
+				event.dataTransfer.setData("text/plain", `${from}-${to}`);
+			}
+			const rows = dom.list.querySelectorAll(".convRow");
+			for (let i = from; i <= to; i += 1) rows[i]?.classList.add("dragging");
+			dom.selection.textContent = `拖动中：落到上半区插到之前，下半区插到之后${dragsSelection ? `（整段 ${to - from + 1} 条）` : ""}`;
+		}
+		function onDragOver(event) {
+			if (!dragState || state.busy) return;
+			const target = event.target;
+			if (!(target instanceof Element) || !dom.list.contains(target)) return;
+			event.preventDefault();
+			const row = target.closest(".convRow");
+			let targetIndex = -1;
+			let after = false;
+			if (row) {
+				targetIndex = indexOfId(state.messages, row.dataset.id);
+				if (targetIndex < 0) return;
+				const rect = row.getBoundingClientRect();
+				after = event.clientY >= rect.top + rect.height / 2;
+			} else if (target === dom.list) {
+				targetIndex = state.messages.length - 1;
+				after = true;
+			}
+			if (targetIndex < 0) {
+				clearDragMarks();
+				dragState.targetId = "";
+				return;
+			}
+			clearDragMarks();
+			const rows = dom.list.querySelectorAll(".convRow");
+			for (let i = dragState.from; i <= dragState.to; i += 1) rows[i]?.classList.add("dragging");
+			if (!moveWouldChange(dragState.from, dragState.to, targetIndex, after)) {
+				dragState.targetId = "";
+				return;
+			}
+			dragState.targetId = state.messages[targetIndex].id;
+			dragState.after = after;
+			rows[targetIndex]?.classList.add(after ? "dropAfter" : "dropBefore");
+			if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+		}
+		function onDrop(event) {
+			if (!dragState) return;
+			event.preventDefault();
+			const { startId, endId, targetId, after } = dragState;
+			endDrag();
+			if (!targetId) return;
+			applyOperation({
+				type: "move",
+				startId,
+				endId,
+				targetId,
+				position: after ? "after" : "before"
+			});
+		}
 		function downloadRecovery() {
 			if (!state.recovery) return;
 			const blob = new Blob([state.recovery], { type: "application/json" });
@@ -3671,6 +3787,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		overlay.addEventListener("keydown", onRowKeydown, { signal: events.signal });
 		overlay.addEventListener("input", onInput, { signal: events.signal });
 		overlay.addEventListener("change", onChange, { signal: events.signal });
+		dom.list.addEventListener("dragstart", onDragStart, { signal: events.signal });
+		dom.list.addEventListener("dragover", onDragOver, { signal: events.signal });
+		dom.list.addEventListener("drop", onDrop, { signal: events.signal });
+		dom.list.addEventListener("dragend", endDrag, { signal: events.signal });
 		ui.conv.addEventListener("click", open, { signal: events.signal });
 		document.addEventListener("keydown", onKeydown, { signal: events.signal });
 		window.addEventListener("click", onOfficialDeleteClick, {
