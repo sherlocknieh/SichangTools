@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2225
+// @version      2026.11.27.2234
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -93,7 +93,7 @@
 		return label.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "") || label;
 	}
 	var PANEL_CSS = `
-:host { all: initial; display: block; margin: 0 0 6px; }
+:host { all: initial; display: block; margin: 0 0 10px; }
 .panel {
     box-sizing: border-box;
     width: 100%;
@@ -114,8 +114,9 @@
     cursor: pointer;
     user-select: none;
 }
-.title { font-size: 12px; font-weight: 600; }
+.title { font-size: 12px; font-weight: 600; flex: none; }
 .count {
+    flex: none;
     min-width: 18px;
     padding: 0 5px;
     height: 16px;
@@ -140,33 +141,34 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .head .rateCycle { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
 .head .clear.confirm { background: #3a2226; color: #ff9a9a; }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
-.compose { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-top: 1px solid #232329; }
-.compose select:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
-.compose .row { display: flex; align-items: center; gap: 6px; }
-.compose select {
-    height: 26px;
-    padding: 0 6px;
+.head .voice {
+    flex: 0 1 132px;
+    min-width: 64px;
+    height: 24px;
+    padding: 0 4px;
     border: 1px solid #2c2c33;
     border-radius: 6px;
     background: #1d1d22;
     color: #d5d5dd;
-    font: 12px system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font: 11px system-ui, -apple-system, 'Segoe UI', sans-serif;
+    cursor: pointer;
 }
-.compose select { flex: 1; min-width: 0; }
-.compose .go {
-    height: 26px;
-    padding: 0 14px;
+.head .voice:focus { outline: 1px solid #4a4a56; border-color: #4a4a56; }
+.head .go {
+    flex: none;
+    height: 24px;
+    padding: 0 10px;
     border-radius: 6px;
     background: #2d4a33;
     color: #a9e6b8;
-    font-size: 12px;
+    font-size: 11px;
 }
-.compose .go:hover { background: #3a5f43; color: #fff; }
-.compose .go.paused { background: #4a3a22; color: #f0cd8a; }
-.compose .go.paused:hover { background: #5a4728; color: #fff; }
-.panel.folded .compose, .panel.folded .body { display: none; }
+.head .go:hover { background: #3a5f43; color: #fff; }
+.head .go.paused { background: #4a3a22; color: #f0cd8a; }
+.head .go.paused:hover { background: #5a4728; color: #fff; }
+.panel.folded .body { display: none; }
 .panel.folded .head { border-bottom: 0; }
-.body { max-height: min(360px, 42vh); overflow: auto; }
+.body { max-height: min(360px, 42vh); overflow: auto; padding-bottom: 6px; }
 .empty { padding: 16px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
 .item { padding: 7px 10px 8px; border-bottom: 1px solid #232329; }
 .item:last-child { border-bottom: 0; }
@@ -407,6 +409,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <span class="title">语音捕获</span>
             <span class="count">0</span>
             <span class="spacer"></span>
+            <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
+        <optgroup label="${group.label}">
+            ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
+        </optgroup>
+    `).join("")}</select>
+            <button class="go" title="读取官方输入框文字合成语音">合成</button>
             <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
             <button class="fold" aria-label="收起">−</button>
@@ -414,16 +422,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
         <div class="body">
             <div class="empty">点消息下的「朗读」，或在官方输入框写文字后点「合成」</div>
             <div class="list"></div>
-        </div>
-        <div class="compose">
-            <div class="row">
-                <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
-        <optgroup label="${group.label}">
-            ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
-        </optgroup>
-    `).join("")}</select>
-                <button class="go" title="读取官方输入框文字合成语音">合成</button>
-            </div>
         </div>
     `;
 		root.appendChild(panel);
@@ -440,7 +438,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			rateCycle: panel.querySelector(".rateCycle"),
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
-			compose: panel.querySelector(".compose"),
 			voice: panel.querySelector(".voice"),
 			go: panel.querySelector(".go"),
 			dispose() {
