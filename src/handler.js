@@ -10,6 +10,7 @@ import { createRecordView } from './sichang/record-view.js';
 import { createSegments } from './sichang/segments.js';
 import { createChain } from './sichang/chain.js';
 import { createTimeline } from './sichang/timeline.js';
+import { createPlaybackBar } from './sichang/playback-bar.js';
 import { createSynthesis } from './sichang/synthesis.js';
 import { createRegenerator } from './sichang/regenerate.js';
 import { createMessageDelete } from './sichang/delete-message.js';
@@ -89,6 +90,8 @@ export default function initSichangHandler() {
     adopt(createSegments(host));
     adopt(createChain(host));
     adopt(createTimeline(host));
+    // 顶栏播放/暂停与倍速只在一路声音活跃时出现，依赖上面的时间线与顺序播放
+    adopt(createPlaybackBar(host));
     // 重生成流程拆到 regenerate.js：这里只注入记录、播放和 UI 同步能力
     Object.assign(host, createRegenerator({
         records: host.records,
@@ -135,6 +138,7 @@ export default function initSichangHandler() {
         if (PLAYBACK_RATES.includes(savedRate)) host.playbackRate = savedRate;
     } catch {}
     syncPlaybackRateButton();
+    host.syncPlaybackBar();
     ui.rateCycle.addEventListener('click', () => {
         const index = PLAYBACK_RATES.indexOf(host.playbackRate);
         host.playbackRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];

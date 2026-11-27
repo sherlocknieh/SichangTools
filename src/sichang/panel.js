@@ -36,7 +36,8 @@ export function createPanel() {
             <button class="fold" aria-label="收起">−</button>
             <span class="title">语音合成</span>
             <span class="spacer"></span>
-            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
+            <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">⏸</button>
+            <button class="rateCycle" hidden aria-label="播放倍速" title="播放倍速">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
             <button class="go" title="读取官方输入框文字合成语音">合成</button>
             <button class="clear" hidden aria-label="清空全部记录">清空</button>
@@ -56,6 +57,7 @@ export function createPanel() {
         body: panel.querySelector('.body'),
         list: panel.querySelector('.list'),
         rateCycle: panel.querySelector('.rateCycle'),
+        playToggle: panel.querySelector('.playToggle'),
         clear: panel.querySelector('.clear'),
         fold: panel.querySelector('.fold'),
         voice: panel.querySelector('.voice'),

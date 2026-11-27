@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2327
+// @version      2026.11.27.2331
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -127,6 +127,8 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .head button:hover { background: #2c2c33; color: #fff; }
 .head .rateCycle { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
+.head .playToggle { min-width: 26px; text-align: center; font-size: 11px; }
+.head .playToggle.playing { color: #a9e6b8; }
 .head .clear.confirm { background: #3a2226; color: #ff9a9a; }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
 .head .voice {
@@ -399,7 +401,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <button class="fold" aria-label="收起">−</button>
             <span class="title">语音合成</span>
             <span class="spacer"></span>
-            <button class="rateCycle" aria-label="播放倍速" title="播放倍速（仅已下载音频）">1×</button>
+            <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">⏸</button>
+            <button class="rateCycle" hidden aria-label="播放倍速" title="播放倍速">1×</button>
             <select class="voice" aria-label="音色">${VOICE_GROUPS.map((group) => `
         <optgroup label="${group.label}">
             ${group.voices.map((voice) => `<option value="${voice.id}">${voice.label}</option>`).join("")}
@@ -421,6 +424,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			body: panel.querySelector(".body"),
 			list: panel.querySelector(".list"),
 			rateCycle: panel.querySelector(".rateCycle"),
+			playToggle: panel.querySelector(".playToggle"),
 			clear: panel.querySelector(".clear"),
 			fold: panel.querySelector(".fold"),
 			voice: panel.querySelector(".voice"),
@@ -1415,6 +1419,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (record.url) URL.revokeObjectURL(record.url);
 			record.row.remove();
 			updateCount();
+			host.syncPlaybackBar?.();
 		}
 		function downloadRecord(record) {
 			if (!record.url) return;
@@ -1499,6 +1504,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			return false;
 		}
 		function syncRecordPlayButton(record) {
+			host.syncPlaybackBar?.();
 			const button = record?.playButton;
 			if (!button) return;
 			const waiting = Boolean(record.chain?.waitingFor);
@@ -2021,6 +2027,95 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			schedulePcm,
 			stopSources
 		} };
+	}
+	function createPlaybackBar(host) {
+		const { ui } = host;
+		function findPlayback() {
+			let paused = null;
+			for (const record of host.records) {
+				const chain = record.chain;
+				const audio = chain?.segment?.audio;
+				if (audio) {
+					if (!audio.paused) return {
+						record,
+						kind: "chain",
+						playing: true
+					};
+					if (!paused) paused = {
+						record,
+						kind: "chain",
+						playing: false
+					};
+					continue;
+				}
+				if (chain?.waitingFor) continue;
+				if (chain) continue;
+				if (record.state === "playing") return {
+					record,
+					kind: "timeline",
+					playing: true
+				};
+				if (record.state === "paused") {
+					if (!paused) paused = {
+						record,
+						kind: "timeline",
+						playing: false
+					};
+					continue;
+				}
+				if (record.state === "capturing" && record.session) {
+					if (!record.session.paused) return {
+						record,
+						kind: "live",
+						playing: true
+					};
+					if (!paused) paused = {
+						record,
+						kind: "live",
+						playing: false
+					};
+				}
+			}
+			return paused;
+		}
+		function syncPlaybackBar() {
+			const current = findPlayback();
+			const visible = Boolean(current);
+			ui.playToggle.hidden = !visible;
+			ui.rateCycle.hidden = !visible;
+			if (!visible) return;
+			const playing = current.playing;
+			ui.playToggle.textContent = playing ? "⏸" : "▶";
+			ui.playToggle.classList.toggle("playing", playing);
+			const label = playing ? "暂停播放" : "继续播放";
+			ui.playToggle.title = label;
+			ui.playToggle.setAttribute("aria-label", label);
+			ui.playToggle.setAttribute("aria-pressed", playing ? "true" : "false");
+		}
+		function togglePlayback() {
+			const current = findPlayback();
+			if (!current) return;
+			const { record, kind, playing } = current;
+			if (kind === "chain") {
+				if (playing) host.pauseChain(record);
+				else host.resumeChain(record);
+			} else if (kind === "timeline") {
+				if (playing) host.pauseTimeline(record);
+				else host.resumeTimeline(record);
+			} else if (playing) host.pauseLiveCapture(record);
+			else host.resumeLiveCapture(record);
+			syncPlaybackBar();
+		}
+		ui.playToggle.addEventListener("click", togglePlayback);
+		return {
+			api: {
+				syncPlaybackBar,
+				togglePlayback
+			},
+			dispose() {
+				ui.playToggle.removeEventListener("click", togglePlayback);
+			}
+		};
 	}
 	function createSynthesis(host) {
 		const { records, ui } = host;
@@ -3773,6 +3868,7 @@ button[${BUSY_ATTR}]::before {
 		adopt(createSegments(host));
 		adopt(createChain(host));
 		adopt(createTimeline(host));
+		adopt(createPlaybackBar(host));
 		Object.assign(host, createRegenerator({
 			records: host.records,
 			selection: host.selection,
@@ -3811,6 +3907,7 @@ button[${BUSY_ATTR}]::before {
 			if (PLAYBACK_RATES.includes(savedRate)) host.playbackRate = savedRate;
 		} catch {}
 		syncPlaybackRateButton();
+		host.syncPlaybackBar();
 		ui.rateCycle.addEventListener("click", () => {
 			const index = PLAYBACK_RATES.indexOf(host.playbackRate);
 			host.playbackRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];

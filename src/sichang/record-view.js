@@ -367,6 +367,8 @@ export function createRecordView(host) {
         if (record.url) URL.revokeObjectURL(record.url);
         record.row.remove();
         updateCount();
+        // 删掉正在播的记录后顶栏控件可能该隐藏，统一按剩余记录重算
+        host.syncPlaybackBar?.();
     }
 
     function downloadRecord(record) {

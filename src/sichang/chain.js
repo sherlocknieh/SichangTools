@@ -20,6 +20,8 @@ export function createChain(host) {
     }
 
     function syncRecordPlayButton(record) {
+        // 顶栏的播放/暂停与倍速跟随任何一路声音，记录按钮每次同步时一起刷新
+        host.syncPlaybackBar?.();
         const button = record?.playButton;
         if (!button) return;
         const waiting = Boolean(record.chain?.waitingFor);
