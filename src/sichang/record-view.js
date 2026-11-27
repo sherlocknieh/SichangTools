@@ -240,7 +240,7 @@ export function createRecordView(host) {
         setRecordFold(record, !record.row.classList.contains('folded'));
     }
 
-    // 记录头只做收纳：时间、时长/合成进度、段数、整条播放和单段重生成入口。
+    // 记录头只做收纳：折叠箭头、段数、时长/合成进度、整条播放和单段重生成入口。
     // 每段播放与控制挂在分段子条目上
     function beginRecord(text, tts) {
         const record = {
@@ -270,9 +270,6 @@ export function createRecordView(host) {
         caret.className = 'itemCaret';
         caret.textContent = '›';
         caret.setAttribute('aria-hidden', 'true');
-        const meta = document.createElement('span');
-        meta.className = 'meta';
-        meta.textContent = new Date(record.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const duration = document.createElement('span');
         duration.className = 'dur';
         duration.textContent = '捕获中';
@@ -281,9 +278,10 @@ export function createRecordView(host) {
         const preview = previewText(text) || '（无文本）';
         txt.textContent = preview;
         txt.title = '点击选中整条并收起/展开分段';
+        // 段数放在开头，去掉时间戳，一眼能看到这条记录一共几段
         const segCount = document.createElement('span');
         segCount.className = 'segCount';
-        segCount.textContent = '0 段';
+        segCount.textContent = '[共0段]';
         const playButton = document.createElement('button');
         playButton.className = 'itemPlay';
         playButton.innerHTML = ICONS.play;
@@ -309,7 +307,7 @@ export function createRecordView(host) {
         deleteButton.title = '删除这条记录';
         deleteButton.setAttribute('aria-label', '删除这条记录');
         // 记录头一行放完摘要与整条操作，摘要占据中间剩余宽度并单行截断
-        head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, downloadButton, deleteButton);
+        head.append(caret, segCount, txt, duration, playButton, regenAllButton, downloadButton, deleteButton);
 
         const segList = document.createElement('div');
         segList.className = 'segList';

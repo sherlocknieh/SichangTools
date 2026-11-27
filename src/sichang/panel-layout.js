@@ -9,7 +9,7 @@ export function createPanelLayout(host) {
 
     function applyFold(folded, persist = true) {
         ui.panel.classList.toggle('folded', folded);
-        ui.fold.textContent = folded ? '+' : '−';
+        // 箭头字形固定，方向由 CSS 根据 folded 旋转，和分段行的小箭头同一套
         ui.fold.setAttribute('aria-label', folded ? '展开' : '收起');
         if (!persist) return;
         try {

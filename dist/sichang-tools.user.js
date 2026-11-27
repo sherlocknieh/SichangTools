@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0144
+// @version      2026.11.28.0157
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -167,7 +167,17 @@ button:not(:disabled):active { filter: brightness(1.16); }
     line-height: 1;
 }
 .head button:hover { background: var(--btn-bg-hover); color: #fff; }
-.head .fold { width: 20px; padding: 0; color: #8a8a95; font-size: 13px; }
+.head .fold {
+    width: 20px;
+    padding: 0;
+    color: #5a5a64;
+    font-size: 16px;
+    line-height: 1;
+    transition: transform .12s, background-color .12s ease, color .12s ease;
+}
+/* 收起时箭头朝右，展开时和分段行一样转 90° 朝下 */
+.panel:not(.folded) .head .fold { transform: rotate(90deg); }
+.head .fold:hover { color: #a8a8b2; }
 .head .rateCycle {
     min-width: 38px;
     padding: 0 7px;
@@ -255,12 +265,12 @@ button:not(:disabled):active { filter: brightness(1.16); }
     width: 8px;
     color: #5a5a64;
     font-size: 10px;
+    line-height: 1;
     text-align: center;
     transition: transform .12s;
 }
 .item:not(.folded) .itemCaret { transform: rotate(90deg); }
 .item:hover .itemCaret { color: #8a8a94; }
-.itemHead .meta { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
 .itemHead .dur { flex: none; color: #b9b9c2; font-variant-numeric: tabular-nums; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
@@ -334,9 +344,9 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .seg .segText {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    /* 预览文字不按字符数截断，交给行宽自然换行；多行时整块和图标垂直居中 */
+    line-height: 1.35;
+    overflow-wrap: anywhere;
     color: #a9a9b3;
 }
 .seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
@@ -426,7 +436,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
     `).join("");
 		panel.innerHTML = `
         <div class="head" title="单击收起/展开">
-            <button class="fold" aria-label="收起">−</button>
+            <button class="fold" aria-label="收起">›</button>
             <span class="title">语音合成</span>
             <span class="spacer"></span>
             <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>
@@ -565,7 +575,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		const { ui } = host;
 		function applyFold(folded, persist = true) {
 			ui.panel.classList.toggle("folded", folded);
-			ui.fold.textContent = folded ? "+" : "−";
 			ui.fold.setAttribute("aria-label", folded ? "展开" : "收起");
 			if (!persist) return;
 			try {
@@ -767,7 +776,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		return formatDuration(seconds);
 	}
 	function previewText(text) {
-		return text.replace(/\[[^\]]{1,10}\]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
+		return text.replace(/\[[^\]]{1,10}\]/g, "").replace(/\s+/g, " ").trim();
 	}
 	function splitText(text) {
 		const normalized = String(text || "").replace(/\r/g, "").trim();
@@ -896,7 +905,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		}
 		function setSegmentLabel(segment, text) {
 			segment.text = text;
-			segment.label.textContent = previewText(text).slice(0, 24) || "（无文本）";
+			segment.label.textContent = previewText(text) || "（无文本）";
 			segment.label.title = text;
 		}
 		function setSegmentVoice(segment, voice, locked = false) {
@@ -931,7 +940,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.segments.forEach((segment, index) => {
 				segment.idx.textContent = String(index + 1);
 			});
-			record.segCount.textContent = `${record.segments.length} 段`;
+			record.segCount.textContent = `[共${record.segments.length}段]`;
 		}
 		function playbackModeFor(record, segment) {
 			if (record.chain?.segment === segment) return "segment";
@@ -1264,12 +1273,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			caret.className = "itemCaret";
 			caret.textContent = "›";
 			caret.setAttribute("aria-hidden", "true");
-			const meta = document.createElement("span");
-			meta.className = "meta";
-			meta.textContent = new Date(record.time).toLocaleTimeString("zh-CN", {
-				hour: "2-digit",
-				minute: "2-digit"
-			});
 			const duration = document.createElement("span");
 			duration.className = "dur";
 			duration.textContent = "捕获中";
@@ -1279,7 +1282,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			txt.title = "点击选中整条并收起/展开分段";
 			const segCount = document.createElement("span");
 			segCount.className = "segCount";
-			segCount.textContent = "0 段";
+			segCount.textContent = "[共0段]";
 			const playButton = document.createElement("button");
 			playButton.className = "itemPlay";
 			playButton.innerHTML = ICONS.play;
@@ -1303,7 +1306,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			deleteButton.innerHTML = ICONS.close;
 			deleteButton.title = "删除这条记录";
 			deleteButton.setAttribute("aria-label", "删除这条记录");
-			head.append(caret, meta, txt, duration, segCount, playButton, regenAllButton, downloadButton, deleteButton);
+			head.append(caret, segCount, txt, duration, playButton, regenAllButton, downloadButton, deleteButton);
 			const segList = document.createElement("div");
 			segList.className = "segList";
 			row.append(head, segList);

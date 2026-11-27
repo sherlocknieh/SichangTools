@@ -12,7 +12,8 @@ export function formatSegmentDuration(seconds) {
 }
 
 export function previewText(text) {
-    return text.replace(/\[[^\]]{1,10}\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    // 只做标记清理和空白压缩，不按长度截断；显示宽度交给各行的 CSS 换行处理
+    return text.replace(/\[[^\]]{1,10}\]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 // 先按句末标点和换行切开，再把短句攒到接近上限，避免一句话被硬生生截断

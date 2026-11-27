@@ -133,7 +133,7 @@ export function createSegments(host) {
 
     function setSegmentLabel(segment, text) {
         segment.text = text;
-        segment.label.textContent = previewText(text).slice(0, 24) || '（无文本）';
+        segment.label.textContent = previewText(text) || '（无文本）';
         segment.label.title = text;
     }
 
@@ -176,7 +176,7 @@ export function createSegments(host) {
         record.segments.forEach((segment, index) => {
             segment.idx.textContent = String(index + 1);
         });
-        record.segCount.textContent = `${record.segments.length} 段`;
+        record.segCount.textContent = `[共${record.segments.length}段]`;
     }
 
     // 行内按钮按当前播放通道决定操作对象：顺序播放中的段用分段音频，

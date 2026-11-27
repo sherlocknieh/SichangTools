@@ -61,7 +61,17 @@ button:not(:disabled):active { filter: brightness(1.16); }
     line-height: 1;
 }
 .head button:hover { background: var(--btn-bg-hover); color: #fff; }
-.head .fold { width: 20px; padding: 0; color: #8a8a95; font-size: 13px; }
+.head .fold {
+    width: 20px;
+    padding: 0;
+    color: #5a5a64;
+    font-size: 16px;
+    line-height: 1;
+    transition: transform .12s, background-color .12s ease, color .12s ease;
+}
+/* 收起时箭头朝右，展开时和分段行一样转 90° 朝下 */
+.panel:not(.folded) .head .fold { transform: rotate(90deg); }
+.head .fold:hover { color: #a8a8b2; }
 .head .rateCycle {
     min-width: 38px;
     padding: 0 7px;
@@ -149,12 +159,12 @@ button:not(:disabled):active { filter: brightness(1.16); }
     width: 8px;
     color: #5a5a64;
     font-size: 10px;
+    line-height: 1;
     text-align: center;
     transition: transform .12s;
 }
 .item:not(.folded) .itemCaret { transform: rotate(90deg); }
 .item:hover .itemCaret { color: #8a8a94; }
-.itemHead .meta { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
 .itemHead .dur { flex: none; color: #b9b9c2; font-variant-numeric: tabular-nums; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
@@ -228,9 +238,9 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .seg .segText {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    /* 预览文字不按字符数截断，交给行宽自然换行；多行时整块和图标垂直居中 */
+    line-height: 1.35;
+    overflow-wrap: anywhere;
     color: #a9a9b3;
 }
 .seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
