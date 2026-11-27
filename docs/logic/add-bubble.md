@@ -67,6 +67,15 @@ export const INSERT_BUBBLE_BUTTON_LABEL = '在下方插入消息';
 
 失败恢复沿用删除逻辑：DELETE 已经发出后出错，会把原尾部按原 `seq` 重新 import 补回；补回失败自动下载 `sichang-message-backup-*.json` 备份。调整尾部顺序会重建目标之后的消息，这些消息原先的变体、思考内容、网页来源和附件元数据会丢失（import 不接收这些字段）。
 
+匿名 `conv__anonymous__` 会话在官方前端是本地 IndexedDB，服务端接口不是它的数据源，因此不等待 DELETE/import，而是走官方 React context：
+
+1. `context.deleteFrom(cid, 原尾部第一条 id)` 截断目标之后的消息，同时删除本地记录并更新 React 状态；
+2. 依次 `context.addMessage(cid, 新消息)`、`context.addMessage(cid, 尾部消息)`，由官方 `appendMessage` 按当前最大 `seq + 1` 落盘并重绘；在第一条消息下方插入时，再 `renameConversation` 恢复原标题，避免官方把新消息当成空会话的第一条自动改标题；
+3. `createdAt` 仍按目标时间 + 1ms 计算，保证刷新后合并排序正确；
+4. 本地追加失败时不弹窗：已截断时整页刷新，以 IndexedDB 当前状态为准。
+
+输入区右侧的追加加号仍然只支持云端会话，因为本地匿名会话的追加还需要处理空会话标题等额外状态。
+
 ## 标题
 
 空会话添加第一条**提问**时：
@@ -90,11 +99,11 @@ export const INSERT_BUBBLE_BUTTON_LABEL = '在下方插入消息';
 3. 在目标消息后插入服务端返回的新消息，调用 `upsertConversation`；
 4. 清空输入框。
 
-如果 context 不存在、当前会话不匹配、目标消息不在本地数组或 `upsertConversation` 抛错，就 `window.location.reload()`，以服务端为准。输入框只在写入成功后清空，失败时保留用户已经输入的文字。
+如果 context 不存在、当前会话不匹配、目标消息不在本地数组或 `upsertConversation` 抛错，就 `window.location.reload()`，以服务端为准。输入框只在写入成功后清空，失败时保留用户已经输入的文字。匿名本地会话不走 `upsertConversation`，而是由 `deleteFrom` + `addMessage` 更新官方状态并异步落盘。
 
 ## 限制
 
-- 只支持 `conv__` 开头的云端会话；匿名/本地对话只写控制台。
+- 输入区追加只支持 `conv__` 开头的云端会话；消息操作行插入额外支持匿名本地会话（走官方 context + IndexedDB）。
 - 只添加纯文本，不携带附件、图片或文档。
 - 正文超过 20000 字时拒绝，避免官方 import 静默截断；空正文自动占位。
 - 插入会重建目标之后的消息，尾部消息的变体、思考、网页来源和附件元数据会丢失。

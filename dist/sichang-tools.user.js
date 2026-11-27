@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0026
+// @version      2026.11.28.0041
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -3621,13 +3621,13 @@ button[${BUSY_ATTR}]::before {
 			if (content.length > 2e4) throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断。`);
 			return content;
 		}
-		function readTarget(cid) {
+		function readTarget(cid, { allowAnonymous = false } = {}) {
 			const composer = findComposer();
 			if (!composer?.send) throw new Error("AI 正在回复或输入区不可用，请等当前回复结束后再添加。");
 			const content = readInput(composer.textarea);
 			const owner = conversationOwner(cid);
 			if (!cid || !owner) throw new Error("当前还没有云端会话，先正常发送一条消息创建会话。");
-			if (owner === "anonymous") throw new Error("当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。");
+			if (owner === "anonymous" && !allowAnonymous) throw new Error("当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。");
 			return {
 				composer,
 				content,
@@ -3716,42 +3716,101 @@ button[${BUSY_ATTR}]::before {
 			anchor.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1e3);
 		}
+		function planInsertedMessage({ role, content, owner, seq, target, tailMessages }) {
+			const targetAt = Number(target.createdAt);
+			const insertedAt = (Number.isFinite(targetAt) && targetAt > 0 ? targetAt : Date.now()) + 1;
+			const message = {
+				id: `msg__${owner}__${newId()}`,
+				seq,
+				role,
+				content: messageText(content),
+				createdAt: insertedAt,
+				state: "complete"
+			};
+			let previousAt = insertedAt;
+			return {
+				message,
+				tail: tailMessages.map((item, offset) => {
+					const originalAt = Number(item.createdAt) || 0;
+					const createdAt = originalAt > previousAt ? originalAt : previousAt + 1;
+					previousAt = createdAt;
+					return {
+						...item,
+						seq: seq + 1 + offset,
+						createdAt,
+						content: messageText(item.content)
+					};
+				})
+			};
+		}
+		async function insertBubbleLocally({ role, content, owner, context, conversation, cid, composer, index }) {
+			if (typeof context?.deleteFrom !== "function" || typeof context?.addMessage !== "function") throw new Error("当前本地对话不支持插入，请刷新页面后重试。");
+			const target = conversation.messages[index];
+			if (!target) throw new Error("在会话里找不到这条消息，请刷新后重试。");
+			const title = conversation.title;
+			const originalTail = conversation.messages.slice(index + 1);
+			const targetSeq = Number(target.seq);
+			const { message, tail } = planInsertedMessage({
+				role,
+				content,
+				owner,
+				seq: Number.isFinite(targetSeq) ? targetSeq + 1 : index + 1,
+				target,
+				tailMessages: originalTail
+			});
+			if (conversation.model) message.model = conversation.model;
+			let deleted = false;
+			try {
+				if (originalTail.length) {
+					deleted = true;
+					await context.deleteFrom(cid, originalTail[0].id);
+				}
+				context.addMessage(cid, message);
+				for (const item of tail) {
+					if (!item.model && conversation.model) item.model = conversation.model;
+					context.addMessage(cid, item);
+				}
+				if (index === 0 && title) context.renameConversation?.(cid, title);
+				setNativeValue(composer.textarea, "");
+				return true;
+			} catch (error) {
+				if (!deleted) throw error;
+				console.warn(`[SichangTools] 本地插入失败：${errorMessage(error)}`);
+				return false;
+			}
+		}
 		async function insertBubble(role, target) {
 			const cid = readConversationId();
-			const { composer, content, owner } = readTarget(cid);
+			const { composer, content, owner } = readTarget(cid, { allowAnonymous: true });
 			const context = officialContext(target.copy);
 			const conversation = context?.activeConversation;
 			if (!conversation || conversation.id !== cid) throw new Error("无法读取官方当前会话，请等消息加载完成。");
 			const buttonsNow = copyButtons$1();
 			if (!(buttonsNow.length === target.buttonsAtClick.length && buttonsNow.every((item, index) => item === target.buttonsAtClick[index])) || conversation.messages.length !== target.buttonsAtClick.length || target.indexAtClick < 0 || target.indexAtClick >= conversation.messages.length) throw new Error("消息列表已变化，请等页面稳定后重试。");
 			const local = conversation.messages[target.indexAtClick];
+			if (owner === "anonymous") return insertBubbleLocally({
+				role,
+				content,
+				owner,
+				context,
+				conversation,
+				cid,
+				composer,
+				index: target.indexAtClick
+			});
 			const [meta, fresh] = await Promise.all([loadConversation(cid), loadMessages(cid)]);
 			let index = fresh.findIndex((message) => message.id === local.id);
 			if (index < 0 && typeof local.seq === "number") index = fresh.findIndex((message) => message.seq === local.seq);
 			if (index < 0) throw new Error("在会话里找不到这条消息，请刷新后重试。");
 			const insertSeq = fresh[index + 1] ? fresh[index + 1].seq : nextSeq(fresh);
-			const targetAt = Number(fresh[index].createdAt);
-			const insertedAt = (Number.isFinite(targetAt) && targetAt > 0 ? targetAt : Date.now()) + 1;
-			const message = {
-				id: `msg__${owner}__${newId()}`,
-				seq: insertSeq,
-				role,
-				content: messageText(content),
-				createdAt: insertedAt,
-				state: "complete"
-			};
 			const originalTail = fresh.slice(index + 1);
-			let previousAt = insertedAt;
-			const tail = originalTail.map((item, offset) => {
-				const originalAt = Number(item.createdAt) || 0;
-				const createdAt = originalAt > previousAt ? originalAt : previousAt + 1;
-				previousAt = createdAt;
-				return {
-					...item,
-					seq: insertSeq + 1 + offset,
-					createdAt,
-					content: messageText(item.content)
-				};
+			const { message, tail } = planInsertedMessage({
+				role,
+				content,
+				owner,
+				seq: insertSeq,
+				target: fresh[index],
+				tailMessages: originalTail
 			});
 			const tooLong = tail.find((item) => String(item.content || "").length > CONVERSATION_IMPORT_MAX_CHARS);
 			if (tooLong) throw new Error(`第 #${tooLong.seq} 条消息超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);

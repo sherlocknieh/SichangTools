@@ -242,13 +242,15 @@ export function createAddBubble() {
         return content;
     }
 
-    function readTarget(cid) {
+    function readTarget(cid, { allowAnonymous = false } = {}) {
         const composer = findComposer();
         if (!composer?.send) throw new Error('AI 正在回复或输入区不可用，请等当前回复结束后再添加。');
         const content = readInput(composer.textarea);
         const owner = conversationOwner(cid);
         if (!cid || !owner) throw new Error('当前还没有云端会话，先正常发送一条消息创建会话。');
-        if (owner === 'anonymous') throw new Error('当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。');
+        if (owner === 'anonymous' && !allowAnonymous) {
+            throw new Error('当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。');
+        }
         return { composer, content, owner };
     }
 
@@ -341,10 +343,84 @@ export function createAddBubble() {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    // 新消息占用 seq 位置；官方刷新后会按 createdAt 合并排序，所以时间必须紧跟目标。
+    // 尾部保持原时间，只有和目标撞在同一毫秒时才依次后移 1ms。
+    function planInsertedMessage({ role, content, owner, seq, target, tailMessages }) {
+        const targetAt = Number(target.createdAt);
+        const baseAt = Number.isFinite(targetAt) && targetAt > 0 ? targetAt : Date.now();
+        const insertedAt = baseAt + 1;
+        const message = {
+            id: `msg__${owner}__${newId()}`,
+            seq,
+            role,
+            content: messageText(content),
+            createdAt: insertedAt,
+            state: 'complete',
+        };
+        let previousAt = insertedAt;
+        const tail = tailMessages.map((item, offset) => {
+            const originalAt = Number(item.createdAt) || 0;
+            const createdAt = originalAt > previousAt ? originalAt : previousAt + 1;
+            previousAt = createdAt;
+            return {
+                ...item,
+                seq: seq + 1 + offset,
+                createdAt,
+                content: messageText(item.content),
+            };
+        });
+        return { message, tail };
+    }
+
+    // 匿名会话在官方前端是本地 IndexedDB，服务端接口不是它的数据源。
+    // 用 context 的 deleteFrom 截断尾部，再按顺序 addMessage，由官方自己落盘和重绘。
+    async function insertBubbleLocally({ role, content, owner, context, conversation, cid, composer, index }) {
+        if (typeof context?.deleteFrom !== 'function' || typeof context?.addMessage !== 'function') {
+            throw new Error('当前本地对话不支持插入，请刷新页面后重试。');
+        }
+        const target = conversation.messages[index];
+        if (!target) throw new Error('在会话里找不到这条消息，请刷新后重试。');
+        const title = conversation.title;
+        const originalTail = conversation.messages.slice(index + 1);
+        const targetSeq = Number(target.seq);
+        const insertSeq = Number.isFinite(targetSeq) ? targetSeq + 1 : index + 1;
+        const { message, tail } = planInsertedMessage({
+            role,
+            content,
+            owner,
+            seq: insertSeq,
+            target,
+            tailMessages: originalTail,
+        });
+        if (conversation.model) message.model = conversation.model;
+
+        let deleted = false;
+        try {
+            if (originalTail.length) {
+                deleted = true;
+                await context.deleteFrom(cid, originalTail[0].id);
+            }
+            // 本地 appendMessage 自己按当前最大 seq + 1 落盘；这里按顺序追加即可。
+            context.addMessage(cid, message);
+            for (const item of tail) {
+                if (!item.model && conversation.model) item.model = conversation.model;
+                context.addMessage(cid, item);
+            }
+            // 在第一条消息下方插入时，官方会把新消息当“新会话的第一条”自动改标题，这里恢复原标题。
+            if (index === 0 && title) context.renameConversation?.(cid, title);
+            setNativeValue(composer.textarea, '');
+            return true;
+        } catch (error) {
+            if (!deleted) throw error;
+            console.warn(`[SichangTools] 本地插入失败：${errorMessage(error)}`);
+            return false;
+        }
+    }
+
     // 在 target 指向的消息后面插入一条：先截断原尾部，再按新顺序 import。
     async function insertBubble(role, target) {
         const cid = readConversationId();
-        const { composer, content, owner } = readTarget(cid);
+        const { composer, content, owner } = readTarget(cid, { allowAnonymous: true });
         const context = officialContext(target.copy);
         const conversation = context?.activeConversation;
         if (!conversation || conversation.id !== cid) {
@@ -361,6 +437,21 @@ export function createAddBubble() {
             throw new Error('消息列表已变化，请等页面稳定后重试。');
         }
         const local = conversation.messages[target.indexAtClick];
+
+        // 匿名会话只存在本地 IndexedDB，改服务端接口不会影响页面数据。
+        if (owner === 'anonymous') {
+            return insertBubbleLocally({
+                role,
+                content,
+                owner,
+                context,
+                conversation,
+                cid,
+                composer,
+                index: target.indexAtClick,
+            });
+        }
+
         const [meta, fresh] = await Promise.all([
             loadConversation(cid),
             loadMessages(cid),
@@ -373,32 +464,14 @@ export function createAddBubble() {
 
         // 新消息占用原尾部第一条的位置；没有尾部时接在最后。
         const insertSeq = fresh[index + 1] ? fresh[index + 1].seq : nextSeq(fresh);
-        // 官方刷新后会按 createdAt 合并并排序消息，而不是只信 seq；
-        // 新消息必须紧跟目标的时间，否则刷新后会掉到会话底部。
-        const targetAt = Number(fresh[index].createdAt);
-        const baseAt = Number.isFinite(targetAt) && targetAt > 0 ? targetAt : Date.now();
-        const insertedAt = baseAt + 1;
-        const message = {
-            id: `msg__${owner}__${newId()}`,
-            seq: insertSeq,
-            role,
-            content: messageText(content),
-            createdAt: insertedAt,
-            state: 'complete',
-        };
         const originalTail = fresh.slice(index + 1);
-        // 尾部保持原时间；和目标撞在同一毫秒时按顺序往后挪 1ms，保证合并排序正确。
-        let previousAt = insertedAt;
-        const tail = originalTail.map((item, offset) => {
-            const originalAt = Number(item.createdAt) || 0;
-            const createdAt = originalAt > previousAt ? originalAt : previousAt + 1;
-            previousAt = createdAt;
-            return {
-                ...item,
-                seq: insertSeq + 1 + offset,
-                createdAt,
-                content: messageText(item.content),
-            };
+        const { message, tail } = planInsertedMessage({
+            role,
+            content,
+            owner,
+            seq: insertSeq,
+            target: fresh[index],
+            tailMessages: originalTail,
         });
         const tooLong = tail.find(item => String(item.content || '').length > CONVERSATION_IMPORT_MAX_CHARS);
         if (tooLong) {
