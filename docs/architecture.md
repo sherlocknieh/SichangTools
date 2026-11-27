@@ -11,13 +11,13 @@
 
 ## 目录与职责
 
-一个站点一个目录，入口与它的依赖放在一起；`main.js` 只做装配。
+入口层只放生命周期与站点装配：`main.js` 管重复注入与清理，`handler.js` 管思畅的 `host` 与模块接线；具体功能模块按站点收在 `sichang/` 下。
 
 ```text
 src/
   main.js              # 唯一入口：注册 handler、登记清理、处理重复注入
-  sichang/             # 思畅站点实现的全部代码
-    handler.js         # 装配：共享状态、选中逻辑、模块接线与清理
+  handler.js           # 装配：共享状态、选中逻辑、模块接线与清理
+  sichang/             # 思畅站点的功能模块
     panel.js           # 面板骨架（Shadow DOM）与剪贴板兜底
     panel-layout.js    # 折叠、拖动、贴底避让与窗口尺寸变化
     compose.js         # 输入区：草稿、预填试听、合成/暂停入口
@@ -36,8 +36,8 @@ src/
 ```
 
 - `src/main.js`：入口；注册 handler、登记清理函数、处理重复注入。
-- `src/sichang/handler.js`：判断 `sichang.xyz` 域名后的装配层：创建 `host`（记录、选中、正在播放的音频/会话/时间线等共享状态），登记选中逻辑与各模块；清理时逆序撤销监听器与 `fetch` 包装。接管与播放行为见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
-- `src/sichang/` 其余文件：按职责分文件，改哪块只读哪块。新增功能先判断属于哪个已有模块，不要往 handler 里堆。
+- `src/handler.js`：放在入口同层的装配层，判断 `sichang.xyz` 域名后创建 `host`（记录、选中、正在播放的音频/会话/时间线等共享状态），登记选中逻辑与各模块；清理时逆序撤销监听器与 `fetch` 包装。接管与播放行为见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
+- `src/sichang/`：按职责分文件，改哪块只读哪块。新增功能先判断属于哪个已有模块，不要往 handler 里堆。
   - 模块统一导出 `createX(host)`，返回 `{ api, dispose }`；handler 用 `adopt()` 合并到 `host`，创建顺序为 compose → record-view → segments → chain → timeline → regenerate → synthesis → panel-layout。跨模块调用一律 `host.fn()`，共享状态读写 `host.records` 等字段。
   - `panel.js` / `panel-layout.js`：面板骨架与位置/折叠，不碰记录和播放状态。
   - `compose.js`：输入区草稿、预填试听与「合成/暂停」入口。

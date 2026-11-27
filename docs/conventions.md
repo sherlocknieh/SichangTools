@@ -4,7 +4,7 @@
 
 ## 新增功能
 
-- 按职责扩展 `src/sichang/` 下对应模块，`handler.js` 只做状态与装配；确需新模块时导出 `createX(host)`，在 handler 里 `adopt(...)` 登记。
+- 按职责扩展 `src/sichang/` 下对应模块，`src/handler.js` 只做状态与装配；确需新模块时导出 `createX(host)`，在 handler 里 `adopt(...)` 登记。
 - 模块之间共享的运行时状态（记录、选中、正在播放的音频/会话/时间线）挂在 `host` 上；跨模块调用也用 `host.fn()`，不要用模块级单例复制一份状态。
 - 常量、音色、样式和纯函数与模块同目录（`src/sichang/`），按职责建文件；不要为了少一个 import 把新逻辑塞回某个模块顶部。
 - handler 的初始化函数返回清理函数：自己添加的事件监听、observer、定时器、注入节点和改过的原型方法（含 `window.fetch`）都要能撤销。
