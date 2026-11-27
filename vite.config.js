@@ -16,8 +16,8 @@ export default defineConfig({
       userscript: {
         name: 'SichangTools',
         namespace: 'https://github.com/sherlocknieh/',
-        version: '2026.11.27.2118',
-        description: '接管思畅 AI 朗读，分段合成、边下边播；支持单条消息删除、会话克隆与 WAV 保存',
+        version: '2026.11.27.2127',
+        description: '接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、手动添加消息与 WAV 保存',
         icon: ICON_URL,
         match: MATCH_PATTERNS,
         grant: 'none',

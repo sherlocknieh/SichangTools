@@ -14,6 +14,7 @@ Vite 构建的浏览器用户脚本（原生 ES modules，无框架），接管�
 | 接管与流式播放机制 | `docs/logic/pcm-stream-capture.md` |
 | 单条删除实现、官方 API 与即时同步 | `docs/logic/message-delete.md` |
 | 会话克隆实现、顶栏入口与接口组合 | `docs/logic/conversation-clone.md` |
+| 手动添加消息气泡与即时同步 | `docs/logic/add-bubble.md` |
 
 ## 开工流程
 

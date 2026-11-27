@@ -28,8 +28,10 @@ src/
     synthesis.js       # 流式分段合成与 /api/tts 接管
     regenerate.js      # 单段/整条重生成流程（整条复用逐段流程）
     conversation-api.js # 官方会话接口共享封装：读取、import、错误文案
+    official-page.js   # 官方 React context 与受控输入工具
     delete-message.js  # 接管官方删除按钮：单条删除、截断、导入补回、同步官方视图
     clone-conversation.js # 顶栏「克隆会话」按钮：新建副本并导入全部消息
+    add-bubble.js      # 输入框右侧「添加消息气泡」：把输入文字写成用户消息
     tts.js             # 单段一次性 TTS 请求（重生成用）
     text.js            # 文本切分与展示格式化（纯函数）
     constants.js       # 接口路径、分段阈值、localStorage key
@@ -41,7 +43,7 @@ src/
 - `src/main.js`：入口；注册 handler、登记清理函数、处理重复注入。
 - `src/handler.js`：放在入口同层的装配层，判断 `sichang.xyz` 域名后创建 `host`（记录、选中、正在播放的音频/会话/时间线等共享状态），登记选中逻辑与各模块；清理时逆序撤销监听器与 `fetch` 包装。接管与播放行为见 `features/sichang.md`，机制见 `logic/pcm-stream-capture.md`。
 - `src/sichang/`：按职责分文件，改哪块只读哪块。新增功能先判断属于哪个已有模块，不要往 handler 里堆。
-  - 模块统一导出 `createX(host)`，返回 `{ api, dispose }`；handler 用 `adopt()` 合并到 `host`，创建顺序为 compose → record-view → segments → chain → timeline → regenerate → synthesis → panel-layout → delete-message → clone-conversation。跨模块调用一律 `host.fn()`，共享状态读写 `host.records` 等字段。
+  - 模块统一导出 `createX(host)`，返回 `{ api, dispose }`；handler 用 `adopt()` 合并到 `host`，创建顺序为 compose → record-view → segments → chain → timeline → regenerate → synthesis → panel-layout → delete-message → clone-conversation → add-bubble。跨模块调用一律 `host.fn()`，共享状态读写 `host.records` 等字段。
   - `panel.js` / `panel-layout.js`：面板骨架与位置/折叠，不碰记录和播放状态。
   - `compose.js`：输入区草稿、预填试听与「合成/暂停」入口。
   - `record-view.js`：记录条目与分段条目的 DOM、记录折叠、菜单、下载、删除。
@@ -53,6 +55,8 @@ src/
   - `delete-message.js`：在 `window` 捕获阶段接管官方「删除消息」按钮，阻止官方原生“从这条起全部删除”，按官方消息文档顺序安全映射消息 ID。官方没有单条删除接口，模块用「从目标消息 DELETE 截断 + `/api/conversations/import` 补回尾部」只删一条提问或回答；重导入保留 id/seq/role/content/model/createdAt，会丢掉 variants/thinking/图片建议/网页来源/附件。删除成功后通过官方 React context 的 `upsertConversation` 写回剩余消息，让官方页面立即更新；拿不到官方状态时回退整页刷新。映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。接口契约、恢复流程和 React 同步细节见 `logic/message-delete.md`。
   - `conversation-api.js`：官方会话接口的共享封装（`readConversationId`、读取元数据与分页消息、`createConversation`、`importMessages`、`describeLoss`、`errorMessage`）。删除与克隆都走这一份契约，站点改版时只改这里。
   - `clone-conversation.js`：在官方聊天页顶栏「新建对话」左侧注入「克隆会话」按钮；读取当前云端会话的元数据和全部消息，用 `POST /api/conversations` 新建副本，再经 import 写入新 ID 的消息。成功后整页进入副本，失败时删除半成品副本。实现与接口细节见 `logic/conversation-clone.md`。
+  - `official-page.js`：官方 React 页面的共享工具（从 DOM fiber 找 context、通过原生 setter 改受控 textarea）。删除与加气泡模块共用。
+  - `add-bubble.js`：在官方输入区「发送消息」左侧注入加号按钮；点击后把输入框文字作为一条 `user` 消息经 import 写入当前云端会话，不请求 AI 回复。写入成功后用官方 context 立即插入气泡并清空输入框。细节见 `logic/add-bubble.md`。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
   - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长格式化，纯函数。
   - `constants.js`：接口路径 `TTS_PATH`、分段阈值、`localStorage` key 等契约常量。

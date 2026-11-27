@@ -14,6 +14,7 @@ import {
     readConversationId,
     request,
 } from './conversation-api.js';
+import { officialContext } from './official-page.js';
 import { previewText } from './text.js';
 
 const ROLE_LABELS = { user: '你', assistant: 'AI', system: '系统' };
@@ -161,27 +162,6 @@ export function createMessageDelete(host) {
     }
 
     // ---------- 让官方页面立即同步 ----------
-
-    function officialContext(element) {
-        let fiber = null;
-        for (const key of Object.getOwnPropertyNames(element)) {
-            if (key.startsWith('__reactFiber$')) {
-                fiber = element[key];
-                break;
-            }
-        }
-        for (let depth = 0; fiber && depth < 500; depth += 1) {
-            const value = fiber.memoizedProps?.value;
-            if (value
-                && typeof value.upsertConversation === 'function'
-                && typeof value.activeConversation === 'object'
-                && Array.isArray(value.conversations)) {
-                return value;
-            }
-            fiber = fiber.return;
-        }
-        return null;
-    }
 
     function syncOfficialPage(context, conversation, messages, targetId) {
         if (!context || !conversation || conversation.id !== state.cid) return false;

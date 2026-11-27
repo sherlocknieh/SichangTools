@@ -14,6 +14,7 @@ import { createSynthesis } from './sichang/synthesis.js';
 import { createRegenerator } from './sichang/regenerate.js';
 import { createMessageDelete } from './sichang/delete-message.js';
 import { createConversationClone } from './sichang/clone-conversation.js';
+import { createAddBubble } from './sichang/add-bubble.js';
 
 export default function initSichangHandler() {
     if (window.location.hostname !== 'sichang.xyz') return;
@@ -118,6 +119,8 @@ export default function initSichangHandler() {
     adopt(createMessageDelete(host));
     // 顶栏「克隆会话」按钮：读官方会话再建副本，同样独立于朗读/播放
     adopt(createConversationClone());
+    // 输入框右侧加号：把输入文字直接追加成一条用户气泡，不触发 AI 回复
+    adopt(createAddBubble());
 
     function syncPlaybackRateButton() {
         ui.rateCycle.textContent = `${host.playbackRate}×`;

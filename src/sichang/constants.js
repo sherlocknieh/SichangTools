@@ -21,6 +21,11 @@ export const OFFICIAL_NEW_CHAT_SELECTOR = 'button[aria-label="新建对话"], bu
 export const CLONE_BUTTON_SELECTOR = 'button[data-sichang-clone]';
 export const CLONE_BUTTON_LABEL = '克隆会话';
 export const CLONE_TITLE_SUFFIX = '（副本）';
+// 官方输入区：加号按钮插在「发送消息」左侧，输入内容来自同一个 textarea。
+export const OFFICIAL_SEND_SELECTOR = 'button[aria-label="发送消息"], button[title="发送消息"]';
+export const OFFICIAL_ATTACH_SELECTOR = 'button[aria-label="发送附件"], button[title="发送附件"]';
+export const ADD_BUBBLE_BUTTON_SELECTOR = 'button[data-sichang-add-bubble]';
+export const ADD_BUBBLE_BUTTON_LABEL = '添加消息气泡';
 export const PANEL_ID = 'sichang-tts-capture';
 export const DEFAULT_SAMPLE_RATE = 24000;
 export const MAX_RECORDS = 20;

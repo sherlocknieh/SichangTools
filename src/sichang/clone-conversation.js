@@ -20,6 +20,8 @@ import {
     loadConversation,
     loadMessages,
     readConversationId,
+    conversationOwner,
+    newId,
 } from './conversation-api.js';
 
 const COPY_ICON = `
@@ -30,17 +32,6 @@ const COPY_ICON = `
         <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
     </svg>
 `;
-
-// 与官方 newId() 同格式，避免新会话/消息 ID 在站点里显得异常
-function newId() {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function splitConversationId(cid) {
-    const parts = cid.split('__');
-    if (parts.length < 3 || parts[0] !== 'conv' || !parts[1]) return null;
-    return { owner: parts[1] };
-}
 
 function cloneTitle(title) {
     return `${title || '新对话'}${CLONE_TITLE_SUFFIX}`;
@@ -149,10 +140,10 @@ export function createConversationClone() {
 
     async function applyClone() {
         const sourceCid = readConversationId();
-        const ids = splitConversationId(sourceCid);
+        const owner = conversationOwner(sourceCid);
         validateCid(sourceCid);
-        if (!ids) throw new Error('无法识别当前会话 ID，暂不支持克隆。');
-        if (ids.owner === 'anonymous') {
+        if (!owner) throw new Error('无法识别当前会话 ID，暂不支持克隆。');
+        if (owner === 'anonymous') {
             throw new Error('当前是未登录的本地对话，消息不在云端，暂不支持克隆。请登录后打开云端对话。');
         }
 
@@ -163,7 +154,7 @@ export function createConversationClone() {
         validateMessages(messages);
         if (!confirmClone(meta, messages)) return { cancelled: true };
 
-        const targetCid = `conv__${ids.owner}__${newId()}`;
+        const targetCid = `conv__${owner}__${newId()}`;
         const now = Date.now();
         const targetMeta = {
             ...meta,
@@ -173,7 +164,7 @@ export function createConversationClone() {
         };
         const copied = messages.map((message, index) => ({
             ...message,
-            id: `msg__${ids.owner}__${newId()}`,
+            id: `msg__${owner}__${newId()}`,
             seq: index,
             createdAt: message.createdAt || now,
         }));

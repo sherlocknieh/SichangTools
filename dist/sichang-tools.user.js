@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2118
-// @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条消息删除、会话克隆与 WAV 保存
+// @version      2026.11.27.2127
+// @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
 // @grant        none
@@ -23,6 +23,9 @@
 	var CLONE_BUTTON_SELECTOR = "button[data-sichang-clone]";
 	var CLONE_BUTTON_LABEL = "克隆会话";
 	var CLONE_TITLE_SUFFIX = "（副本）";
+	var OFFICIAL_SEND_SELECTOR = "button[aria-label=\"发送消息\"], button[title=\"发送消息\"]";
+	var ADD_BUBBLE_BUTTON_SELECTOR = "button[data-sichang-add-bubble]";
+	var ADD_BUBBLE_BUTTON_LABEL = "添加消息气泡";
 	var PANEL_ID = "sichang-tts-capture";
 	var DEFAULT_SAMPLE_RATE = 24e3;
 	var SEGMENT_HEADER = "X-Sichang-Segment";
@@ -2676,6 +2679,21 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			state: "complete"
 		};
 	}
+	function newId() {
+		return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+	}
+	function conversationOwner(cid) {
+		const parts = String(cid || "").split("__");
+		if (parts.length < 3 || parts[0] !== "conv" || !parts[1]) return "";
+		return parts[1];
+	}
+	function nextSeq(messages) {
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const seq = messages[index].seq;
+			if (typeof seq === "number") return seq + (messages.length - index);
+		}
+		return messages.length;
+	}
 	async function importMessages(cid, meta, messages) {
 		const conversation = {
 			id: cid,
@@ -2724,6 +2742,26 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		if (error?.status === 401) return "未登录或登录已失效，无法同步到官方。";
 		if (error?.status === 404) return "这个对话不在云端（可能是未登录时的本地对话），无法同步到官方。";
 		return error?.message || String(error);
+	}
+	function officialContext(element) {
+		let fiber = null;
+		for (const key of Object.getOwnPropertyNames(element)) if (key.startsWith("__reactFiber$")) {
+			fiber = element[key];
+			break;
+		}
+		for (let depth = 0; fiber && depth < 500; depth += 1) {
+			const value = fiber.memoizedProps?.value;
+			if (value && typeof value.upsertConversation === "function" && typeof value.activeConversation === "object" && Array.isArray(value.conversations)) return value;
+			fiber = fiber.return;
+		}
+		return null;
+	}
+	function setNativeValue(element, value) {
+		const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+		const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+		if (setter) setter.call(element, value);
+		else element.value = value;
+		element.dispatchEvent(new Event("input", { bubbles: true }));
 	}
 	var ROLE_LABELS = {
 		user: "你",
@@ -2847,19 +2885,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				state.busy = false;
 			}
 		}
-		function officialContext(element) {
-			let fiber = null;
-			for (const key of Object.getOwnPropertyNames(element)) if (key.startsWith("__reactFiber$")) {
-				fiber = element[key];
-				break;
-			}
-			for (let depth = 0; fiber && depth < 500; depth += 1) {
-				const value = fiber.memoizedProps?.value;
-				if (value && typeof value.upsertConversation === "function" && typeof value.activeConversation === "object" && Array.isArray(value.conversations)) return value;
-				fiber = fiber.return;
-			}
-			return null;
-		}
 		function syncOfficialPage(context, conversation, messages, targetId) {
 			if (!context || !conversation || conversation.id !== state.cid) return false;
 			const byId = new Map(messages.map((message) => [message.id, message]));
@@ -2939,14 +2964,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
         <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
     </svg>
 `;
-	function newId() {
-		return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-	}
-	function splitConversationId(cid) {
-		const parts = cid.split("__");
-		if (parts.length < 3 || parts[0] !== "conv" || !parts[1]) return null;
-		return { owner: parts[1] };
-	}
 	function cloneTitle(title) {
 		return `${title || "新对话"}${CLONE_TITLE_SUFFIX}`;
 	}
@@ -3027,14 +3044,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		}
 		async function applyClone() {
 			const sourceCid = readConversationId();
-			const ids = splitConversationId(sourceCid);
+			const owner = conversationOwner(sourceCid);
 			validateCid(sourceCid);
-			if (!ids) throw new Error("无法识别当前会话 ID，暂不支持克隆。");
-			if (ids.owner === "anonymous") throw new Error("当前是未登录的本地对话，消息不在云端，暂不支持克隆。请登录后打开云端对话。");
+			if (!owner) throw new Error("无法识别当前会话 ID，暂不支持克隆。");
+			if (owner === "anonymous") throw new Error("当前是未登录的本地对话，消息不在云端，暂不支持克隆。请登录后打开云端对话。");
 			const [meta, messages] = await Promise.all([loadConversation(sourceCid), loadMessages(sourceCid)]);
 			validateMessages(messages);
 			if (!confirmClone(meta, messages)) return { cancelled: true };
-			const targetCid = `conv__${ids.owner}__${newId()}`;
+			const targetCid = `conv__${owner}__${newId()}`;
 			const now = Date.now();
 			const targetMeta = {
 				...meta,
@@ -3044,7 +3061,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			};
 			const copied = messages.map((message, index) => ({
 				...message,
-				id: `msg__${ids.owner}__${newId()}`,
+				id: `msg__${owner}__${newId()}`,
 				seq: index,
 				createdAt: message.createdAt || now
 			}));
@@ -3094,6 +3111,166 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (state.timer) window.clearTimeout(state.timer);
 				state.timer = 0;
 				button?.removeEventListener("click", onCloneClick);
+				button?.remove();
+				button = null;
+			}
+		};
+	}
+	var PLUS_ICON = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14"></path>
+        <path d="M12 5v14"></path>
+    </svg>
+`;
+	function deriveTitle(content) {
+		const text = String(content || "").trim();
+		return text ? `${text.slice(0, 30)}${text.length > 30 ? "…" : ""}` : "新对话";
+	}
+	function findComposer() {
+		for (const send of document.querySelectorAll(OFFICIAL_SEND_SELECTOR)) {
+			const row = send.parentElement;
+			if (!row) continue;
+			let container = row;
+			for (let depth = 0; container && depth < 5; depth += 1) {
+				const textarea = container.querySelector("textarea");
+				if (textarea) return {
+					send,
+					row,
+					textarea
+				};
+				container = container.parentElement;
+			}
+		}
+		return null;
+	}
+	function createAddBubble() {
+		const state = {
+			busy: false,
+			observer: null,
+			timer: 0
+		};
+		let button = null;
+		function setBusy(busy) {
+			state.busy = busy;
+			if (!button) return;
+			button.disabled = busy;
+			button.setAttribute("aria-busy", busy ? "true" : "false");
+		}
+		function ensureButton() {
+			if (button?.isConnected) {
+				setBusy(state.busy);
+				return;
+			}
+			const composer = findComposer();
+			if (!composer) return;
+			const existing = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
+			if (existing) {
+				button = existing;
+				setBusy(state.busy);
+				return;
+			}
+			const next = (composer.row.querySelector("button[aria-label=\"发送附件\"], button[title=\"发送附件\"]") || composer.send).cloneNode(false);
+			next.setAttribute("data-sichang-add-bubble", "");
+			next.setAttribute("aria-label", ADD_BUBBLE_BUTTON_LABEL);
+			next.title = ADD_BUBBLE_BUTTON_LABEL;
+			next.innerHTML = PLUS_ICON;
+			composer.send.parentElement.insertBefore(next, composer.send);
+			button = next;
+			setBusy(state.busy);
+		}
+		function scheduleEnsure() {
+			if (state.timer) return;
+			state.timer = window.setTimeout(() => {
+				state.timer = 0;
+				ensureButton();
+			}, 120);
+		}
+		function readInput(textarea) {
+			const content = String(textarea.value || "").trim();
+			if (!content) throw new Error("输入框是空的，先输入要添加的文字。");
+			if (textarea.disabled) throw new Error("输入框当前不可用，请等页面初始化完成。");
+			if (content.length > 2e4) throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断，已取消。`);
+			return content;
+		}
+		async function addBubble() {
+			const composer = findComposer();
+			if (!composer) throw new Error("AI 正在回复或输入区不可用，请等当前回复结束后再添加。");
+			const content = readInput(composer.textarea);
+			const cid = readConversationId();
+			const owner = conversationOwner(cid);
+			if (!cid || !owner) throw new Error("当前还没有云端会话，先正常发送一条消息创建会话。");
+			if (owner === "anonymous") throw new Error("当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。");
+			const [meta, messages] = await Promise.all([loadConversation(cid), loadMessages(cid)]);
+			const title = messages.length ? meta.title : deriveTitle(content);
+			const message = {
+				id: `msg__${owner}__${newId()}`,
+				seq: nextSeq(messages),
+				role: "user",
+				content,
+				createdAt: Date.now(),
+				state: "complete"
+			};
+			if (!messages.length) try {
+				await request(`/api/conversations/${encodeURIComponent(cid)}`, {
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ title })
+				});
+			} catch {}
+			await importMessages(cid, {
+				...meta,
+				title
+			}, [message]);
+			const context = officialContext(composer.send);
+			const conversation = context?.activeConversation;
+			let synced = false;
+			if (conversation && conversation.id === cid) try {
+				context.upsertConversation({
+					...conversation,
+					title,
+					messages: [...conversation.messages, { ...message }],
+					updatedAt: message.createdAt
+				});
+				synced = true;
+			} catch {}
+			setNativeValue(composer.textarea, "");
+			return synced;
+		}
+		async function onAddClick(event) {
+			const target = event.target;
+			if (!(target instanceof Element)) return;
+			const hit = target.closest(ADD_BUBBLE_BUTTON_SELECTOR);
+			if (!hit) return;
+			event.preventDefault();
+			event.stopPropagation();
+			event.stopImmediatePropagation();
+			if (state.busy || hit.disabled) return;
+			setBusy(true);
+			try {
+				if (!await addBubble()) window.location.reload();
+			} catch (error) {
+				window.alert(`SichangTools：${errorMessage(error)}`);
+			} finally {
+				setBusy(false);
+			}
+		}
+		ensureButton();
+		document.addEventListener("click", onAddClick, { capture: true });
+		state.observer = new MutationObserver(scheduleEnsure);
+		state.observer.observe(document.body, {
+			childList: true,
+			subtree: true
+		});
+		return {
+			api: {},
+			dispose: () => {
+				document.removeEventListener("click", onAddClick, { capture: true });
+				state.observer?.disconnect();
+				state.observer = null;
+				if (state.timer) window.clearTimeout(state.timer);
+				state.timer = 0;
 				button?.remove();
 				button = null;
 			}
@@ -3187,6 +3364,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		adopt(createPanelLayout(host));
 		adopt(createMessageDelete(host));
 		adopt(createConversationClone());
+		adopt(createAddBubble());
 		function syncPlaybackRateButton() {
 			ui.rateCycle.textContent = `${host.playbackRate}×`;
 			ui.rateCycle.title = `播放倍速 ${host.playbackRate}×（仅已下载音频）`;

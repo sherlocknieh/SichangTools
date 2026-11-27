@@ -99,6 +99,26 @@ export function toImportMessage(message, seq) {
     };
 }
 
+// 与官方 newId() 同格式，避免新会话/消息 ID 在站点里显得异常。
+export function newId() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function conversationOwner(cid) {
+    const parts = String(cid || '').split('__');
+    if (parts.length < 3 || parts[0] !== 'conv' || !parts[1]) return '';
+    return parts[1];
+}
+
+// 官方 nextSeq：以最后一条带 seq 的消息为基准，按本地消息数补齐。
+export function nextSeq(messages) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const seq = messages[index].seq;
+        if (typeof seq === 'number') return seq + (messages.length - index);
+    }
+    return messages.length;
+}
+
 // import 对已存在会话只增不改不删；克隆时先建空会话再导入，删除时用截断后的尾部补回。
 export async function importMessages(cid, meta, messages) {
     const conversation = {
