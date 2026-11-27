@@ -99,7 +99,6 @@ export function createSynthesis(host) {
         record.row.removeAttribute('data-live');
         record.duration.textContent = '失败';
         record.downloadButton.disabled = true;
-        if (record.expandedSegment) host.closeSegmentPanel(record, record.expandedSegment);
         record.autoSegment = null;
         for (const segment of record.segments) {
             if (segment.status === 'pending' || segment.status === 'active') {
@@ -149,7 +148,6 @@ export function createSynthesis(host) {
             host.startTimelineTicker(record, session);
             host.armTimelineEnd(record);
         } else {
-            if (record.expandedSegment?.mode === 'live') host.closeSegmentPanel(record, record.expandedSegment);
             record.autoSegment = null;
         }
         host.syncRecordPlayButton(record);

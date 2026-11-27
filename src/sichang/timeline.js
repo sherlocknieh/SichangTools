@@ -28,7 +28,6 @@ export function createTimeline(host) {
         record.state = 'ready';
         record.duration.textContent = formatDuration(record.seconds);
         record.autoSegment = null;
-        if (record.expandedSegment?.mode === 'live') host.closeSegmentPanel(record, record.expandedSegment);
         host.refreshSegmentControls(record);
     }
 
@@ -41,23 +40,20 @@ export function createTimeline(host) {
         return Math.min(session.receivedSeconds, Math.max(0, position));
     }
 
-    // 播到哪一段就只记住哪一段，不自动展开分段面板；用户手动点开实时面板后，
-    // 面板才继续跟随播放位置切段和刷新进度
+    // 实时播放换段时只更新行内：当前段显示进度条，上一段退回预览文字
     function showLiveSegment(record, session, position) {
         const info = host.segmentAt(record, position);
         if (!info || !info.segment.bytes) return;
         const { segment, start, duration } = info;
         if (record.autoSegment !== segment) {
+            // 换段后上一段退回预览文字，别留着一条停住的进度条
+            const previous = record.autoSegment;
             record.autoSegment = segment;
-            if (record.expandedSegment?.mode === 'live' && record.expandedSegment !== segment) {
-                host.openSegmentPanel(record, segment, 'live');
-            }
+            if (previous) host.syncSegmentButtons(record, previous);
             host.mirrorPlayingText(record, segment);
         }
-        if (record.expandedSegment === segment && segment.mode === 'live') {
-            host.updateSegmentTime(record, segment, position - start, duration);
-        }
-        // 行内播放/停止按钮要跟着实时播放的状态走（播放、停止合成）
+        // 行内进度条按实时播放位置推进，同时也刷新播放/停止按钮状态
+        host.updateSegmentTime(record, segment, position - start, duration);
         host.syncSegmentButtons(record, segment);
     }
 

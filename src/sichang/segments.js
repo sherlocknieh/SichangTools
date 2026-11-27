@@ -2,7 +2,7 @@
 // 记录级播放/合成流程通过 host 注入的回调完成，这里只负责把状态映射到 DOM。
 import { DEFAULT_SAMPLE_RATE } from './constants.js';
 import { formatSegmentDuration, previewText } from './text.js';
-import { VOICE_LABELS, voiceName } from './voices.js';
+import { VOICE_LABELS } from './voices.js';
 
 // 分段控制按钮的字形统一放这里，文字说明由 title/aria-label 承担
 export const SEGMENT_ICONS = {
@@ -94,14 +94,21 @@ export function createSegments(host) {
     }
 
     function updateSegmentTime(record, segment, current, duration) {
+        const active = record.chain?.segment === segment || playbackModeFor(record, segment) === 'live';
+        segment.row.classList.toggle('showProgress', active);
         if (!Number.isFinite(duration) || duration <= 0) {
-            segment.timeEl.textContent = '0:00 / 0:00';
             segment.fill.style.width = '0%';
             return;
         }
         const ratio = Math.min(1, Math.max(0, current / duration));
         segment.fill.style.width = `${ratio * 100}%`;
-        segment.timeEl.textContent = `${formatSegmentDuration(current)} / ${formatSegmentDuration(duration)}`;
+        // 播放中用进度条替掉预览文字，时长位置改为「已播 / 总长」；
+        // 待合成/失败等状态的文案保留，不被覆盖
+        if (active || segment.complete) {
+            segment.durationEl.textContent = active
+                ? `${formatSegmentDuration(current)} / ${formatSegmentDuration(duration)}`
+                : formatSegmentDuration(duration);
+        }
     }
 
     function idleSegmentTime(record, segment) {
@@ -134,8 +141,8 @@ export function createSegments(host) {
     function setSegmentVoice(segment, voice, locked = false) {
         segment.voice = voice;
         if (locked) segment.voiceLocked = true;
-        segment.voiceEl.textContent = voiceName(voice);
-        segment.voiceEl.title = `音色：${VOICE_LABELS.get(voice) || voice || '默认音色'}`;
+        // 没有展开面板了：音色放在行悬停提示里，不再单独占一列
+        segment.row.title = `音色：${VOICE_LABELS.get(voice) || voice || '默认音色'}`;
     }
 
     // 某段文本被改过后，整条摘要、复制原文和「重新合成」都要跟着用新文本
@@ -172,58 +179,19 @@ export function createSegments(host) {
         record.segCount.textContent = `${record.segments.length} 段`;
     }
 
-    // 点击分段行时决定打开哪种面板：顺序播放中的段用分段控制，
-    // 实时时间线正在播/暂停在当前段时回到时间线控制，其余按普通分段面板打开
-    function panelModeFor(record, segment) {
+    // 行内按钮按当前播放通道决定操作对象：顺序播放中的段用分段音频，
+    // 实时时间线正在播/暂停在当前段时回到时间线控制，其余从该段开始顺序播放
+    function playbackModeFor(record, segment) {
         if (record.chain?.segment === segment) return 'segment';
         const live = record.state === 'playing' || record.state === 'paused' || record.state === 'capturing';
         if (live && record.autoSegment === segment) return 'live';
         return 'local';
     }
 
-    // 同一时刻只展开一个分段面板。自动跟随播放位置，手动点开则停在用户选中的那一段
-    function openSegmentPanel(record, segment, mode) {
-        const switching = record.expandedSegment !== segment;
-        if (switching && record.expandedSegment) closeSegmentPanel(record, record.expandedSegment);
-        record.expandedSegment = segment;
-        if (mode) segment.mode = mode;
-        segment.box.classList.add('expanded');
-        segment.row.dataset.active = 'true';
-        segment.row.setAttribute('aria-expanded', 'true');
-        // 暂停后收起再打开，进度条要回到暂停位置，而不是显示 0
-        if (segment.mode !== 'live' && segment.audio && Number.isFinite(segment.audio.duration) && segment.audio.duration) {
-            updateSegmentTime(record, segment, segment.audio.currentTime, segment.audio.duration);
-        }
-        if (switching) keepSegmentVisible(segment);
-        syncSegmentButtons(record, segment);
-    }
-
-    function closeSegmentPanel(record, segment) {
-        if (!segment) return;
-        segment.box.classList.remove('expanded');
-        segment.row.removeAttribute('data-active');
-        segment.row.setAttribute('aria-expanded', 'false');
-        updateSegmentTime(record, segment, 0, segment.bytes / 2 / sampleRateOf(record));
-        if (record.expandedSegment === segment) record.expandedSegment = null;
-    }
-
-    // 让正在播放的分段留在列表可视区里，但不打断用户自己滚动。
-    // 记录被折叠时分段没有布局尺寸，跳过，避免把面板滚到看不见的位置
-    function keepSegmentVisible(segment) {
-        if (!segment.box.getClientRects().length) return;
-        const body = ui.body;
-        const bodyRect = body.getBoundingClientRect();
-        const boxRect = segment.box.getBoundingClientRect();
-        if (boxRect.top < bodyRect.top) body.scrollTop -= bodyRect.top - boxRect.top;
-        else if (boxRect.bottom > bodyRect.bottom) body.scrollTop += boxRect.bottom - bodyRect.bottom;
-    }
-
-    // 分段行和展开面板共用这批按钮：播放/暂停和停止在行里，重播/停止合成在面板里。
-    // 行内按钮不依赖面板展开，所以这里按当前播放模式直接刷新，不做展开判断
+    // 行内常驻按钮：播放/暂停和停止。按当前播放通道直接刷新，不依赖面板展开
     function syncSegmentButtons(record, segment) {
-        const live = panelModeFor(record, segment) === 'live';
+        const live = playbackModeFor(record, segment) === 'live';
         const capturing = live && record.state === 'capturing';
-        const synthesizing = record.state === 'capturing' && Boolean(record.session);
         const paused = record.state === 'paused';
         const audio = live ? null : segment.audio;
         const playing = Boolean(audio && !audio.paused);
@@ -236,12 +204,9 @@ export function createSegments(host) {
             setAction(segment.toggleButton, paused ? SEGMENT_ICONS.play : SEGMENT_ICONS.pause,
                 paused ? '继续播放' : '暂停播放');
             segment.toggleButton.classList.toggle('playing', !capturing && !paused);
-            // 生成中的分段不再保留「停止合成」入口：要跳过这一段直接删它
+            // 生成中的分段不保留「停止合成」入口：要跳过这一段直接删它
             segment.stopButton.hidden = capturing;
-            setAction(segment.stopButton, SEGMENT_ICONS.stop, capturing ? '停止合成' : '停止播放');
-            segment.stopButton.classList.toggle('synth', capturing);
-            segment.synthButton.hidden = true;
-            segment.replayButton.hidden = true;
+            setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
         } else if (waiting) {
             segment.toggleButton.hidden = false;
             segment.toggleButton.disabled = true;
@@ -249,10 +214,6 @@ export function createSegments(host) {
             segment.toggleButton.classList.remove('playing');
             segment.stopButton.hidden = false;
             setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
-            segment.stopButton.classList.remove('synth');
-            segment.synthButton.hidden = !synthesizing;
-            segment.replayButton.hidden = false;
-            segment.replayButton.disabled = !enabled;
         } else {
             segment.toggleButton.hidden = false;
             segment.toggleButton.disabled = !enabled;
@@ -261,10 +222,12 @@ export function createSegments(host) {
             segment.toggleButton.classList.toggle('playing', playing);
             segment.stopButton.hidden = !audio;
             setAction(segment.stopButton, SEGMENT_ICONS.stop, '停止播放');
-            segment.stopButton.classList.remove('synth');
-            segment.synthButton.hidden = !synthesizing;
-            segment.replayButton.hidden = false;
-            segment.replayButton.disabled = !enabled;
+        }
+        // 正在播放的这一段用进度条替代预览文字；停下后恢复总时长
+        const showProgress = live || record.chain?.segment === segment;
+        segment.row.classList.toggle('showProgress', showProgress);
+        if (!showProgress && segment.complete) {
+            segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / sampleRateOf(record));
         }
     }
 
@@ -294,10 +257,7 @@ export function createSegments(host) {
             refreshRecordText,
             setSegmentState,
             renumberSegments,
-            panelModeFor,
-            openSegmentPanel,
-            closeSegmentPanel,
-            keepSegmentVisible,
+            playbackModeFor,
             syncSegmentButtons,
             syncSegmentPlayState,
         },

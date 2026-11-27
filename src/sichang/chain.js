@@ -156,8 +156,8 @@ export function createChain(host) {
         record.chain = { segment };
         record.autoSegment = segment;
         host.activeAudio = audio;
-        // 播放不自动展开分段面板；只有用户已经点开某段时才把面板切到当前播放段
-        if (record.expandedSegment) host.openSegmentPanel(record, segment, 'segment');
+        // 行内立即切到「进度条 + 暂停」状态，不等音频真正起播
+        host.syncSegmentButtons(record, segment);
         host.mirrorPlayingText(record, segment);
         syncRecordPlayButton(record);
 
@@ -236,7 +236,7 @@ export function createChain(host) {
         if (!segment?.audio) return;
         stopActive();
         host.activeAudio = segment.audio;
-        if (record.expandedSegment) host.openSegmentPanel(record, segment, 'segment');
+        host.syncSegmentButtons(record, segment);
         host.mirrorPlayingText(record, segment);
         syncRecordPlayButton(record);
         segment.audio.play().then(
@@ -257,10 +257,8 @@ export function createChain(host) {
         }
         record.chain = null;
         record.autoSegment = null;
-        if (record.expandedSegment?.mode !== 'live') {
-            const expanded = record.expandedSegment;
-            if (expanded) host.closeSegmentPanel(record, expanded);
-        }
+        // 队列清掉后进度条退回预览文字
+        if (current) host.syncSegmentButtons(record, current);
         syncRecordPlayButton(record);
     }
 
@@ -273,7 +271,7 @@ export function createChain(host) {
     function seekSegment(record, segment, ratio) {
         const duration = segment.bytes / 2 / host.sampleRateOf(record);
         // 实时时间线按分段起点换算成整条时间线上的位置
-        if (segment.mode === 'live') {
+        if (host.playbackModeFor(record, segment) === 'live') {
             const { starts } = host.segmentSpans(record);
             host.seekTimeline(record, starts[host.segmentIndex(record, segment)] + ratio * duration);
             return;

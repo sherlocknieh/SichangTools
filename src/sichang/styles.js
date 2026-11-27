@@ -151,12 +151,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .segList { margin-top: 4px; }
 .item.folded .segList { display: none; }
-.segBox {
-    border-left: 2px solid transparent;
-    padding-left: 2px;
-    border-radius: 5px;
-}
-.segBox.expanded { border-left-color: #5a9e6b; background: #1b1b20; }
+.segBox { border-radius: 5px; }
 .seg {
     display: flex;
     align-items: center;
@@ -170,6 +165,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg:hover { background: #202026; }
 .seg.selected { background: #26262e; }
 .seg.selected .segText { color: #fff; }
+.seg.selected .segBar .fill { background: #7ec48f; }
 .seg .idx { width: 14px; flex: none; text-align: right; color: #6f6f79; font-variant-numeric: tabular-nums; }
 .seg .segText {
     flex: 1;
@@ -179,7 +175,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     text-overflow: ellipsis;
     color: #a9a9b3;
 }
-.seg[data-active] .segText { color: #e8e8ea; }
 .seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
 .seg[data-state="pending"] .segDur { color: #6f6f79; }
 .seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
@@ -210,52 +205,21 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 10px;
 }
 .segDelete:hover { background: #3a2226; color: #ff9a9a; }
-.segCaret {
-    flex: none;
-    width: 8px;
-    color: #5a5a64;
-    font-size: 10px;
-    text-align: center;
-    transition: transform .12s;
-}
-.segBox.expanded .segCaret { transform: rotate(90deg); color: #8a8a94; }
-.segPanel { display: none; padding: 0 0 5px; }
-.segBox.expanded .segPanel { display: block; }
-.segControls {
-    display: flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 3px;
-    padding: 2px 0 0 18px;
-}
+/* 播放中：进度条顶替预览文字，占同一块空间 */
 .segBar {
+    display: none;
     flex: 1 1 auto;
     min-width: 24px;
-    height: 4px;
-    margin: 0 2px;
-    border-radius: 2px;
+    height: 5px;
+    margin: 0 3px;
+    border-radius: 3px;
     background: #2a2a32;
     overflow: hidden;
     cursor: pointer;
 }
+.seg.showProgress .segText { display: none; }
+.seg.showProgress .segBar { display: block; }
 .segBar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .1s linear; }
-.segTime {
-    flex: none;
-    margin-right: 1px;
-    color: #80808a;
-    font-size: 10px;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-.segVoice {
-    flex: none;
-    max-width: 40px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #8a8a94;
-    font-size: 9px;
-}
 .segAction {
     flex: none;
     width: 20px;
@@ -270,8 +234,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .segAction:hover { background: #35353f; color: #fff; }
 .segAction.playing { background: #2d4a33; color: #a9e6b8; }
-.segAction.synth { color: #d8b46a; }
-.segAction.synth:hover { background: #3a3022; color: #f0cd8a; }
 @media (max-width: 480px) {
     .body { max-height: 38vh; }
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0112
+// @version      2026.11.28.0115
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -90,10 +90,6 @@
 		]
 	}];
 	var VOICE_LABELS = new Map(VOICE_GROUPS.flatMap((group) => group.voices.map((voice) => [voice.id, voice.label])));
-	function voiceName(voice) {
-		const label = VOICE_LABELS.get(voice) || voice || "默认";
-		return label.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "") || label;
-	}
 	var PANEL_CSS = `
 :host { all: initial; display: block; margin: 0 0 18px; }
 .panel {
@@ -246,12 +242,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .segList { margin-top: 4px; }
 .item.folded .segList { display: none; }
-.segBox {
-    border-left: 2px solid transparent;
-    padding-left: 2px;
-    border-radius: 5px;
-}
-.segBox.expanded { border-left-color: #5a9e6b; background: #1b1b20; }
+.segBox { border-radius: 5px; }
 .seg {
     display: flex;
     align-items: center;
@@ -265,6 +256,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg:hover { background: #202026; }
 .seg.selected { background: #26262e; }
 .seg.selected .segText { color: #fff; }
+.seg.selected .segBar .fill { background: #7ec48f; }
 .seg .idx { width: 14px; flex: none; text-align: right; color: #6f6f79; font-variant-numeric: tabular-nums; }
 .seg .segText {
     flex: 1;
@@ -274,7 +266,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     text-overflow: ellipsis;
     color: #a9a9b3;
 }
-.seg[data-active] .segText { color: #e8e8ea; }
 .seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
 .seg[data-state="pending"] .segDur { color: #6f6f79; }
 .seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
@@ -305,52 +296,21 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     font-size: 10px;
 }
 .segDelete:hover { background: #3a2226; color: #ff9a9a; }
-.segCaret {
-    flex: none;
-    width: 8px;
-    color: #5a5a64;
-    font-size: 10px;
-    text-align: center;
-    transition: transform .12s;
-}
-.segBox.expanded .segCaret { transform: rotate(90deg); color: #8a8a94; }
-.segPanel { display: none; padding: 0 0 5px; }
-.segBox.expanded .segPanel { display: block; }
-.segControls {
-    display: flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 3px;
-    padding: 2px 0 0 18px;
-}
+/* 播放中：进度条顶替预览文字，占同一块空间 */
 .segBar {
+    display: none;
     flex: 1 1 auto;
     min-width: 24px;
-    height: 4px;
-    margin: 0 2px;
-    border-radius: 2px;
+    height: 5px;
+    margin: 0 3px;
+    border-radius: 3px;
     background: #2a2a32;
     overflow: hidden;
     cursor: pointer;
 }
+.seg.showProgress .segText { display: none; }
+.seg.showProgress .segBar { display: block; }
 .segBar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .1s linear; }
-.segTime {
-    flex: none;
-    margin-right: 1px;
-    color: #80808a;
-    font-size: 10px;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-.segVoice {
-    flex: none;
-    max-width: 40px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #8a8a94;
-    font-size: 9px;
-}
 .segAction {
     flex: none;
     width: 20px;
@@ -365,8 +325,6 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 }
 .segAction:hover { background: #35353f; color: #fff; }
 .segAction.playing { background: #2d4a33; color: #a9e6b8; }
-.segAction.synth { color: #d8b46a; }
-.segAction.synth:hover { background: #3a3022; color: #f0cd8a; }
 @media (max-width: 480px) {
     .body { max-height: 38vh; }
 }
@@ -849,14 +807,15 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			};
 		}
 		function updateSegmentTime(record, segment, current, duration) {
+			const active = record.chain?.segment === segment || playbackModeFor(record, segment) === "live";
+			segment.row.classList.toggle("showProgress", active);
 			if (!Number.isFinite(duration) || duration <= 0) {
-				segment.timeEl.textContent = "0:00 / 0:00";
 				segment.fill.style.width = "0%";
 				return;
 			}
 			const ratio = Math.min(1, Math.max(0, current / duration));
 			segment.fill.style.width = `${ratio * 100}%`;
-			segment.timeEl.textContent = `${formatSegmentDuration(current)} / ${formatSegmentDuration(duration)}`;
+			if (active || segment.complete) segment.durationEl.textContent = active ? `${formatSegmentDuration(current)} / ${formatSegmentDuration(duration)}` : formatSegmentDuration(duration);
 		}
 		function idleSegmentTime(record, segment) {
 			if (segment.audio && !segment.audio.paused) return;
@@ -880,8 +839,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function setSegmentVoice(segment, voice, locked = false) {
 			segment.voice = voice;
 			if (locked) segment.voiceLocked = true;
-			segment.voiceEl.textContent = voiceName(voice);
-			segment.voiceEl.title = `音色：${VOICE_LABELS.get(voice) || voice || "默认音色"}`;
+			segment.row.title = `音色：${VOICE_LABELS.get(voice) || voice || "默认音色"}`;
 		}
 		function refreshRecordText(record) {
 			record.text = record.segments.map((segment) => segment.text || "").join("");
@@ -911,43 +869,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			});
 			record.segCount.textContent = `${record.segments.length} 段`;
 		}
-		function panelModeFor(record, segment) {
+		function playbackModeFor(record, segment) {
 			if (record.chain?.segment === segment) return "segment";
 			if ((record.state === "playing" || record.state === "paused" || record.state === "capturing") && record.autoSegment === segment) return "live";
 			return "local";
 		}
-		function openSegmentPanel(record, segment, mode) {
-			const switching = record.expandedSegment !== segment;
-			if (switching && record.expandedSegment) closeSegmentPanel(record, record.expandedSegment);
-			record.expandedSegment = segment;
-			if (mode) segment.mode = mode;
-			segment.box.classList.add("expanded");
-			segment.row.dataset.active = "true";
-			segment.row.setAttribute("aria-expanded", "true");
-			if (segment.mode !== "live" && segment.audio && Number.isFinite(segment.audio.duration) && segment.audio.duration) updateSegmentTime(record, segment, segment.audio.currentTime, segment.audio.duration);
-			if (switching) keepSegmentVisible(segment);
-			syncSegmentButtons(record, segment);
-		}
-		function closeSegmentPanel(record, segment) {
-			if (!segment) return;
-			segment.box.classList.remove("expanded");
-			segment.row.removeAttribute("data-active");
-			segment.row.setAttribute("aria-expanded", "false");
-			updateSegmentTime(record, segment, 0, segment.bytes / 2 / sampleRateOf(record));
-			if (record.expandedSegment === segment) record.expandedSegment = null;
-		}
-		function keepSegmentVisible(segment) {
-			if (!segment.box.getClientRects().length) return;
-			const body = ui.body;
-			const bodyRect = body.getBoundingClientRect();
-			const boxRect = segment.box.getBoundingClientRect();
-			if (boxRect.top < bodyRect.top) body.scrollTop -= bodyRect.top - boxRect.top;
-			else if (boxRect.bottom > bodyRect.bottom) body.scrollTop += boxRect.bottom - bodyRect.bottom;
-		}
 		function syncSegmentButtons(record, segment) {
-			const live = panelModeFor(record, segment) === "live";
+			const live = playbackModeFor(record, segment) === "live";
 			const capturing = live && record.state === "capturing";
-			const synthesizing = record.state === "capturing" && Boolean(record.session);
 			const paused = record.state === "paused";
 			const audio = live ? null : segment.audio;
 			const playing = Boolean(audio && !audio.paused);
@@ -959,10 +888,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				setAction(segment.toggleButton, paused ? SEGMENT_ICONS.play : SEGMENT_ICONS.pause, paused ? "继续播放" : "暂停播放");
 				segment.toggleButton.classList.toggle("playing", !capturing && !paused);
 				segment.stopButton.hidden = capturing;
-				setAction(segment.stopButton, SEGMENT_ICONS.stop, capturing ? "停止合成" : "停止播放");
-				segment.stopButton.classList.toggle("synth", capturing);
-				segment.synthButton.hidden = true;
-				segment.replayButton.hidden = true;
+				setAction(segment.stopButton, SEGMENT_ICONS.stop, "停止播放");
 			} else if (waiting) {
 				segment.toggleButton.hidden = false;
 				segment.toggleButton.disabled = true;
@@ -970,10 +896,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				segment.toggleButton.classList.remove("playing");
 				segment.stopButton.hidden = false;
 				setAction(segment.stopButton, SEGMENT_ICONS.stop, "停止播放");
-				segment.stopButton.classList.remove("synth");
-				segment.synthButton.hidden = !synthesizing;
-				segment.replayButton.hidden = false;
-				segment.replayButton.disabled = !enabled;
 			} else {
 				segment.toggleButton.hidden = false;
 				segment.toggleButton.disabled = !enabled;
@@ -981,11 +903,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				segment.toggleButton.classList.toggle("playing", playing);
 				segment.stopButton.hidden = !audio;
 				setAction(segment.stopButton, SEGMENT_ICONS.stop, "停止播放");
-				segment.stopButton.classList.remove("synth");
-				segment.synthButton.hidden = !synthesizing;
-				segment.replayButton.hidden = false;
-				segment.replayButton.disabled = !enabled;
 			}
+			const showProgress = live || record.chain?.segment === segment;
+			segment.row.classList.toggle("showProgress", showProgress);
+			if (!showProgress && segment.complete) segment.durationEl.textContent = formatSegmentDuration(segment.bytes / 2 / sampleRateOf(record));
 		}
 		function setAction(button, icon, label) {
 			button.textContent = icon;
@@ -1010,10 +931,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			refreshRecordText,
 			setSegmentState,
 			renumberSegments,
-			panelModeFor,
-			openSegmentPanel,
-			closeSegmentPanel,
-			keepSegmentVisible,
+			playbackModeFor,
 			syncSegmentButtons,
 			syncSegmentPlayState
 		} };
@@ -1129,26 +1047,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			deleteButton.textContent = "✕";
 			deleteButton.title = "删除这一段";
 			deleteButton.setAttribute("aria-label", "删除这一段");
-			const caret = document.createElement("span");
-			caret.className = "segCaret";
-			caret.textContent = "›";
-			caret.setAttribute("aria-hidden", "true");
-			const panel = document.createElement("div");
-			panel.className = "segPanel";
 			const bar = document.createElement("div");
 			bar.className = "segBar";
 			bar.setAttribute("role", "progressbar");
 			const fill = document.createElement("div");
 			fill.className = "fill";
 			bar.appendChild(fill);
-			const controls = document.createElement("div");
-			controls.className = "segControls";
-			const timeEl = document.createElement("span");
-			timeEl.className = "segTime";
-			timeEl.textContent = "0:00 / 0:00";
-			const voiceEl = document.createElement("span");
-			voiceEl.className = "segVoice";
-			voiceEl.textContent = voiceName(record.tts.voice);
 			const toggleButton = document.createElement("button");
 			toggleButton.className = "segAction";
 			toggleButton.textContent = SEGMENT_ICONS.play;
@@ -1161,21 +1065,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			stopButton.title = "停止播放";
 			stopButton.setAttribute("aria-label", "停止播放");
 			stopButton.hidden = true;
-			const synthButton = document.createElement("button");
-			synthButton.className = "segAction synth";
-			synthButton.textContent = SEGMENT_ICONS.synthStop;
-			synthButton.title = "停止合成";
-			synthButton.setAttribute("aria-label", "停止合成");
-			synthButton.hidden = true;
-			const replayButton = document.createElement("button");
-			replayButton.className = "segAction";
-			replayButton.textContent = SEGMENT_ICONS.replay;
-			replayButton.title = "重播本段";
-			replayButton.setAttribute("aria-label", "重播本段");
-			controls.append(timeEl, voiceEl, bar, replayButton, synthButton);
-			panel.append(controls);
-			row.append(caret, idx, label, segDuration, toggleButton, stopButton, regenButton, deleteButton);
-			box.append(row, panel);
+			row.append(idx, label, bar, segDuration, toggleButton, stopButton, regenButton, deleteButton);
+			box.append(row);
 			if (after) record.segList.insertBefore(box, after.box.nextSibling);
 			else record.segList.appendChild(box);
 			Object.assign(segment, {
@@ -1184,30 +1075,19 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				idx,
 				label,
 				durationEl: segDuration,
-				regenButton,
-				deleteButton,
-				caret,
-				panel,
 				bar,
 				fill,
-				timeEl,
-				voiceEl,
 				toggleButton,
 				stopButton,
-				synthButton,
-				replayButton
+				regenButton,
+				deleteButton
 			});
 			host.setSegmentVoice(segment, record.tts.voice);
 			host.setSegmentLabel(segment, text);
 			host.renumberSegments(record);
 			row.addEventListener("click", (event) => {
-				if (event.target.closest("button")) return;
+				if (event.target.closest("button") || event.target.closest(".segBar")) return;
 				host.selectSegment(record, segment);
-				if (record.expandedSegment === segment) {
-					host.closeSegmentPanel(record, segment);
-					return;
-				}
-				host.openSegmentPanel(record, segment, host.panelModeFor(record, segment));
 			});
 			regenButton.addEventListener("click", (event) => {
 				event.stopPropagation();
@@ -1218,7 +1098,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				deleteSegment(record, segment);
 			});
 			toggleButton.addEventListener("click", () => {
-				if (host.panelModeFor(record, segment) === "live") {
+				if (host.playbackModeFor(record, segment) === "live") {
 					if (record.state === "paused") host.resumeTimeline(record);
 					else host.pauseTimeline(record);
 					return;
@@ -1231,7 +1111,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				host.playChainSegment(record, segment);
 			});
 			stopButton.addEventListener("click", () => {
-				if (host.panelModeFor(record, segment) === "live") {
+				if (host.playbackModeFor(record, segment) === "live") {
 					if (record.state === "capturing") record.session?.stop();
 					else host.stopTimeline(record);
 					return;
@@ -1247,17 +1127,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				host.idleSegmentTime(record, segment);
 				host.syncSegmentPlayState(segment);
 			});
-			synthButton.addEventListener("click", () => record.session?.stop());
-			replayButton.addEventListener("click", () => {
-				if (!segment.complete || !segment.bytes || segment.busy) return;
-				if (record.chain?.segment === segment && segment.audio) {
-					segment.audio.currentTime = 0;
-					if (segment.audio.paused) host.resumeChain(record);
-					return;
-				}
-				host.playChainSegment(record, segment);
-			});
 			bar.addEventListener("click", (event) => {
+				event.stopPropagation();
 				if (!segment.complete || !segment.bytes || segment.busy) return;
 				if (record.state === "failed") return;
 				const rect = bar.getBoundingClientRect();
@@ -1288,7 +1159,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			if (record.chain?.segment === segment) host.stopChain(record);
 			else if (record.chain?.waitingFor === segment) host.advanceChain(record, index);
-			if (record.expandedSegment === segment) host.closeSegmentPanel(record, segment);
 			if (host.selection.record === record && host.selection.segment === segment) host.applySelection(record, null);
 			if (record.autoSegment === segment) record.autoSegment = null;
 			if (segment.audio) {
@@ -1343,7 +1213,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				url: null,
 				sampleRate: DEFAULT_SAMPLE_RATE,
 				chain: null,
-				expandedSegment: null,
 				autoSegment: null
 			};
 			const row = document.createElement("div");
@@ -1659,7 +1528,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.chain = { segment };
 			record.autoSegment = segment;
 			host.activeAudio = audio;
-			if (record.expandedSegment) host.openSegmentPanel(record, segment, "segment");
+			host.syncSegmentButtons(record, segment);
 			host.mirrorPlayingText(record, segment);
 			syncRecordPlayButton(record);
 			const applyOffset = () => {
@@ -1738,7 +1607,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!segment?.audio) return;
 			stopActive();
 			host.activeAudio = segment.audio;
-			if (record.expandedSegment) host.openSegmentPanel(record, segment, "segment");
+			host.syncSegmentButtons(record, segment);
 			host.mirrorPlayingText(record, segment);
 			syncRecordPlayButton(record);
 			segment.audio.play().then(() => {
@@ -1761,10 +1630,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			}
 			record.chain = null;
 			record.autoSegment = null;
-			if (record.expandedSegment?.mode !== "live") {
-				const expanded = record.expandedSegment;
-				if (expanded) host.closeSegmentPanel(record, expanded);
-			}
+			if (current) host.syncSegmentButtons(record, current);
 			syncRecordPlayButton(record);
 		}
 		function stopOtherChains(keep) {
@@ -1772,7 +1638,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		}
 		function seekSegment(record, segment, ratio) {
 			const duration = segment.bytes / 2 / host.sampleRateOf(record);
-			if (segment.mode === "live") {
+			if (host.playbackModeFor(record, segment) === "live") {
 				const { starts } = host.segmentSpans(record);
 				host.seekTimeline(record, starts[host.segmentIndex(record, segment)] + ratio * duration);
 				return;
@@ -1825,7 +1691,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.state = "ready";
 			record.duration.textContent = formatDuration(record.seconds);
 			record.autoSegment = null;
-			if (record.expandedSegment?.mode === "live") host.closeSegmentPanel(record, record.expandedSegment);
 			host.refreshSegmentControls(record);
 		}
 		function livePosition(session) {
@@ -1840,11 +1705,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!info || !info.segment.bytes) return;
 			const { segment, start, duration } = info;
 			if (record.autoSegment !== segment) {
+				const previous = record.autoSegment;
 				record.autoSegment = segment;
-				if (record.expandedSegment?.mode === "live" && record.expandedSegment !== segment) host.openSegmentPanel(record, segment, "live");
+				if (previous) host.syncSegmentButtons(record, previous);
 				host.mirrorPlayingText(record, segment);
 			}
-			if (record.expandedSegment === segment && segment.mode === "live") host.updateSegmentTime(record, segment, position - start, duration);
+			host.updateSegmentTime(record, segment, position - start, duration);
 			host.syncSegmentButtons(record, segment);
 		}
 		function startTimelineTicker(record, session) {
@@ -2207,7 +2073,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.row.removeAttribute("data-live");
 			record.duration.textContent = "失败";
 			record.downloadButton.disabled = true;
-			if (record.expandedSegment) host.closeSegmentPanel(record, record.expandedSegment);
 			record.autoSegment = null;
 			for (const segment of record.segments) if (segment.status === "pending" || segment.status === "active") host.setSegmentState(record, segment, segment.bytes ? "done" : "skipped");
 			host.refreshSegmentControls(record);
@@ -2242,10 +2107,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				host.activeTimeline = record;
 				host.startTimelineTicker(record, session);
 				host.armTimelineEnd(record);
-			} else {
-				if (record.expandedSegment?.mode === "live") host.closeSegmentPanel(record, record.expandedSegment);
-				record.autoSegment = null;
-			}
+			} else record.autoSegment = null;
 			host.syncRecordPlayButton(record);
 			host.syncGoButton?.();
 		}
@@ -4208,7 +4070,6 @@ button[${BUSY_ATTR}]::before {
 			refreshSegmentControls: host.refreshSegmentControls,
 			stopTimeline: host.stopTimeline,
 			stopChain: host.stopChain,
-			openSegmentPanel: host.openSegmentPanel,
 			playChainSegment: host.playChainSegment,
 			flashSegmentRegenButton: host.flashSegmentRegenButton,
 			currentTts: host.currentTts

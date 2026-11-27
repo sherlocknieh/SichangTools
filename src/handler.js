@@ -110,7 +110,6 @@ export default function initSichangHandler() {
         refreshSegmentControls: host.refreshSegmentControls,
         stopTimeline: host.stopTimeline,
         stopChain: host.stopChain,
-        openSegmentPanel: host.openSegmentPanel,
         playChainSegment: host.playChainSegment,
         flashSegmentRegenButton: host.flashSegmentRegenButton,
         // 重生成跟随面板当前音色，而不是记录创建时的旧音色

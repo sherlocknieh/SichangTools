@@ -2,7 +2,6 @@
 // 记录头只做收纳，播放/重生成逻辑都通过 host 注入的回调触发。
 import { DEFAULT_SAMPLE_RATE, MAX_RECORDS } from './constants.js';
 import { SEGMENT_ICONS } from './segments.js';
-import { voiceName } from './voices.js';
 import { formatDuration, previewText } from './text.js';
 import { joinedPcm, pcmToWav } from './audio.js';
 
@@ -88,30 +87,14 @@ export function createRecordView(host) {
         deleteButton.textContent = '✕';
         deleteButton.title = '删除这一段';
         deleteButton.setAttribute('aria-label', '删除这一段');
-        // 可展开的小箭头：不点播放也能发现每段自己的控制面板
-        const caret = document.createElement('span');
-        caret.className = 'segCaret';
-        caret.textContent = '›';
-        caret.setAttribute('aria-hidden', 'true');
-
-        const panel = document.createElement('div');
-        panel.className = 'segPanel';
+        // 进度条就在行里：播放时替掉预览文字，不展开任何面板
         const bar = document.createElement('div');
         bar.className = 'segBar';
         bar.setAttribute('role', 'progressbar');
         const fill = document.createElement('div');
         fill.className = 'fill';
         bar.appendChild(fill);
-        const controls = document.createElement('div');
-        controls.className = 'segControls';
-        const timeEl = document.createElement('span');
-        timeEl.className = 'segTime';
-        timeEl.textContent = '0:00 / 0:00';
-        // 进度条左侧标出这一段实际使用的音色
-        const voiceEl = document.createElement('span');
-        voiceEl.className = 'segVoice';
-        voiceEl.textContent = voiceName(record.tts.voice);
-        // 播放/暂停与停止按钮放在分段行里，不用展开面板就能控制当前播放
+        // 播放/暂停与停止按钮常驻行内，不用展开面板就能控制当前播放
         const toggleButton = document.createElement('button');
         toggleButton.className = 'segAction';
         toggleButton.textContent = SEGMENT_ICONS.play;
@@ -124,40 +107,22 @@ export function createRecordView(host) {
         stopButton.title = '停止播放';
         stopButton.setAttribute('aria-label', '停止播放');
         stopButton.hidden = true;
-        const synthButton = document.createElement('button');
-        synthButton.className = 'segAction synth';
-        synthButton.textContent = SEGMENT_ICONS.synthStop;
-        synthButton.title = '停止合成';
-        synthButton.setAttribute('aria-label', '停止合成');
-        synthButton.hidden = true;
-        const replayButton = document.createElement('button');
-        replayButton.className = 'segAction';
-        replayButton.textContent = SEGMENT_ICONS.replay;
-        replayButton.title = '重播本段';
-        replayButton.setAttribute('aria-label', '重播本段');
-        controls.append(timeEl, voiceEl, bar, replayButton, synthButton);
-        panel.append(controls);
 
-        row.append(caret, idx, label, segDuration, toggleButton, stopButton, regenButton, deleteButton);
-        box.append(row, panel);
+        row.append(idx, label, bar, segDuration, toggleButton, stopButton, regenButton, deleteButton);
+        box.append(row);
         if (after) record.segList.insertBefore(box, after.box.nextSibling);
         else record.segList.appendChild(box);
         Object.assign(segment, {
-            box, row, idx, label, durationEl: segDuration, regenButton, deleteButton, caret,
-            panel, bar, fill, timeEl, voiceEl, toggleButton, stopButton, synthButton, replayButton,
+            box, row, idx, label, durationEl: segDuration, bar, fill,
+            toggleButton, stopButton, regenButton, deleteButton,
         });
         host.setSegmentVoice(segment, record.tts.voice);
         host.setSegmentLabel(segment, text);
         host.renumberSegments(record);
 
         row.addEventListener('click', event => {
-            if (event.target.closest('button')) return;
+            if (event.target.closest('button') || event.target.closest('.segBar')) return;
             host.selectSegment(record, segment);
-            if (record.expandedSegment === segment) {
-                host.closeSegmentPanel(record, segment);
-                return;
-            }
-            host.openSegmentPanel(record, segment, host.panelModeFor(record, segment));
         });
         regenButton.addEventListener('click', event => {
             event.stopPropagation();
@@ -168,7 +133,7 @@ export function createRecordView(host) {
             deleteSegment(record, segment);
         });
         toggleButton.addEventListener('click', () => {
-            if (host.panelModeFor(record, segment) === 'live') {
+            if (host.playbackModeFor(record, segment) === 'live') {
                 if (record.state === 'paused') host.resumeTimeline(record);
                 else host.pauseTimeline(record);
                 return;
@@ -181,7 +146,7 @@ export function createRecordView(host) {
             host.playChainSegment(record, segment);
         });
         stopButton.addEventListener('click', () => {
-            if (host.panelModeFor(record, segment) === 'live') {
+            if (host.playbackModeFor(record, segment) === 'live') {
                 if (record.state === 'capturing') record.session?.stop();
                 else host.stopTimeline(record);
                 return;
@@ -197,19 +162,9 @@ export function createRecordView(host) {
             host.idleSegmentTime(record, segment);
             host.syncSegmentPlayState(segment);
         });
-        // 合成中切到分段顺序播放后，实时面板会收起；这里保留整个合成的停止入口
-        synthButton.addEventListener('click', () => record.session?.stop());
-        replayButton.addEventListener('click', () => {
-            if (!segment.complete || !segment.bytes || segment.busy) return;
-            if (record.chain?.segment === segment && segment.audio) {
-                segment.audio.currentTime = 0;
-                if (segment.audio.paused) host.resumeChain(record);
-                return;
-            }
-            host.playChainSegment(record, segment);
-        });
         // 分段进度条自己跳转；还没播过时按需建 audio，停在目标位置
         bar.addEventListener('click', event => {
+            event.stopPropagation();
             if (!segment.complete || !segment.bytes || segment.busy) return;
             if (record.state === 'failed') return;
             const rect = bar.getBoundingClientRect();
@@ -246,7 +201,6 @@ export function createRecordView(host) {
         // 顺序播放正播到或正等待这一段：播到该段时按剩余列表继续或停下
         if (record.chain?.segment === segment) host.stopChain(record);
         else if (record.chain?.waitingFor === segment) host.advanceChain(record, index);
-        if (record.expandedSegment === segment) host.closeSegmentPanel(record, segment);
         if (host.selection.record === record && host.selection.segment === segment) host.applySelection(record, null);
         if (record.autoSegment === segment) record.autoSegment = null;
         // 释放这一段自己的音频与 blob URL
@@ -317,7 +271,6 @@ export function createRecordView(host) {
             url: null,
             sampleRate: DEFAULT_SAMPLE_RATE,
             chain: null,
-            expandedSegment: null,
             autoSegment: null,
         };
 
