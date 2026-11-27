@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0115
+// @version      2026.11.28.0120
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -90,6 +90,10 @@
 		]
 	}];
 	var VOICE_LABELS = new Map(VOICE_GROUPS.flatMap((group) => group.voices.map((voice) => [voice.id, voice.label])));
+	function voiceName(voice) {
+		const label = VOICE_LABELS.get(voice) || voice || "默认";
+		return label.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "") || label;
+	}
 	var PANEL_CSS = `
 :host { all: initial; display: block; margin: 0 0 18px; }
 .panel {
@@ -258,6 +262,16 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg.selected .segText { color: #fff; }
 .seg.selected .segBar .fill { background: #7ec48f; }
 .seg .idx { width: 14px; flex: none; text-align: right; color: #6f6f79; font-variant-numeric: tabular-nums; }
+/* 音色标签：紧挨进度条/预览文字前面 */
+.seg .segVoice {
+    flex: none;
+    max-width: 44px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #8a8a94;
+    font-size: 9px;
+}
 .seg .segText {
     flex: 1;
     min-width: 0;
@@ -839,7 +853,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		function setSegmentVoice(segment, voice, locked = false) {
 			segment.voice = voice;
 			if (locked) segment.voiceLocked = true;
-			segment.row.title = `音色：${VOICE_LABELS.get(voice) || voice || "默认音色"}`;
+			segment.voiceEl.textContent = voiceName(voice);
+			segment.voiceEl.title = `音色：${VOICE_LABELS.get(voice) || voice || "默认音色"}`;
 		}
 		function refreshRecordText(record) {
 			record.text = record.segments.map((segment) => segment.text || "").join("");
@@ -1031,6 +1046,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			row.dataset.state = "pending";
 			const idx = document.createElement("span");
 			idx.className = "idx";
+			const voiceEl = document.createElement("span");
+			voiceEl.className = "segVoice";
+			voiceEl.textContent = voiceName(record.tts.voice);
 			const label = document.createElement("span");
 			label.className = "segText";
 			const segDuration = document.createElement("span");
@@ -1065,7 +1083,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			stopButton.title = "停止播放";
 			stopButton.setAttribute("aria-label", "停止播放");
 			stopButton.hidden = true;
-			row.append(idx, label, bar, segDuration, toggleButton, stopButton, regenButton, deleteButton);
+			row.append(idx, voiceEl, label, bar, segDuration, toggleButton, stopButton, regenButton, deleteButton);
 			box.append(row);
 			if (after) record.segList.insertBefore(box, after.box.nextSibling);
 			else record.segList.appendChild(box);
@@ -1073,6 +1091,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				box,
 				row,
 				idx,
+				voiceEl,
 				label,
 				durationEl: segDuration,
 				bar,

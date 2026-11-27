@@ -2,6 +2,7 @@
 // 记录头只做收纳，播放/重生成逻辑都通过 host 注入的回调触发。
 import { DEFAULT_SAMPLE_RATE, MAX_RECORDS } from './constants.js';
 import { SEGMENT_ICONS } from './segments.js';
+import { voiceName } from './voices.js';
 import { formatDuration, previewText } from './text.js';
 import { joinedPcm, pcmToWav } from './audio.js';
 
@@ -69,6 +70,10 @@ export function createRecordView(host) {
         row.dataset.state = 'pending';
         const idx = document.createElement('span');
         idx.className = 'idx';
+        // 音色放在预览文字/进度条前面，播放时也能直接看到这一段用的音色
+        const voiceEl = document.createElement('span');
+        voiceEl.className = 'segVoice';
+        voiceEl.textContent = voiceName(record.tts.voice);
         const label = document.createElement('span');
         label.className = 'segText';
         const segDuration = document.createElement('span');
@@ -108,12 +113,12 @@ export function createRecordView(host) {
         stopButton.setAttribute('aria-label', '停止播放');
         stopButton.hidden = true;
 
-        row.append(idx, label, bar, segDuration, toggleButton, stopButton, regenButton, deleteButton);
+        row.append(idx, voiceEl, label, bar, segDuration, toggleButton, stopButton, regenButton, deleteButton);
         box.append(row);
         if (after) record.segList.insertBefore(box, after.box.nextSibling);
         else record.segList.appendChild(box);
         Object.assign(segment, {
-            box, row, idx, label, durationEl: segDuration, bar, fill,
+            box, row, idx, voiceEl, label, durationEl: segDuration, bar, fill,
             toggleButton, stopButton, regenButton, deleteButton,
         });
         host.setSegmentVoice(segment, record.tts.voice);

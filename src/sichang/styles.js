@@ -167,6 +167,16 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg.selected .segText { color: #fff; }
 .seg.selected .segBar .fill { background: #7ec48f; }
 .seg .idx { width: 14px; flex: none; text-align: right; color: #6f6f79; font-variant-numeric: tabular-nums; }
+/* 音色标签：紧挨进度条/预览文字前面 */
+.seg .segVoice {
+    flex: none;
+    max-width: 44px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #8a8a94;
+    font-size: 9px;
+}
 .seg .segText {
     flex: 1;
     min-width: 0;
