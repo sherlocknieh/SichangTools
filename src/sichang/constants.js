@@ -1,5 +1,10 @@
 // 思畅 AI 的「朗读」接口契约与分段策略：站点改版时先动这里。
 export const TTS_PATH = '/api/tts';
+// 官方没有单条消息的增删改接口；结构修改靠「截断 + import 补回」，
+// 单次导入上限按官方匿名迁移接口的约束取值
+export const CONVERSATION_MESSAGE_PAGE_SIZE = 500;
+export const CONVERSATION_IMPORT_BATCH = 400;
+export const CONVERSATION_IMPORT_MAX_CHARS = 20000;
 export const PANEL_ID = 'sichang-tts-capture';
 export const DEFAULT_SAMPLE_RATE = 24000;
 export const MAX_RECORDS = 20;

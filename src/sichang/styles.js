@@ -316,6 +316,229 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .segAction.playing { background: #2d4a33; color: #a9e6b8; }
 .segAction.synth { color: #d8b46a; }
 .segAction.synth:hover { background: #3a3022; color: #f0cd8a; }
+/* 对话结构管理：覆盖层单独挂在 Shadow DOM 里，宽度不受 300px 面板限制 */
+.convOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, .55);
+}
+.convOverlay[hidden] { display: none; }
+.convBox {
+    box-sizing: border-box;
+    width: min(760px, calc(100vw - 32px));
+    max-height: min(84vh, 760px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #2c2c33;
+    border-radius: 14px;
+    background: #16161a;
+    color: #e8e8ea;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .6);
+    font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+.convBox *, .convBox *::before, .convBox *::after { box-sizing: border-box; }
+.convHead {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 9px 12px;
+    background: #1d1d22;
+    border-bottom: 1px solid #2c2c33;
+}
+.convTitle { font-size: 13px; font-weight: 600; }
+.convSub {
+    max-width: 42%;
+    overflow: hidden;
+    color: #8a8a94;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.convSpacer { flex: 1; }
+.convHead button {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 6px;
+    color: #a9a9b3;
+    font-size: 11px;
+}
+.convHead button:hover { background: #2c2c33; color: #fff; }
+.convNote {
+    flex: none;
+    padding: 8px 12px;
+    border-bottom: 1px solid #232329;
+    background: #141418;
+    color: #a9a9b3;
+    font-size: 11px;
+}
+.convNote b { color: #e0b96a; font-weight: 600; }
+.convStatus {
+    flex: none;
+    min-height: 29px;
+    padding: 6px 12px;
+    border-bottom: 1px solid #232329;
+    color: #a9a9b3;
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+.convStatus[data-kind="error"] { background: #2a1a1d; color: #ff9a9a; }
+.convStatus[data-kind="success"] { background: #16231a; color: #a9e6b8; }
+.convRecovery {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 6px 12px;
+    border-bottom: 1px solid #3a2226;
+    background: #2a1a1d;
+    color: #ffb3b3;
+    font-size: 11px;
+}
+.convRecovery[hidden] { display: none; }
+.convRecovery button {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 6px;
+    background: #3a2226;
+    color: #ffb3b3;
+    font-size: 11px;
+}
+.convRecovery button:hover { background: #4a2a30; color: #fff; }
+.convList { flex: 1; min-height: 90px; overflow: auto; }
+.convEmpty { padding: 24px 14px; color: #8a8a94; font-size: 12px; text-align: center; }
+.convRow {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 6px 12px;
+    border-bottom: 1px solid #202026;
+    cursor: pointer;
+}
+.convRow:hover { background: #1b1b20; }
+.convRow.selected { background: #243027; }
+.convRow.selStart { box-shadow: inset 3px 0 #5a9e6b; }
+.convRow.selEnd { box-shadow: inset -3px 0 #5a9e6b; }
+.convRow.selStart.selEnd { box-shadow: inset 3px 0 #5a9e6b, inset -3px 0 #5a9e6b; }
+.convIdx {
+    flex: none;
+    width: 34px;
+    padding-top: 2px;
+    color: #6f6f79;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+.convRole {
+    flex: none;
+    width: 34px;
+    border-radius: 5px;
+    background: #2a2a32;
+    color: #c9c9d1;
+    font-size: 10px;
+    line-height: 18px;
+    text-align: center;
+}
+.convRole.user { background: #26364a; color: #9dc8ff; }
+.convRole.assistant { background: #2d3a2f; color: #a9e6b8; }
+.convRole.system { background: #3a3022; color: #e0b96a; }
+.convText {
+    flex: 1;
+    min-width: 0;
+    color: #c9c9d1;
+    font-size: 12px;
+    word-break: break-word;
+}
+.convBadges {
+    flex: none;
+    max-width: 38%;
+    color: #8a8a94;
+    font-size: 10px;
+    text-align: right;
+    word-break: break-word;
+}
+.convBadges.warn { color: #e0b96a; }
+.convForm {
+    flex: none;
+    padding: 8px 12px 10px;
+    border-top: 1px solid #2c2c33;
+    background: #141418;
+}
+.convForm[hidden] { display: none; }
+.convFormRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+    color: #a9a9b3;
+    font-size: 11px;
+}
+.convForm select, .convForm textarea {
+    border: 1px solid #2c2c33;
+    border-radius: 6px;
+    background: #101014;
+    color: #e8e8ea;
+    font: 12px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    outline: none;
+}
+.convForm select { height: 26px; padding: 0 6px; background: #1d1d22; color: #d5d5dd; }
+.convForm textarea {
+    display: block;
+    width: 100%;
+    min-height: 72px;
+    max-height: 160px;
+    padding: 7px 8px;
+    resize: vertical;
+}
+.convForm select:focus, .convForm textarea:focus { border-color: #4a4a56; }
+.convForm button {
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 6px;
+    background: #2a2a32;
+    color: #d5d5dd;
+    font-size: 11px;
+}
+.convForm button:hover { background: #35353f; color: #fff; }
+.convForm button.primary { background: #2d4a33; color: #a9e6b8; }
+.convForm button.primary:hover { background: #3a5f43; color: #fff; }
+.convBar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-top: 1px solid #2c2c33;
+    background: #1d1d22;
+}
+.convSel {
+    min-width: 0;
+    color: #8a8a94;
+    font-size: 11px;
+}
+.convBar button {
+    height: 26px;
+    padding: 0 9px;
+    border-radius: 6px;
+    background: #2a2a32;
+    color: #d5d5dd;
+    font-size: 11px;
+}
+.convBar button:hover { background: #35353f; color: #fff; }
+.convBar button.primary { background: #2d4a33; color: #a9e6b8; }
+.convBar button.primary:hover { background: #3a5f43; color: #fff; }
+@media (max-width: 560px) {
+    .convBadges { display: none; }
+    .convBar button { padding: 0 7px; }
+}
 @media (max-width: 480px) {
     .panel { width: calc(100vw - 24px); }
 }
