@@ -10,6 +10,15 @@ export const PANEL_CSS = `
     border-radius: 10px;
     font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
     overflow: hidden;
+    /* 按钮统一尺寸与配色，头部、记录头和分段行共用 */
+    --btn-radius: 6px;
+    --btn-bg: #26262f;
+    --btn-bg-hover: #32323d;
+    --accent: #5a9e6b;
+    --accent-soft: #2d4a33;
+    --accent-ink: #a9e6b8;
+    --danger-soft: #3a2226;
+    --danger-ink: #ff9a9a;
 }
 .head {
     display: flex;
@@ -23,20 +32,35 @@ export const PANEL_CSS = `
 }
 .title { font-size: 12px; font-weight: 600; flex: none; }
 .spacer { flex: 1; }
-button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
-button:disabled { opacity: .4; cursor: default; pointer-events: none; }
+button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    padding: 0;
+    border-radius: var(--btn-radius);
+    transition: background-color .12s ease, color .12s ease, opacity .12s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+button:disabled { opacity: .36; cursor: default; pointer-events: none; }
+button:not(:disabled):active { filter: brightness(1.18); }
 .head button {
-    height: 20px;
-    padding: 0 6px;
-    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: var(--btn-radius);
     color: #a9a9b3;
     font-size: 11px;
+    line-height: 1;
 }
-.head button:hover { background: #2c2c33; color: #fff; }
-.head .rateCycle { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
-.head .playToggle { min-width: 26px; text-align: center; font-size: 11px; }
-.head .playToggle.playing { color: #a9e6b8; }
-.head .clear.confirm { background: #3a2226; color: #ff9a9a; }
+.head button:hover { background: var(--btn-bg-hover); color: #fff; }
+.head .rateCycle { min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
+.head .playToggle { min-width: 28px; text-align: center; font-size: 11px; }
+.head .playToggle.playing { background: var(--accent-soft); color: var(--accent-ink); }
+.head .clear.confirm { background: var(--danger-soft); color: var(--danger-ink); }
 .head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
 .head .voice {
     flex: 0 1 132px;
@@ -44,7 +68,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     height: 24px;
     padding: 0 4px;
     border: 1px solid #2c2c33;
-    border-radius: 6px;
+    border-radius: var(--btn-radius);
     background: #1d1d22;
     color: #d5d5dd;
     font: 11px system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -55,7 +79,7 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     flex: none;
     height: 24px;
     padding: 0 10px;
-    border-radius: 6px;
+    border-radius: var(--btn-radius);
     background: #2d4a33;
     color: #a9e6b8;
     font-size: 11px;
@@ -99,45 +123,37 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .item[data-live] .dur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 @keyframes tts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .itemHead .segCount { flex: none; color: #6f6f79; font-size: 10px; }
-.itemHead .itemDownload, .itemHead .itemDelete {
+/* 记录头图标按钮：透明底，悬停才亮，和分段行的实底图标区分层级 */
+.itemHead .itemPlay,
+.itemHead .itemRegen,
+.itemHead .itemDownload,
+.itemHead .itemDelete {
     flex: none;
-    width: 20px;
-    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 20px;
     padding: 0;
-    border-radius: 5px;
+    border-radius: var(--btn-radius);
     color: #a9a9b3;
-    font-size: 13px;
-    line-height: 18px;
-    text-align: center;
+    line-height: 1;
 }
-.itemHead .itemDownload:hover { background: #2c2c33; color: #fff; }
-.itemHead .itemDelete { font-size: 11px; color: #8a8a94; }
-.itemHead .itemDelete:hover { background: #3a2226; color: #ff9a9a; }
-.itemHead .itemPlay {
-    flex: none;
-    width: 20px;
-    height: 18px;
-    padding: 0;
-    border-radius: 5px;
-    color: #a9a9b3;
-    font-size: 9px;
+.itemHead .itemPlay { font-size: 9px; }
+.itemHead .itemPlay:hover { background: var(--btn-bg-hover); color: #fff; }
+.itemHead .itemPlay.playing {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    box-shadow: inset 0 0 0 1px rgba(169, 230, 184, .22);
 }
-.itemHead .itemPlay:hover { background: #2c2c33; color: #fff; }
-.itemHead .itemPlay.playing { background: #2d4a33; color: #a9e6b8; }
-/* 整条重生成：原地逐段重合成，和逐段图标同一套旋转反馈 */
-.itemHead .itemRegen {
-    flex: none;
-    width: 20px;
-    height: 18px;
-    padding: 0;
-    border-radius: 5px;
-    color: #a9a9b3;
-    font-size: 13px;
-    line-height: 18px;
-}
-.itemHead .itemRegen:hover { background: #2c2c33; color: #fff; }
+.itemHead .itemRegen { font-size: 13px; }
+.itemHead .itemRegen:hover { background: var(--btn-bg-hover); color: #fff; }
 .itemHead .itemRegen.busy { animation: tts-spin 1s linear infinite; }
 @keyframes tts-spin { to { transform: rotate(360deg); } }
+.itemHead .itemDownload { font-size: 13px; }
+.itemHead .itemDownload:hover { background: var(--btn-bg-hover); color: #fff; }
+.itemHead .itemDelete { font-size: 11px; color: #8a8a94; }
+.itemHead .itemDelete:hover { background: var(--danger-soft); color: var(--danger-ink); }
 .itemHead .txt {
     flex: 1 1 auto;
     min-width: 0;
@@ -189,32 +205,31 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
 .seg[data-state="pending"] .segDur { color: #6f6f79; }
 .seg[data-state="active"] .segDur { color: #d8b46a; animation: tts-pulse 1.2s ease-in-out infinite; }
 .seg[data-state="failed"] .segDur, .seg[data-state="skipped"] .segDur { color: #c97a7a; }
-/* 单段「重生成」紧挨播放键：图标按钮，目标与状态放 title/aria */
-.segRegen {
-    flex: none;
-    width: 20px;
-    height: 18px;
-    padding: 0;
-    border-radius: 5px;
-    background: #2a2a32;
-    color: #c9c9d1;
-    font-size: 12px;
-}
-.segRegen:hover { background: #35353f; color: #fff; }
-.segRegen.busy { animation: tts-spin 1s linear infinite; }
-.segRegen.failed { background: #3a2226; color: #ff9a9a; }
-/* 分段删除：合成中删掉还没轮到的段就不再请求，直接跳过 */
+/* 分段行图标按钮：实底，尺寸/圆角统一，播放中带绿色高亮 */
+.segAction,
+.segRegen,
 .segDelete {
     flex: none;
-    width: 20px;
-    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 20px;
     padding: 0;
-    border-radius: 5px;
-    background: #2a2a32;
+    border-radius: var(--btn-radius);
+    background: var(--btn-bg);
     color: #c9c9d1;
-    font-size: 10px;
+    line-height: 1;
 }
-.segDelete:hover { background: #3a2226; color: #ff9a9a; }
+.segAction { font-size: 10px; }
+.segRegen { font-size: 12px; }
+.segAction:hover,
+.segRegen:hover { background: var(--btn-bg-hover); color: #fff; }
+.segRegen.busy { animation: tts-spin 1s linear infinite; }
+.segRegen.failed { background: var(--danger-soft); color: var(--danger-ink); }
+/* 分段删除：合成中删掉还没轮到的段就不再请求，直接跳过 */
+.segDelete { font-size: 10px; }
+.segDelete:hover { background: var(--danger-soft); color: var(--danger-ink); }
 /* 播放中：进度条顶替预览文字，占同一块空间 */
 .segBar {
     display: none;
@@ -223,32 +238,23 @@ button:disabled { opacity: .4; cursor: default; pointer-events: none; }
     height: 5px;
     margin: 0 3px;
     border-radius: 3px;
-    background: #2a2a32;
+    background: var(--btn-bg);
     overflow: hidden;
     cursor: pointer;
 }
 .seg.showProgress .segText { display: none; }
 .seg.showProgress .segBar { display: block; }
-.segBar .fill { height: 100%; width: 0; background: #5a9e6b; transition: width .1s linear; }
-.segAction {
-    flex: none;
-    width: 20px;
-    height: 18px;
-    padding: 0;
-    border-radius: 5px;
-    background: #2a2a32;
-    color: #c9c9d1;
-    font-size: 10px;
-    line-height: 18px;
-    text-align: center;
+.segBar .fill { height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+.segAction.playing {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    box-shadow: inset 0 0 0 1px rgba(169, 230, 184, .22);
 }
-.segAction:hover { background: #35353f; color: #fff; }
-.segAction.playing { background: #2d4a33; color: #a9e6b8; }
 @media (max-width: 480px) {
     .body { max-height: 38vh; }
 }
 button:focus-visible, select:focus-visible, input:focus-visible {
-    outline: 2px solid #5a9e6b;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
 }
 `;
