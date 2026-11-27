@@ -254,9 +254,10 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .seg .segText {
     flex: 1;
     min-width: 0;
-    /* 预览文字不按字符数截断，交给行宽自然换行；多行时整块和图标垂直居中 */
-    line-height: 1.35;
-    overflow-wrap: anywhere;
+    /* 标题保持单行，超出行宽的部分省略，不按字符数预先截断 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: #a9a9b3;
 }
 .seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0211
+// @version      2026.11.28.0214
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -360,9 +360,10 @@ button:not(:disabled):active { filter: brightness(1.16); }
 .seg .segText {
     flex: 1;
     min-width: 0;
-    /* 预览文字不按字符数截断，交给行宽自然换行；多行时整块和图标垂直居中 */
-    line-height: 1.35;
-    overflow-wrap: anywhere;
+    /* 标题保持单行，超出行宽的部分省略，不按字符数预先截断 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: #a9a9b3;
 }
 .seg .segDur { flex: none; color: #80808a; font-variant-numeric: tabular-nums; }
