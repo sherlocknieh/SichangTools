@@ -116,7 +116,7 @@ export function createChain(host) {
                 audio.currentTime = 0;
                 host.idleSegmentTime(record, segment);
                 host.syncSegmentPlayState(segment);
-                // 顺序播放：这一段播完就接下一段，播到谁谁展开
+                // 顺序播放：这一段播完就接下一段，面板不自动展开
                 if (record.chain?.segment === segment) advanceChain(record, host.segmentIndex(record, segment));
             });
             audio.addEventListener('timeupdate', () => {
@@ -168,7 +168,8 @@ export function createChain(host) {
         record.chain = { segment };
         record.autoSegment = segment;
         host.activeAudio = audio;
-        host.openSegmentPanel(record, segment, 'segment');
+        // 播放不自动展开分段面板；只有用户已经点开某段时才把面板切到当前播放段
+        if (record.expandedSegment) host.openSegmentPanel(record, segment, 'segment');
         host.mirrorPlayingText(record, segment);
         syncRecordPlayButton(record);
 
@@ -247,7 +248,7 @@ export function createChain(host) {
         if (!segment?.audio) return;
         stopActive();
         host.activeAudio = segment.audio;
-        host.openSegmentPanel(record, segment, 'segment');
+        if (record.expandedSegment) host.openSegmentPanel(record, segment, 'segment');
         host.mirrorPlayingText(record, segment);
         syncRecordPlayButton(record);
         segment.audio.play().then(

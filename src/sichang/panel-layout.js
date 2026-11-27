@@ -16,10 +16,6 @@ export function createPanelLayout(host) {
             localStorage.setItem(FOLD_STORE_KEY, folded ? '1' : '0');
         } catch {}
     }
-    // 合成开始自动展开面板，方便看到分段进度；这只是临时展开，不改用户记住的折叠状态
-    function expandPanel() {
-        applyFold(false, false);
-    }
     ui.fold.addEventListener('click', () => applyFold(!ui.panel.classList.contains('folded')));
     // 默认收起；只有用户手动展开过（存了 0）才保持展开
     let savedFold = null;
@@ -72,7 +68,7 @@ export function createPanelLayout(host) {
     placePanel();
 
     return {
-        api: { applyFold, expandPanel, placePanel },
+        api: { applyFold, placePanel },
         dispose: () => {
             observer.disconnect();
             unsubscribeSettled();

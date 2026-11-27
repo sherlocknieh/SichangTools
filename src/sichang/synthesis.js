@@ -165,8 +165,7 @@ export function createSynthesis(host) {
         host.stopOtherChains(null);
         const tasks = splitText(text).map(segmentText => ({ text: segmentText }));
         if (!tasks.length) return null;
-        // 面板默认收起，合成一开始就展开，分段进度和播放控件都能直接看到
-        host.expandPanel?.();
+        // 合成不再自动展开面板：保持用户当前的折叠状态，分段进度需要时自己点开看
 
         const record = host.beginRecord(text, { voice, rate, format });
         // 开始新的合成后，输入框不再承担某一段的编辑目标
@@ -204,7 +203,7 @@ export function createSynthesis(host) {
         host.activeSession = session;
         host.syncGoButton?.();
         updateProgress(record, 0, session.total);
-        // 合成一开始就盯住实时播放位置，播到哪段就展开哪段
+        // 合成一开始就盯住实时播放位置，只记录当前段，不自动展开分段面板
         host.startTimelineTicker(record, session);
         host.syncRecordPlayButton(record);
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0050
+// @version      2026.11.28.0105
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -562,9 +562,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				localStorage.setItem(FOLD_STORE_KEY, folded ? "1" : "0");
 			} catch {}
 		}
-		function expandPanel() {
-			applyFold(false, false);
-		}
 		ui.fold.addEventListener("click", () => applyFold(!ui.panel.classList.contains("folded")));
 		let savedFold = null;
 		try {
@@ -607,7 +604,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		return {
 			api: {
 				applyFold,
-				expandPanel,
 				placePanel
 			},
 			dispose: () => {
@@ -1718,7 +1714,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			record.chain = { segment };
 			record.autoSegment = segment;
 			host.activeAudio = audio;
-			host.openSegmentPanel(record, segment, "segment");
+			if (record.expandedSegment) host.openSegmentPanel(record, segment, "segment");
 			host.mirrorPlayingText(record, segment);
 			syncRecordPlayButton(record);
 			const applyOffset = () => {
@@ -1797,7 +1793,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			if (!segment?.audio) return;
 			stopActive();
 			host.activeAudio = segment.audio;
-			host.openSegmentPanel(record, segment, "segment");
+			if (record.expandedSegment) host.openSegmentPanel(record, segment, "segment");
 			host.mirrorPlayingText(record, segment);
 			syncRecordPlayButton(record);
 			segment.audio.play().then(() => {
@@ -1901,9 +1897,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			const { segment, start, duration } = info;
 			if (record.autoSegment !== segment) {
 				record.autoSegment = segment;
-				host.openSegmentPanel(record, segment, "live");
+				if (record.expandedSegment?.mode === "live" && record.expandedSegment !== segment) host.openSegmentPanel(record, segment, "live");
 				host.mirrorPlayingText(record, segment);
-			} else if (record.expandedSegment === segment && segment.mode === "live") {
+			}
+			if (record.expandedSegment === segment && segment.mode === "live") {
 				host.updateSegmentTime(record, segment, position - start, duration);
 				host.syncSegmentPanel(record, segment);
 			}
@@ -2317,7 +2314,6 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			host.stopOtherChains(null);
 			const tasks = splitText(text).map((segmentText) => ({ text: segmentText }));
 			if (!tasks.length) return null;
-			host.expandPanel?.();
 			const record = host.beginRecord(text, {
 				voice,
 				rate,
@@ -2649,7 +2645,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 		};
 	}
 	function createRegenerator(host) {
-		const { records, selection, inputText, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, openSegmentPanel, playChainSegment, flashSegmentRegenButton, currentTts } = host;
+		const { records, selection, inputText, sampleRateOf, segmentIndex, segmentSpans, livePosition, rescheduleTimeline, clearSegmentAudio, setSegmentState, setSegmentLabel, refreshRecordText, rebuildRecord, refreshSegmentControls, stopTimeline, stopChain, playChainSegment, flashSegmentRegenButton, currentTts } = host;
 		async function regenerateSegment(record, segment, options = {}) {
 			const { text: textOverride, autoPlay = true, keepLock = false, allowEmpty = false, deferRebuild = false } = options;
 			if (!segment || !records.includes(record) || segment.busy) return false;
@@ -2665,10 +2661,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				if (record.state === "playing" || record.state === "paused") stopTimeline(record);
 				if (record.state !== "ready" && record.state !== "capturing") return false;
 			}
-			if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) {
-				stopChain(record);
-				openSegmentPanel(record, segment, "segment");
-			}
+			if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) stopChain(record);
 			segment.busy = true;
 			if (!keepLock) record.regenerating = true;
 			refreshSegmentControls(record);

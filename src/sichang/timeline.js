@@ -41,16 +41,20 @@ export function createTimeline(host) {
         return Math.min(session.receivedSeconds, Math.max(0, position));
     }
 
-    // 播到哪一段就展开哪一段；用户手动点开别的分段时，不强行抢回来
+    // 播到哪一段就只记住哪一段，不自动展开分段面板；用户手动点开实时面板后，
+    // 面板才继续跟随播放位置切段和刷新进度
     function showLiveSegment(record, session, position) {
         const info = host.segmentAt(record, position);
         if (!info || !info.segment.bytes) return;
         const { segment, start, duration } = info;
         if (record.autoSegment !== segment) {
             record.autoSegment = segment;
-            host.openSegmentPanel(record, segment, 'live');
+            if (record.expandedSegment?.mode === 'live' && record.expandedSegment !== segment) {
+                host.openSegmentPanel(record, segment, 'live');
+            }
             host.mirrorPlayingText(record, segment);
-        } else if (record.expandedSegment === segment && segment.mode === 'live') {
+        }
+        if (record.expandedSegment === segment && segment.mode === 'live') {
             host.updateSegmentTime(record, segment, position - start, duration);
             host.syncSegmentPanel(record, segment);
         }

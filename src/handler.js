@@ -1,6 +1,6 @@
 // 思畅 AI 的「朗读」请求 POST /api/tts，拿回 24kHz 单声道 PCM16 流由页面边下边播。
 // 这里只负责装配：共享状态、选中逻辑和模块接线；具体职责见 sichang/ 下各模块。
-// 面板以分段为播放单位：点哪段就从哪段开始顺序播放，播到谁谁展开控制面板。
+// 面板以分段为播放单位：点哪段就从哪段开始顺序播放，控制面板只在用户点开分段时显示。
 
 import { PLAYBACK_RATES, PLAYBACK_RATE_STORE_KEY } from './sichang/constants.js';
 import { createPanel } from './sichang/panel.js';

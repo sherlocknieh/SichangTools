@@ -21,7 +21,6 @@ export function createRegenerator(host) {
         refreshSegmentControls,
         stopTimeline,
         stopChain,
-        openSegmentPanel,
         playChainSegment,
         flashSegmentRegenButton,
         currentTts,
@@ -55,10 +54,9 @@ export function createRegenerator(host) {
             if (record.state !== 'ready' && record.state !== 'capturing') return false;
         }
         // 顺序播放正播到或正等待这一段时，先停下队列；其他段可以继续播。
-        // 停下队列会收起面板，这里重新展开目标段，让「重生成中」保持可见
+        // 不自动展开目标段面板，重生成状态由分段行自己显示
         if (record.chain && (record.chain.segment === segment || record.chain.waitingFor === segment)) {
             stopChain(record);
-            openSegmentPanel(record, segment, 'segment');
         }
         // 先标目标段 busy 再刷新，保证它自己的播放键和「重生成」立即锁上，
         // 其他段仍保持可播
