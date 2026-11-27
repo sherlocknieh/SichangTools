@@ -256,6 +256,8 @@ export function createSynthesis(host) {
             const reader = response.body.getReader();
             const segment = piece.segment;
             let leftover = new Uint8Array(0);
+            // 记下当前读流，删除这一段时可以从外面立即断开，不用等下一块数据
+            segment.reader = reader;
             if (!segment.removed) host.setSegmentState(record, segment, 'active');
             try {
                 for (;;) {
@@ -289,6 +291,7 @@ export function createSynthesis(host) {
                     leftover = data.subarray(evenLength);
                 }
             } finally {
+                if (segment.reader === reader) segment.reader = null;
                 if (segment.removed) {
                     // 这一段被删掉了，停止读流，别再把数据写进已移除的条目
                     try { reader.cancel(); } catch {}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0049
+// @version      2026.11.28.0050
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -979,7 +979,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				segment.toggleButton.disabled = false;
 				setAction(segment.toggleButton, paused ? SEGMENT_ICONS.play : SEGMENT_ICONS.pause, paused ? "继续播放" : "暂停播放");
 				segment.toggleButton.classList.toggle("playing", !capturing && !paused);
-				segment.stopButton.hidden = false;
+				segment.stopButton.hidden = capturing;
 				setAction(segment.stopButton, SEGMENT_ICONS.stop, capturing ? "停止合成" : "停止播放");
 				segment.stopButton.classList.toggle("synth", capturing);
 				segment.synthButton.hidden = true;
@@ -1320,6 +1320,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				host.updateProgress?.(record, session.done, session.total);
 			}
 			segment.removed = true;
+			if (segment.reader) {
+				try {
+					segment.reader.cancel();
+				} catch {}
+				segment.reader = null;
+			}
 			if (record.chain?.segment === segment) host.stopChain(record);
 			else if (record.chain?.waitingFor === segment) host.advanceChain(record, index);
 			if (record.expandedSegment === segment) host.closeSegmentPanel(record, segment);
@@ -2406,6 +2412,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 				const reader = response.body.getReader();
 				const segment = piece.segment;
 				let leftover = new Uint8Array(0);
+				segment.reader = reader;
 				if (!segment.removed) host.setSegmentState(record, segment, "active");
 				try {
 					for (;;) {
@@ -2436,6 +2443,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 						leftover = data.subarray(evenLength);
 					}
 				} finally {
+					if (segment.reader === reader) segment.reader = null;
 					if (segment.removed) try {
 						reader.cancel();
 					} catch {}

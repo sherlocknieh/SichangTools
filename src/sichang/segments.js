@@ -238,7 +238,8 @@ export function createSegments(host) {
             setAction(segment.toggleButton, paused ? SEGMENT_ICONS.play : SEGMENT_ICONS.pause,
                 paused ? '继续播放' : '暂停播放');
             segment.toggleButton.classList.toggle('playing', !capturing && !paused);
-            segment.stopButton.hidden = false;
+            // 生成中的分段不再保留「停止合成」入口：要跳过这一段直接删它
+            segment.stopButton.hidden = capturing;
             setAction(segment.stopButton, SEGMENT_ICONS.stop, capturing ? '停止合成' : '停止播放');
             segment.stopButton.classList.toggle('synth', capturing);
             segment.synthButton.hidden = true;

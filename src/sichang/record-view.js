@@ -250,6 +250,11 @@ export function createRecordView(host) {
             host.updateProgress?.(record, session.done, session.total);
         }
         segment.removed = true;
+        // 这一段正在生成：立即断开读流，停止继续收数据
+        if (segment.reader) {
+            try { segment.reader.cancel(); } catch {}
+            segment.reader = null;
+        }
         // 顺序播放正播到或正等待这一段：播到该段时按剩余列表继续或停下
         if (record.chain?.segment === segment) host.stopChain(record);
         else if (record.chain?.waitingFor === segment) host.advanceChain(record, index);
