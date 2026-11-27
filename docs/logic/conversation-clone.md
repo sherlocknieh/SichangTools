@@ -12,9 +12,7 @@
 4. `POST /api/conversations/import` 把消息换成新 ID、重排 `seq` 后导入；
 5. 重新 `GET` 副本消息校验条数、角色和正文。
 
-匿名 `conv__anonymous__` 会话同样适用：服务端接受创建和导入匿名前缀的会话。接口不可达（纯本地匿名对话）时，退回官方 React context 的 `createConversation/addMessage` 写 IndexedDB。
-
-成功后整页进入副本；本地匿名副本直接切换官方状态并只改地址。任一步失败时删除刚建的副本，原会话不变，失败信息只写控制台。
+匿名 `conv__anonymous__` 会话同样按普通会话处理：服务端接受创建和导入匿名前缀的会话，统一走 `create + import`，不再退回本地复制。成功后整页进入副本；任一步失败时删除刚建的副本，原会话不变，失败信息只写控制台。
 
 ## 入口与顶栏按钮
 
@@ -113,15 +111,6 @@ import 请求体沿用迁移格式，每条消息只带 `id/seq/role/model/conte
 - 有媒体链接时复制入口写一条 `[SichangTools]` 控制台日志，说明保留了几条消息里的媒体地址。
 
 这样副本里能继续看到原图，但链接不是官方附件结构，不能重新编辑或基于它再次生成；单条删除的尾部重建不走这条逻辑，仍会丢附件。
-
-## 本地匿名回退
-
-`copyConversation()` 先尝试服务端接口。如果源是匿名会话且接口失败（离线、401、纯本地对话），并且官方 context 里正是这条会话：
-
-1. `context.createConversation(model)` 创建一个新会话（本地模式下会写 IndexedDB 并切换 activeId）；
-2. 逐条 `context.addMessage(newCid, { id: msg__<owner>__<newId>, role, content, createdAt })`；
-3. 最后 `context.renameConversation(newCid, title)`，避免第一条用户消息自动改写标题；
-4. 返回 `{ local: true }`，调用方只 `history.replaceState` 改地址，不整页跳转，避免中断异步落盘。
 
 ## 限制
 

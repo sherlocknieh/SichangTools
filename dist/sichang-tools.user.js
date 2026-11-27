@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0135
+// @version      2026.11.28.0144
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -2905,24 +2905,6 @@ button[${BUSY_ATTR}]::before {
 			throw error;
 		}
 	}
-	function copyConversationLocally({ context, meta, messages, title }) {
-		validateCopyMessages(messages);
-		const created = context?.createConversation?.(meta.model || "gemma-4-uncensored");
-		if (!created?.id) throw new Error("无法创建本地副本会话。");
-		const owner = conversationOwner(created.id);
-		for (const message of messages) context.addMessage(created.id, {
-			id: `msg__${owner}__${newId()}`,
-			role: roleOf(message),
-			content: copyMessageText(message),
-			createdAt: message.createdAt || Date.now(),
-			...message.model ? { model: message.model } : {}
-		});
-		context.renameConversation?.(created.id, title);
-		return {
-			cid: created.id,
-			local: true
-		};
-	}
 	async function readConversationForCopy(sourceCid, context) {
 		try {
 			const [meta, messages] = await Promise.all([loadConversation(sourceCid), loadMessages(sourceCid)]);
@@ -2941,26 +2923,16 @@ button[${BUSY_ATTR}]::before {
 			throw error;
 		}
 	}
-	async function copyConversation({ sourceCid, context, meta, messages, title }) {
+	async function copyConversation({ sourceCid, meta, messages, title }) {
 		const owner = conversationOwner(sourceCid);
 		const withMedia = messages.filter((message) => messageMediaMarkdown(message)).length;
 		if (withMedia) console.info(`[SichangTools] 已把 ${withMedia} 条消息里的图片/附件地址以 Markdown 链接写入副本。`);
-		try {
-			return await copyConversationByApi({
-				owner,
-				meta,
-				messages,
-				title
-			});
-		} catch (error) {
-			if (owner === "anonymous" && context?.activeConversation?.id === sourceCid) return copyConversationLocally({
-				context,
-				meta,
-				messages,
-				title
-			});
-			throw error;
-		}
+		return copyConversationByApi({
+			owner,
+			meta,
+			messages,
+			title
+		});
 	}
 	var MENU_SELECTOR$1 = "[data-sichang-delete-menu]";
 	var MODE_SELECTOR = "[data-sichang-delete-mode]";
@@ -3201,7 +3173,7 @@ button[${BUSY_ATTR}]::before {
 			closeMenu();
 			if (!anchor || state.busy) return;
 			const cid = readConversationId();
-			if (!cid || cid.startsWith("conv__anonymous__")) return;
+			if (!cid) return;
 			state.cid = cid;
 			const buttonsAtClick = officialDeleteButtons();
 			const indexAtClick = buttonsAtClick.indexOf(anchor);
@@ -3242,8 +3214,7 @@ button[${BUSY_ATTR}]::before {
 				if (state.menu && !target.closest(MENU_SELECTOR$1)) closeMenu();
 				return;
 			}
-			const cid = readConversationId();
-			if (!cid || cid.startsWith("conv__anonymous__")) return;
+			if (!readConversationId()) return;
 			event.preventDefault();
 			event.stopPropagation();
 			event.stopImmediatePropagation();
@@ -3338,11 +3309,9 @@ button[${BUSY_ATTR}]::before {
 			const sourceCid = readConversationId();
 			if (!sourceCid) throw new Error("当前没有可克隆的会话。");
 			const anchor = findHeader()?.querySelector(OFFICIAL_NEW_CHAT_SELECTOR);
-			const context = anchor ? officialContext(anchor) : null;
-			const { meta, messages } = await readConversationForCopy(sourceCid, context);
+			const { meta, messages } = await readConversationForCopy(sourceCid, anchor ? officialContext(anchor) : null);
 			return copyConversation({
 				sourceCid,
-				context,
 				meta,
 				messages,
 				title: cloneTitle(meta.title)
@@ -3358,9 +3327,7 @@ button[${BUSY_ATTR}]::before {
 			setBusy(true);
 			try {
 				const result = await applyClone();
-				const path = `/chat/${encodeURIComponent(result.cid)}`;
-				if (result.local) window.history.replaceState(null, "", path);
-				else window.location.assign(path);
+				window.location.assign(`/chat/${encodeURIComponent(result.cid)}`);
 			} catch (error) {
 				console.warn("[SichangTools] 克隆失败：", error);
 			} finally {
@@ -3571,13 +3538,12 @@ button[${BUSY_ATTR}]::before {
 			if (content.length > 2e4) throw new Error(`正文超过 ${CONVERSATION_IMPORT_MAX_CHARS} 字，官方导入接口会截断。`);
 			return content;
 		}
-		function readTarget(cid, { allowAnonymous = false } = {}) {
+		function readTarget(cid) {
 			const composer = findComposer();
 			if (!composer?.send) throw new Error("AI 正在回复或输入区不可用，请等当前回复结束后再添加。");
 			const content = readInput(composer.textarea);
 			const owner = conversationOwner(cid);
 			if (!cid || !owner) throw new Error("当前还没有云端会话，先正常发送一条消息创建会话。");
-			if (owner === "anonymous" && !allowAnonymous) throw new Error("当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。");
 			return {
 				composer,
 				content,
@@ -3693,61 +3659,15 @@ button[${BUSY_ATTR}]::before {
 				})
 			};
 		}
-		async function insertBubbleLocally({ role, content, owner, context, conversation, cid, composer, index }) {
-			if (typeof context?.deleteFrom !== "function" || typeof context?.addMessage !== "function") throw new Error("当前本地对话不支持插入，请刷新页面后重试。");
-			const target = conversation.messages[index];
-			if (!target) throw new Error("在会话里找不到这条消息，请刷新后重试。");
-			const title = conversation.title;
-			const originalTail = conversation.messages.slice(index + 1);
-			const targetSeq = Number(target.seq);
-			const { message, tail } = planInsertedMessage({
-				role,
-				content,
-				owner,
-				seq: Number.isFinite(targetSeq) ? targetSeq + 1 : index + 1,
-				target,
-				tailMessages: originalTail
-			});
-			if (conversation.model) message.model = conversation.model;
-			let deleted = false;
-			try {
-				if (originalTail.length) {
-					deleted = true;
-					await context.deleteFrom(cid, originalTail[0].id);
-				}
-				context.addMessage(cid, message);
-				for (const item of tail) {
-					if (!item.model && conversation.model) item.model = conversation.model;
-					context.addMessage(cid, item);
-				}
-				if (index === 0 && title) context.renameConversation?.(cid, title);
-				setNativeValue(composer.textarea, "");
-				return true;
-			} catch (error) {
-				if (!deleted) throw error;
-				console.warn(`[SichangTools] 本地插入失败：${errorMessage(error)}`);
-				return false;
-			}
-		}
 		async function insertBubble(role, target) {
 			const cid = readConversationId();
-			const { composer, content, owner } = readTarget(cid, { allowAnonymous: true });
+			const { composer, content, owner } = readTarget(cid);
 			const context = officialContext(target.copy);
 			const conversation = context?.activeConversation;
 			if (!conversation || conversation.id !== cid) throw new Error("无法读取官方当前会话，请等消息加载完成。");
 			const buttonsNow = copyButtons$1();
 			if (!(buttonsNow.length === target.buttonsAtClick.length && buttonsNow.every((item, index) => item === target.buttonsAtClick[index])) || conversation.messages.length !== target.buttonsAtClick.length || target.indexAtClick < 0 || target.indexAtClick >= conversation.messages.length) throw new Error("消息列表已变化，请等页面稳定后重试。");
 			const local = conversation.messages[target.indexAtClick];
-			if (owner === "anonymous") return insertBubbleLocally({
-				role,
-				content,
-				owner,
-				context,
-				conversation,
-				cid,
-				composer,
-				index: target.indexAtClick
-			});
 			const [meta, fresh] = await Promise.all([loadConversation(cid), loadMessages(cid)]);
 			let index = fresh.findIndex((message) => message.id === local.id);
 			if (index < 0 && typeof local.seq === "number") index = fresh.findIndex((message) => message.seq === local.seq);
@@ -3978,7 +3898,6 @@ button[${BUSY_ATTR}]::before {
 			const title = `${source.meta.title || "新对话"}（前${messages.length}条）`;
 			return copyConversation({
 				sourceCid: cid,
-				context,
 				meta: source.meta,
 				messages,
 				title
@@ -3999,9 +3918,7 @@ button[${BUSY_ATTR}]::before {
 			setBusy(true, button);
 			try {
 				const result = await forkAt(copy, index);
-				const path = `/chat/${encodeURIComponent(result.cid)}`;
-				if (result.local) window.history.replaceState(null, "", path);
-				else window.location.assign(path);
+				window.location.assign(`/chat/${encodeURIComponent(result.cid)}`);
 			} catch (error) {
 				console.warn("[SichangTools] 复刻失败：", error);
 			} finally {

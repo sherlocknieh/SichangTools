@@ -44,16 +44,15 @@ export const FORK_BUTTON_SELECTOR = 'button[data-sichang-fork]';
 
 ## 复制与标题
 
-- 直接调用 `copyConversation({ sourceCid, context, meta, messages, title })`。
+- 直接调用 `copyConversation({ sourceCid, meta, messages, title })`。
 - 标题为「原标题（前N条）」，N 是复刻包含的消息条数。
-- 云端和匿名会话优先走官方 `create + import`；纯本地匿名会话在接口不可达时退回 context 的本地复制。
+- 所有会话（含匿名）统一走官方 `create + import`，不再按会话类型退回 context 本地复制。
 - 空正文用零宽空格占位；分支变体、思考和网页来源不会复制，图片/附件以 Markdown 链接追加到正文。
 - 失败时只写控制台 `[SichangTools]`，不弹窗。
 
 ## 跳转
 
-- 服务端副本：`window.location.assign('/chat/<newId>')` 整页进入，保证侧栏与消息都按服务端状态渲染。
-- 本地匿名副本：`history.replaceState` 只改地址，官方 context 已经切换到新会话，避免中断异步落盘。
+- 副本统一 `window.location.assign('/chat/<newId>')` 整页进入，加载服务端数据后由官方渲染，保证侧栏与消息都按服务端状态显示。
 
 ## 限制
 

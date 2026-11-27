@@ -97,7 +97,7 @@ export function createForkMessage() {
         if (fullIndex < 0) throw new Error('在会话里找不到这条消息，请刷新后重试。');
         const messages = source.messages.slice(0, fullIndex + 1);
         const title = `${source.meta.title || '新对话'}（前${messages.length}条）`;
-        return copyConversation({ sourceCid: cid, context, meta: source.meta, messages, title });
+        return copyConversation({ sourceCid: cid, meta: source.meta, messages, title });
     }
 
     async function onForkClick(event) {
@@ -117,9 +117,7 @@ export function createForkMessage() {
         setBusy(true, button);
         try {
             const result = await forkAt(copy, index);
-            const path = `/chat/${encodeURIComponent(result.cid)}`;
-            if (result.local) window.history.replaceState(null, '', path);
-            else window.location.assign(path);
+            window.location.assign(`/chat/${encodeURIComponent(result.cid)}`);
         } catch (error) {
             console.warn('[SichangTools] 复刻失败：', error);
         } finally {

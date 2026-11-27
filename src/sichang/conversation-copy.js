@@ -1,5 +1,5 @@
 // 会话复制的共用实现：整条克隆和消息级 fork 都走这里。
-// 优先用官方 create + import（匿名会话也支持）；接口不可达时退回官方 React context 的本地存储。
+// 统一用官方 create + import（匿名会话同样支持），不再区分会话类型。
 import {
     CONVERSATION_IMPORT_MAX_CHARS,
     CONVERSATION_IMPORT_MAX_MESSAGES,
@@ -180,28 +180,7 @@ export async function copyConversationByApi({ owner, meta, messages, title }) {
     }
 }
 
-// 本地复制：未登录或接口不可达时，用官方 context 的 createConversation/addMessage 写 IndexedDB。
-// 这些方法同步更新 React 状态、异步落盘，所以不需要也不应该整页跳转。
-export function copyConversationLocally({ context, meta, messages, title }) {
-    validateCopyMessages(messages);
-    const created = context?.createConversation?.(meta.model || 'gemma-4-uncensored');
-    if (!created?.id) throw new Error('无法创建本地副本会话。');
-    const owner = conversationOwner(created.id);
-    for (const message of messages) {
-        context.addMessage(created.id, {
-            id: `msg__${owner}__${newId()}`,
-            role: roleOf(message),
-            content: copyMessageText(message),
-            createdAt: message.createdAt || Date.now(),
-            ...(message.model ? { model: message.model } : {}),
-        });
-    }
-    // 放到最后：addMessage 会在空会话第一条用户消息时自动改标题，这里统一覆盖成分支标题。
-    context.renameConversation?.(created.id, title);
-    return { cid: created.id, local: true };
-}
-
-// 读取源会话：云端/匿名优先走接口；接口失败且当前 context 里就是这条会话时退回本地消息。
+// 读取源会话：优先走接口；接口失败且当前 context 里就是这条会话时退回本地消息。
 export async function readConversationForCopy(sourceCid, context) {
     try {
         const [meta, messages] = await Promise.all([
@@ -218,19 +197,12 @@ export async function readConversationForCopy(sourceCid, context) {
     }
 }
 
-// 统一入口：能走服务端就走服务端；匿名本地对话在接口不可用时退回 context。
-export async function copyConversation({ sourceCid, context, meta, messages, title }) {
+// 统一入口：所有会话都走服务端 create + import，不再按会话类型分流。
+export async function copyConversation({ sourceCid, meta, messages, title }) {
     const owner = conversationOwner(sourceCid);
     const withMedia = messages.filter(message => messageMediaMarkdown(message)).length;
     if (withMedia) {
         console.info(`[SichangTools] 已把 ${withMedia} 条消息里的图片/附件地址以 Markdown 链接写入副本。`);
     }
-    try {
-        return await copyConversationByApi({ owner, meta, messages, title });
-    } catch (error) {
-        if (owner === 'anonymous' && context?.activeConversation?.id === sourceCid) {
-            return copyConversationLocally({ context, meta, messages, title });
-        }
-        throw error;
-    }
+    return copyConversationByApi({ owner, meta, messages, title });
 }

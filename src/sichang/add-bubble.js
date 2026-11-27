@@ -242,15 +242,12 @@ export function createAddBubble() {
         return content;
     }
 
-    function readTarget(cid, { allowAnonymous = false } = {}) {
+    function readTarget(cid) {
         const composer = findComposer();
         if (!composer?.send) throw new Error('AI 正在回复或输入区不可用，请等当前回复结束后再添加。');
         const content = readInput(composer.textarea);
         const owner = conversationOwner(cid);
         if (!cid || !owner) throw new Error('当前还没有云端会话，先正常发送一条消息创建会话。');
-        if (owner === 'anonymous' && !allowAnonymous) {
-            throw new Error('当前是未登录的本地对话，暂不支持写入消息。请登录后打开云端对话。');
-        }
         return { composer, content, owner };
     }
 
@@ -372,55 +369,10 @@ export function createAddBubble() {
         return { message, tail };
     }
 
-    // 匿名会话在官方前端是本地 IndexedDB，服务端接口不是它的数据源。
-    // 用 context 的 deleteFrom 截断尾部，再按顺序 addMessage，由官方自己落盘和重绘。
-    async function insertBubbleLocally({ role, content, owner, context, conversation, cid, composer, index }) {
-        if (typeof context?.deleteFrom !== 'function' || typeof context?.addMessage !== 'function') {
-            throw new Error('当前本地对话不支持插入，请刷新页面后重试。');
-        }
-        const target = conversation.messages[index];
-        if (!target) throw new Error('在会话里找不到这条消息，请刷新后重试。');
-        const title = conversation.title;
-        const originalTail = conversation.messages.slice(index + 1);
-        const targetSeq = Number(target.seq);
-        const insertSeq = Number.isFinite(targetSeq) ? targetSeq + 1 : index + 1;
-        const { message, tail } = planInsertedMessage({
-            role,
-            content,
-            owner,
-            seq: insertSeq,
-            target,
-            tailMessages: originalTail,
-        });
-        if (conversation.model) message.model = conversation.model;
-
-        let deleted = false;
-        try {
-            if (originalTail.length) {
-                deleted = true;
-                await context.deleteFrom(cid, originalTail[0].id);
-            }
-            // 本地 appendMessage 自己按当前最大 seq + 1 落盘；这里按顺序追加即可。
-            context.addMessage(cid, message);
-            for (const item of tail) {
-                if (!item.model && conversation.model) item.model = conversation.model;
-                context.addMessage(cid, item);
-            }
-            // 在第一条消息下方插入时，官方会把新消息当“新会话的第一条”自动改标题，这里恢复原标题。
-            if (index === 0 && title) context.renameConversation?.(cid, title);
-            setNativeValue(composer.textarea, '');
-            return true;
-        } catch (error) {
-            if (!deleted) throw error;
-            console.warn(`[SichangTools] 本地插入失败：${errorMessage(error)}`);
-            return false;
-        }
-    }
-
     // 在 target 指向的消息后面插入一条：先截断原尾部，再按新顺序 import。
     async function insertBubble(role, target) {
         const cid = readConversationId();
-        const { composer, content, owner } = readTarget(cid, { allowAnonymous: true });
+        const { composer, content, owner } = readTarget(cid);
         const context = officialContext(target.copy);
         const conversation = context?.activeConversation;
         if (!conversation || conversation.id !== cid) {
@@ -437,20 +389,6 @@ export function createAddBubble() {
             throw new Error('消息列表已变化，请等页面稳定后重试。');
         }
         const local = conversation.messages[target.indexAtClick];
-
-        // 匿名会话只存在本地 IndexedDB，改服务端接口不会影响页面数据。
-        if (owner === 'anonymous') {
-            return insertBubbleLocally({
-                role,
-                content,
-                owner,
-                context,
-                conversation,
-                cid,
-                composer,
-                index: target.indexAtClick,
-            });
-        }
 
         const [meta, fresh] = await Promise.all([
             loadConversation(cid),

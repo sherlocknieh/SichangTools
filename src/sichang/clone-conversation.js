@@ -97,7 +97,6 @@ export function createConversationClone() {
         const { meta, messages } = await readConversationForCopy(sourceCid, context);
         return copyConversation({
             sourceCid,
-            context,
             meta,
             messages,
             title: cloneTitle(meta.title),
@@ -114,10 +113,8 @@ export function createConversationClone() {
         setBusy(true);
         try {
             const result = await applyClone();
-            const path = `/chat/${encodeURIComponent(result.cid)}`;
-            // 本地副本已经切换好 React 状态，只改地址；远端副本需要整页加载服务端数据。
-            if (result.local) window.history.replaceState(null, '', path);
-            else window.location.assign(path);
+            // 统一整页进入副本，服务端数据在加载后由官方自己渲染。
+            window.location.assign(`/chat/${encodeURIComponent(result.cid)}`);
         } catch (error) {
             console.warn('[SichangTools] 克隆失败：', error);
         } finally {

@@ -29,7 +29,7 @@ src/
     synthesis.js       # 流式分段合成与 /api/tts 接管
     regenerate.js      # 单段/整条重生成流程（整条复用逐段流程）
     conversation-api.js # 官方会话接口共享封装：读取、import、错误文案
-    conversation-copy.js # 会话复制：云端/匿名接口复制与本地回退
+    conversation-copy.js # 会话复制：统一走 create + import
     official-page.js   # 官方 React context、输入区定位与受控输入工具
     hydration.js       # 站点水合门禁：React 水合完成前不往 React 管理的 DOM 插节点
     busy-icon.js       # 共享「操作中」按钮动画：旋转箭头
@@ -59,14 +59,14 @@ src/
   - `playback-bar.js`：标题栏的统一播放控件。扫描 `host.records` 找出正在出声或停在原位的播放（顺序播放的 `<audio>` 优先于实时时间线/合成流），据此显示「暂停/继续播放」和倍速按钮；暂停/继续分别转调 chain 或 timeline 的对应函数，不自己保存播放状态。空闲时两个按钮都隐藏。
   - `synthesis.js`：按句分段请求 `/api/tts`、边收边播、整条 WAV 落盘与 `fetch` 接管。
   - `regenerate.js`：单段重生成与整条重生成流程；整条重生成原地复用逐段流程，不新建记录。记录/播放/UI 的读写通过 `createRegenerator(host)` 注入。
-  - `delete-message.js`：在 `window` 捕获阶段接管官方「删除消息」按钮，先弹「删除本条 / 删除后续（走官方）」菜单，不再直接触发官方原生删除，按官方消息文档顺序安全映射消息 ID。单条删除用「从目标消息 DELETE 截断 + `/api/conversations/import` 补回尾部」，删后续直接走官方 DELETE 截断；重导入会丢掉 variants/thinking/图片建议/网页来源/附件。删除成功后通过官方 React context 的 `upsertConversation` 写回剩余消息，让官方页面立即更新；拿不到官方状态时回退整页刷新。映射不确定或操作失败时不回退官方删除，匿名/本地对话不拦截。接口契约、恢复流程和 React 同步细节见 `logic/message-delete.md`。
+  - `delete-message.js`：在 `window` 捕获阶段接管官方「删除消息」按钮，先弹「删除本条 / 删除后续（走官方）」菜单，不再直接触发官方原生删除，按官方消息文档顺序安全映射消息 ID。单条删除用「从目标消息 DELETE 截断 + `/api/conversations/import` 补回尾部」，删后续直接走官方 DELETE 截断；重导入会丢掉 variants/thinking/图片建议/网页来源/附件。删除成功后通过官方 React context 的 `upsertConversation` 写回剩余消息，让官方页面立即更新；拿不到官方状态时回退整页刷新。映射不确定或操作失败时不回退官方删除；所有会话（含匿名 `conv__anonymous__`）都走同一套流程。接口契约、恢复流程和 React 同步细节见 `logic/message-delete.md`。
   - `conversation-api.js`：官方会话接口的共享封装（`readConversationId`、读取元数据与分页消息、`createConversation`、`importMessages`、`errorMessage`）。删除、克隆与 fork 都走这一份契约，站点改版时只改这里。
-  - `conversation-copy.js`：会话复制实现，整条克隆与消息级 fork 共用；负责空正文占位、新 ID/seq、写入校验、失败清理，以及匿名/本地接口不可达时退回官方 context 写 IndexedDB。
+  - `conversation-copy.js`：会话复制实现，整条克隆与消息级 fork 共用；负责空正文占位、新 ID/seq、写入校验、失败清理；所有会话统一走官方 `create + import`，不再按会话类型退回本地复制。
   - `clone-conversation.js`：在官方聊天页顶栏「新建对话」左侧注入「克隆会话」按钮；读取当前会话（云端或匿名）的元数据和全部消息，经 `conversation-copy.js` 新建副本。成功后进入副本，失败只写控制台。实现与接口细节见 `logic/conversation-clone.md`。
   - `official-page.js`：官方 React 页面的共享工具（从 DOM fiber 找 context、`findComposer()` 定位输入卡片、通过原生 setter 改受控 textarea）。删除、加气泡和语音面板共用。
   - `hydration.js`：站点水合门禁。`canMutate(element)` 判断目标节点是否已经水合完成（`readyState === 'complete'` 且有 `__reactFiber$`），`onSettled(cb)` 在水合完成或 5 秒兜底放行后回调一次。面板、加号、克隆和 fork 按钮的插入都先过这里，避免水合期多出的节点让 React 整页重渲染、清掉其它脚本挂的节点。
   - `busy-icon.js`：共享的操作中按钮动画。通过 `data-sichang-busy` 和伪元素把按钮内容替换成旋转箭头，删除、加气泡、克隆和 fork 共用。
-  - `add-bubble.js`：注入两个加号入口：官方输入区「发送消息」左侧的加号把输入框文字追加到会话末尾；每条消息操作行里的加号把文字插入到该条消息下方。两者都弹出「添加提问 / 添加回答」，不请求 AI 回复；云端会话走 import，匿名本地会话的插入走官方 context 的 `deleteFrom` + `addMessage` 写 IndexedDB。插入中间位置时先截断原尾部，再写回新消息和重排后的尾部。写入成功后立即更新气泡并清空输入框。细节见 `logic/add-bubble.md`。
+  - `add-bubble.js`：注入两个加号入口：官方输入区「发送消息」左侧的加号把输入框文字追加到会话末尾；每条消息操作行里的加号把文字插入到该条消息下方。两者都弹出「添加提问 / 添加回答」，不请求 AI 回复；所有会话类型统一走 import，不再按匿名会话分流。插入中间位置时先截断原尾部，再写回新消息和重排后的尾部。写入成功后立即更新气泡并清空输入框。细节见 `logic/add-bubble.md`。
   - `fork-message.js`：在每条官方消息的操作行注入 fork 按钮；按按钮文档顺序映射到消息，截取到该条为止后复用 `conversation-copy.js` 新建副本。映射数量不一致时安全拒绝。细节见 `logic/fork-message.md`。
   - `tts.js`：重生成用的一次性分段请求，负责读完整条 PCM16、丢弃多出的半采样并返回采样率。
   - `text.js`：分段（`splitText`/`splitInHalf`）、预览与时长格式化，纯函数。

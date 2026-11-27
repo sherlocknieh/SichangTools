@@ -290,8 +290,7 @@ export function createMessageDelete(host) {
         if (!anchor || state.busy) return;
 
         const cid = readConversationId();
-        // 匿名/本地对话没有云端消息接口；菜单是脚本加的，这里直接放弃。
-        if (!cid || cid.startsWith('conv__anonymous__')) return;
+        if (!cid) return;
         state.cid = cid;
 
         const buttonsAtClick = officialDeleteButtons();
@@ -344,8 +343,8 @@ export function createMessageDelete(host) {
         }
 
         const cid = readConversationId();
-        // 匿名/本地对话没有云端消息接口；不拦官方本地删除。
-        if (!cid || cid.startsWith('conv__anonymous__')) return;
+        // 会话还没就绪时不接管，避免把菜单挂到切换中的页面上。
+        if (!cid) return;
 
         // 必须在官方 React handler 之前同步截获，改成弹脚本菜单，失败时也绝不回退官方“全删到末尾”。
         event.preventDefault();
