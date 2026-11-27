@@ -41,6 +41,7 @@ src/
     text.js            # 文本切分与展示格式化（纯函数）
     constants.js       # 接口路径、分段阈值、localStorage key
     voices.js          # 音色列表
+    icons.js           # 面板与记录头共用的内联 SVG 图标
     styles.js          # 面板样式（PANEL_CSS）
     audio.js           # PCM16/WAV 转换与拼接（纯函数）
 ```
