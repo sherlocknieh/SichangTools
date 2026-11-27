@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.27.2326
+// @version      2026.11.27.2327
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -93,7 +93,7 @@
 		return label.replace(/（.*?）/g, "").replace(/\(.*?\)/g, "") || label;
 	}
 	var PANEL_CSS = `
-:host { all: initial; display: block; margin: 0 0 16px; }
+:host { all: initial; display: block; margin: 0 0 18px; }
 .panel {
     box-sizing: border-box;
     width: 100%;
@@ -374,7 +374,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 	function createPanel() {
 		const host = document.createElement("div");
 		host.id = PANEL_ID;
-		host.style.cssText = "display:block;";
+		host.style.cssText = "display:block; margin:0 0 18px;";
 		for (const type of [
 			"click",
 			"pointerdown",

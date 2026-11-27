@@ -138,6 +138,14 @@
 
 **规避**：先核对官方输入区 DOM，只改 `constants.js` 的 `OFFICIAL_SEND_SELECTOR` 或 `official-page.js` 的 `findComposer()`，不要把定位逻辑复制到各模块。
 
+## 改 Shadow DOM 里的 `:host` 样式没效果（面板间距等）
+
+**现象**：在 `styles.js` 里改 `:host { margin/… }`，面板外观没有变化。
+
+**原因**：按 CSS 作用域规则，普通声明里**外层文档的规则优先级高于 Shadow 树的 `:host` 规则**；站点 Tailwind 的 `* { margin: 0 }` 等重置会盖掉 `:host` 上的 margin。
+
+**规避**：作用在宿主元素本身、又必须赢过站点重置的属性（如外边距），写成 `panel.js` 里宿主的内联样式 `host.style.cssText`；纯 Shadow 内部元素继续用 `styles.js`。
+
 ## 面板失败或没有声音
 
 **现象**：点击朗读或「合成」后提示失败，或完全无声。

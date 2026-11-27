@@ -1,6 +1,6 @@
 // 面板样式：注入 Shadow DOM，选择器都在这里维护。
 export const PANEL_CSS = `
-:host { all: initial; display: block; margin: 0 0 16px; }
+:host { all: initial; display: block; margin: 0 0 18px; }
 .panel {
     box-sizing: border-box;
     width: 100%;

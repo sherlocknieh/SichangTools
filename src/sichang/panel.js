@@ -7,7 +7,8 @@ export function createPanel() {
     const host = document.createElement('div');
     host.id = PANEL_ID;
     // 面板嵌在官方输入卡片顶部，位置和宽度交给卡片；没有输入区时由 panel-layout 隐藏
-    host.style.cssText = 'display:block;';
+    // 间距必须内联：:host 的普通声明会被站点外层样式（Tailwind 的 margin:0 重置）盖掉
+    host.style.cssText = 'display:block; margin:0 0 18px;';
     // 面板嵌在官方输入卡片里，交互不要冒泡给站点的输入区/快捷键
     for (const type of ['click', 'pointerdown', 'keydown', 'keyup', 'change']) {
         host.addEventListener(type, event => event.stopPropagation());
