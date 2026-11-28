@@ -34,7 +34,7 @@ export function createPanel() {
     `).join('');
     panel.innerHTML = `
         <div class="head" title="单击收起/展开">
-            <button class="fold" aria-label="收起">›</button>
+            <button class="fold" aria-label="收起">${ICONS.chevron}</button>
             <span class="title">语音合成</span>
             <span class="spacer"></span>
             <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>

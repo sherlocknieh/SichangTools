@@ -65,13 +65,14 @@ button:not(:disabled):active { filter: brightness(1.16); }
     width: 20px;
     padding: 0;
     color: #5a5a64;
-    font-size: 16px;
-    line-height: 1;
-    transition: transform .12s, background-color .12s ease, color .12s ease;
+    /* 图标本身垂直居中，不靠字形基线；展开时整体旋转 90° */
+    transition: transform .12s, color .12s ease;
 }
+.head .fold > svg { width: 11px; height: 11px; }
 /* 收起时箭头朝右，展开时和分段行一样转 90° 朝下 */
 .panel:not(.folded) .head .fold { transform: rotate(90deg); }
-.head .fold:hover { color: #a8a8b2; }
+/* 折叠按钮只变图标颜色，不加悬停底色 */
+.head .fold:hover { background: none; color: #a8a8b2; }
 .head .rateCycle {
     min-width: 38px;
     padding: 0 7px;

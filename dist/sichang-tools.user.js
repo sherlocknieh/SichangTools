@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.1322
+// @version      2026.11.28.1358
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -52,6 +52,7 @@
 		play: solid("<path d=\"M8.2 5.4v13.2L19 12z\"/>"),
 		pause: solid("<rect x=\"7.4\" y=\"5.4\" width=\"3.4\" height=\"13.2\" rx=\"1.7\"/><rect x=\"13.2\" y=\"5.4\" width=\"3.4\" height=\"13.2\" rx=\"1.7\"/>"),
 		regen: shape("<path d=\"M20 12a8 8 0 1 1-8-8c2.2 0 4.3.9 5.9 2.4L20 8.5\"/><path d=\"M20 3.5v5h-5\"/>"),
+		chevron: shape("<path d=\"m9 6 6 6-6 6\"/>"),
 		download: shape("<path d=\"M12 4.5v10\"/><path d=\"m7.8 10.6 4.2 4.2 4.2-4.2\"/><path d=\"M5.5 19h13\"/>"),
 		close: shape("<path d=\"m7 7 10 10M17 7 7 17\"/>"),
 		synth: solid("<path d=\"M11 3.6l1.8 5.1 5.1 1.8-5.1 1.8L11 17.4l-1.8-5.1L4.1 10.5l5.1-1.8z\"/><path d=\"M18.2 14.6l.8 2.3 2.3.8-2.3.8-.8 2.3-.8-2.3-2.3-.8 2.3-.8z\"/>"),
@@ -173,13 +174,14 @@ button:not(:disabled):active { filter: brightness(1.16); }
     width: 20px;
     padding: 0;
     color: #5a5a64;
-    font-size: 16px;
-    line-height: 1;
-    transition: transform .12s, background-color .12s ease, color .12s ease;
+    /* 图标本身垂直居中，不靠字形基线；展开时整体旋转 90° */
+    transition: transform .12s, color .12s ease;
 }
+.head .fold > svg { width: 11px; height: 11px; }
 /* 收起时箭头朝右，展开时和分段行一样转 90° 朝下 */
 .panel:not(.folded) .head .fold { transform: rotate(90deg); }
-.head .fold:hover { color: #a8a8b2; }
+/* 折叠按钮只变图标颜色，不加悬停底色 */
+.head .fold:hover { background: none; color: #a8a8b2; }
 .head .rateCycle {
     min-width: 38px;
     padding: 0 7px;
@@ -426,7 +428,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
     `).join("");
 		panel.innerHTML = `
         <div class="head" title="单击收起/展开">
-            <button class="fold" aria-label="收起">›</button>
+            <button class="fold" aria-label="收起">${ICONS.chevron}</button>
             <span class="title">语音合成</span>
             <span class="spacer"></span>
             <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>
