@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.0317
+// @version      2026.11.28.1311
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -203,11 +203,19 @@ button:not(:disabled):active { filter: brightness(1.16); }
     font-weight: 500;
 }
 .head .clear:hover { background: var(--btn-bg-hover); color: #fff; }
-.head .clear.confirm {
+/* 点开「清空」后原地换成两个选项，再点任一项立即执行 */
+.head .clearOptions {
+    display: inline-flex;
+    gap: 4px;
+}
+.head .clearOption {
+    padding: 0 9px;
     background: var(--danger-soft);
     color: var(--danger-ink);
+    font-weight: 500;
+    white-space: nowrap;
 }
-.head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
+.head .clearOption:hover { background: #4a2a30; color: #ffb3b3; }
 .head .voice {
     flex: 0 1 132px;
     min-width: 64px;
@@ -424,7 +432,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
             <button class="playToggle" hidden aria-label="暂停播放" title="暂停播放">${ICONS.pause}</button>
             <button class="rateCycle" hidden aria-label="播放倍速" title="播放倍速">1×</button>
             <select class="voice" aria-label="音色">${groups}</select>
-            <button class="clear" hidden aria-label="清空全部记录">清空</button>
+            <span class="clearOptions" hidden>
+                <button class="clearOption clearVoice" aria-label="清空语音">清空语音</button>
+                <button class="clearOption clearText" aria-label="清空文本">清空文本</button>
+            </span>
+            <button class="clear" hidden aria-label="清空语音和文本">清空</button>
         </div>
         <div class="body">
             <div class="list"></div>
@@ -441,6 +453,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 			rateCycle: panel.querySelector(".rateCycle"),
 			playToggle: panel.querySelector(".playToggle"),
 			clear: panel.querySelector(".clear"),
+			clearOptions: panel.querySelector(".clearOptions"),
+			clearVoice: panel.querySelector(".clearVoice"),
+			clearText: panel.querySelector(".clearText"),
 			fold: panel.querySelector(".fold"),
 			voice: panel.querySelector(".voice"),
 			dispose() {
@@ -1100,25 +1115,20 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 	function createRecordView(host) {
 		const { ui, records } = host;
 		let clearTimer = null;
-		function resetClearConfirm() {
+		function resetClearOptions() {
 			clearTimeout(clearTimer);
 			clearTimer = null;
-			ui.clear.classList.remove("confirm");
-			ui.clear.textContent = "清空";
-			ui.clear.title = "清空全部记录";
-			ui.clear.setAttribute("aria-label", "清空全部记录");
+			ui.clearOptions.hidden = true;
+			ui.clear.hidden = records.length === 0;
 		}
-		function armClearConfirm() {
-			ui.clear.classList.add("confirm");
-			ui.clear.textContent = "确认清空";
-			ui.clear.title = "再次点击确认清空全部记录";
-			ui.clear.setAttribute("aria-label", "再次点击确认清空全部记录");
+		function openClearOptions() {
+			ui.clear.hidden = true;
+			ui.clearOptions.hidden = false;
 			clearTimeout(clearTimer);
-			clearTimer = setTimeout(resetClearConfirm, 3e3);
+			clearTimer = setTimeout(resetClearOptions, 3e3);
 		}
 		function updateCount() {
-			resetClearConfirm();
-			ui.clear.hidden = records.length === 0;
+			resetClearOptions();
 			ui.panel.classList.toggle("empty", records.length === 0);
 		}
 		function syncRecordRegenButton(record) {
@@ -1454,18 +1464,24 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 			record.downloadButton.disabled = false;
 		}
 		const onDocumentPointerDown = (event) => {
-			if (ui.clear.classList.contains("confirm") && !event.composedPath().includes(ui.clear)) resetClearConfirm();
+			if (ui.clearOptions.hidden) return;
+			const path = event.composedPath();
+			if (path.includes(ui.clearOptions) || path.includes(ui.clear)) return;
+			resetClearOptions();
 		};
 		document.addEventListener("pointerdown", onDocumentPointerDown, true);
 		ui.clear.addEventListener("click", () => {
 			if (!records.length) return;
-			if (!ui.clear.classList.contains("confirm")) {
-				armClearConfirm();
-				return;
-			}
-			resetClearConfirm();
+			openClearOptions();
+		});
+		ui.clearVoice.addEventListener("click", () => {
+			resetClearOptions();
 			for (const record of [...records]) removeRecord(record);
 			host.activeAudio = null;
+		});
+		ui.clearText.addEventListener("click", () => {
+			resetClearOptions();
+			host.applySelection(null, null);
 			host.setInputText("");
 		});
 		updateCount();

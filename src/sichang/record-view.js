@@ -10,29 +10,24 @@ import { joinedPcm, pcmToWav } from './audio.js';
 export function createRecordView(host) {
     const { ui, records } = host;
 
-    // 清空全部记录不再弹系统确认框：第一次点击把按钮改成「确认清空」，
-    // 3 秒内再点一次才真正删除；点别处或超时都回到普通状态
+    // 清空按钮第一次点击原地展开「清空语音 / 清空文本」两个选项，
+    // 再点任一选项立即执行；点别处或 3 秒后收回，避免面板一直停在这个状态
     let clearTimer = null;
-    function resetClearConfirm() {
+    function resetClearOptions() {
         clearTimeout(clearTimer);
         clearTimer = null;
-        ui.clear.classList.remove('confirm');
-        ui.clear.textContent = '清空';
-        ui.clear.title = '清空全部记录';
-        ui.clear.setAttribute('aria-label', '清空全部记录');
+        ui.clearOptions.hidden = true;
+        ui.clear.hidden = records.length === 0;
     }
-    function armClearConfirm() {
-        ui.clear.classList.add('confirm');
-        ui.clear.textContent = '确认清空';
-        ui.clear.title = '再次点击确认清空全部记录';
-        ui.clear.setAttribute('aria-label', '再次点击确认清空全部记录');
+    function openClearOptions() {
+        ui.clear.hidden = true;
+        ui.clearOptions.hidden = false;
         clearTimeout(clearTimer);
-        clearTimer = setTimeout(resetClearConfirm, 3000);
+        clearTimer = setTimeout(resetClearOptions, 3000);
     }
 
     function updateCount() {
-        resetClearConfirm();
-        ui.clear.hidden = records.length === 0;
+        resetClearOptions();
         // 没有记录时不展开 body，面板只保留顶栏；提示文字也省掉，避免占高度
         ui.panel.classList.toggle('empty', records.length === 0);
     }
@@ -406,23 +401,28 @@ export function createRecordView(host) {
     }
 
     const onDocumentPointerDown = event => {
-        // 点了清空按钮以外的地方就撤销二次确认
-        if (ui.clear.classList.contains('confirm') && !event.composedPath().includes(ui.clear)) {
-            resetClearConfirm();
-        }
+        // 点开两个选项后，点它们或原按钮以外的地方就收回
+        if (ui.clearOptions.hidden) return;
+        const path = event.composedPath();
+        if (path.includes(ui.clearOptions) || path.includes(ui.clear)) return;
+        resetClearOptions();
     };
     document.addEventListener('pointerdown', onDocumentPointerDown, true);
 
     ui.clear.addEventListener('click', () => {
         if (!records.length) return;
-        if (!ui.clear.classList.contains('confirm')) {
-            armClearConfirm();
-            return;
-        }
-        resetClearConfirm();
+        openClearOptions();
+    });
+    // 清空语音：删除全部合成记录并释放音频，输入框文字保持不动
+    ui.clearVoice.addEventListener('click', () => {
+        resetClearOptions();
         for (const record of [...records]) removeRecord(record);
         host.activeAudio = null;
-        // 记录和输入框文字是同一份编辑上下文，清空记录时把官方输入框也一并清空
+    });
+    // 清空文本：只清空官方输入框；选中状态一起取消，避免高亮和输入内容对不上
+    ui.clearText.addEventListener('click', () => {
+        resetClearOptions();
+        host.applySelection(null, null);
         host.setInputText('');
     });
 

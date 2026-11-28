@@ -95,11 +95,19 @@ button:not(:disabled):active { filter: brightness(1.16); }
     font-weight: 500;
 }
 .head .clear:hover { background: var(--btn-bg-hover); color: #fff; }
-.head .clear.confirm {
+/* 点开「清空」后原地换成两个选项，再点任一项立即执行 */
+.head .clearOptions {
+    display: inline-flex;
+    gap: 4px;
+}
+.head .clearOption {
+    padding: 0 9px;
     background: var(--danger-soft);
     color: var(--danger-ink);
+    font-weight: 500;
+    white-space: nowrap;
 }
-.head .clear.confirm:hover { background: #4a2a30; color: #ffb3b3; }
+.head .clearOption:hover { background: #4a2a30; color: #ffb3b3; }
 .head .voice {
     flex: 0 1 132px;
     min-width: 64px;
