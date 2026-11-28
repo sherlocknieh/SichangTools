@@ -23,9 +23,9 @@ export function createRecordView(host) {
     function openClearOptions() {
         ui.clear.hidden = true;
         ui.clearOptions.hidden = false;
-        // 各自按当前内容决定能不能点，避免对空输入执行无意义操作
-        ui.clearVoice.disabled = records.length === 0;
-        ui.clearText.disabled = !String(host.getInputText?.() || '').trim();
+        // 各自按当前内容决定是否显示，没有对应内容时直接隐藏选项
+        ui.clearVoice.hidden = records.length === 0;
+        ui.clearText.hidden = !String(host.getInputText?.() || '').trim();
         clearTimeout(clearTimer);
         clearTimer = setTimeout(resetClearOptions, 3000);
     }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.1321
+// @version      2026.11.28.1322
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -1124,8 +1124,8 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 		function openClearOptions() {
 			ui.clear.hidden = true;
 			ui.clearOptions.hidden = false;
-			ui.clearVoice.disabled = records.length === 0;
-			ui.clearText.disabled = !String(host.getInputText?.() || "").trim();
+			ui.clearVoice.hidden = records.length === 0;
+			ui.clearText.hidden = !String(host.getInputText?.() || "").trim();
 			clearTimeout(clearTimer);
 			clearTimer = setTimeout(resetClearOptions, 3e3);
 		}
