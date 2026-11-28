@@ -13,21 +13,17 @@ export function createRecordView(host) {
     // 清空按钮第一次点击原地展开「清空语音 / 清空文本」两个选项，
     // 再点任一选项立即执行；点别处或 3 秒后收回，避免面板一直停在这个状态
     let clearTimer = null;
-    // 有记录或输入框里有文字，就还有可清空的内容；清空语音后仍能继续清空文本
-    function hasClearTarget() {
-        if (records.length) return true;
-        return Boolean(String(host.getInputText?.() || '').trim());
-    }
     function resetClearOptions() {
         clearTimeout(clearTimer);
         clearTimer = null;
         ui.clearOptions.hidden = true;
-        ui.clear.hidden = !hasClearTarget();
+        // 没有记录时直接隐藏清空入口
+        ui.clear.hidden = records.length === 0;
     }
     function openClearOptions() {
         ui.clear.hidden = true;
         ui.clearOptions.hidden = false;
-        // 各自按当前内容决定能不能点，避免对空记录/空输入执行无意义操作
+        // 各自按当前内容决定能不能点，避免对空输入执行无意义操作
         ui.clearVoice.disabled = records.length === 0;
         ui.clearText.disabled = !String(host.getInputText?.() || '').trim();
         clearTimeout(clearTimer);
@@ -418,7 +414,7 @@ export function createRecordView(host) {
     document.addEventListener('pointerdown', onDocumentPointerDown, true);
 
     ui.clear.addEventListener('click', () => {
-        if (!hasClearTarget()) return;
+        if (!records.length) return;
         openClearOptions();
     });
     // 清空语音：删除全部合成记录并释放音频，输入框文字保持不动

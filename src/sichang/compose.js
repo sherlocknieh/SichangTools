@@ -139,15 +139,12 @@ export function createCompose(host) {
         }
         host.inputTyping = false;
         syncGoButton();
-        // 输入框内容变化时刷新「清空」是否还有可清的内容（无记录时也能清文本）
-        host.updateCount?.();
     }
 
     function onUserInput() {
         if (writing) return;
         host.inputTyping = true;
         syncGoButton();
-        host.updateCount?.();
     }
 
     function onKeydown(event) {
@@ -162,7 +159,6 @@ export function createCompose(host) {
     function bindInput(next) {
         if (!next || next === textarea) {
             syncGoButton();
-            host.updateCount?.();
             return;
         }
         if (textarea) {
@@ -174,7 +170,6 @@ export function createCompose(host) {
         textarea.addEventListener('keydown', onKeydown);
         host.inputTyping = false;
         syncGoButton();
-        host.updateCount?.();
     }
 
     try {
