@@ -306,7 +306,7 @@ export function createRecordView(host) {
         deleteButton.title = '删除这条记录';
         deleteButton.setAttribute('aria-label', '删除这条记录');
         // 摘要占据中间剩余宽度，下载放到行末，其余操作保持整条/分段的统一尺寸
-        head.append(caret, segCount, txt, duration, playButton, regenAllButton, deleteButton, downloadButton);
+        head.append(caret, segCount, txt, duration, downloadButton, playButton, regenAllButton, deleteButton);
 
         const segList = document.createElement('div');
         segList.className = 'segList';

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.1929
+// @version      2026.11.28.1934
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -1373,7 +1373,7 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 			deleteButton.innerHTML = ICONS.close;
 			deleteButton.title = "删除这条记录";
 			deleteButton.setAttribute("aria-label", "删除这条记录");
-			head.append(caret, segCount, txt, duration, playButton, regenAllButton, deleteButton, downloadButton);
+			head.append(caret, segCount, txt, duration, downloadButton, playButton, regenAllButton, deleteButton);
 			const segList = document.createElement("div");
 			segList.className = "segList";
 			row.append(head, segList);
