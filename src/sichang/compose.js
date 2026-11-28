@@ -76,7 +76,7 @@ export function createCompose(host) {
         goButton.disabled = !getInputText().trim();
     }
 
-    // 生成按钮和加号同属官方按钮行：发送 → 加号 → 生成。
+    // 生成按钮和加号同属官方按钮行：生成 → 加号 → 发送。
     // 由 panel-layout 在每次挂载检查时调用；节点被 React 重绘掉后在这里重建。
     function ensureGoButton(composer = findComposer()) {
         if (!composer?.send || !composer.row) return;
@@ -101,11 +101,12 @@ export function createCompose(host) {
             next.innerHTML = ICONS.synth;
             goButton = next;
         }
-        // 加号插在发送按钮后面；生成始终紧跟加号，避免后插入的节点打乱顺序。
+        // 生成按钮紧贴在加号左侧（没有加号时退到发送按钮左侧），
+        // 保证按钮组始终是「生成 → 加号 → 发送」，后插入的节点不会打乱顺序。
         const plus = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
         const anchor = plus || composer.send;
-        if (goButton.previousElementSibling !== anchor) {
-            anchor.parentElement.insertBefore(goButton, anchor.nextSibling);
+        if (goButton.nextElementSibling !== anchor) {
+            anchor.parentElement.insertBefore(goButton, anchor);
         }
         syncGoButton();
     }

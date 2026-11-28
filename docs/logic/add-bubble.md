@@ -24,7 +24,7 @@ export const INSERT_BUBBLE_BUTTON_SELECTOR = 'button[data-sichang-insert-bubble]
 export const INSERT_BUBBLE_BUTTON_LABEL = '在下方插入消息';
 ```
 
-- **输入区加号**：以官方「发送消息」按钮为锚点，向上最多 5 层找到同时包住 `textarea` 的输入区容器；加号插在「发送消息」右侧（按钮组顺序：发送 → 加号 → 生成语音），复用官方「发送附件」按钮的 class（没有附件按钮时用发送按钮）；图标是内联 SVG。
+- **输入区加号**：以官方「发送消息」按钮为锚点，向上最多 5 层找到同时包住 `textarea` 的输入区容器；加号插在「发送消息」左侧（按钮组顺序：生成语音 → 加号 → 发送消息），复用官方「发送附件」按钮的 class（没有附件按钮时用发送按钮）；图标是内联 SVG。
 - **消息操作行加号**：以每条消息的「复制消息」按钮为锚点，复制官方按钮外壳（`span` + `button`），替换成加号图标后插在「复制消息」前面；与 fork 按钮同排，`aria-label`/`title` 为「在下方插入消息」。
 - AI 回复期间官方把发送按钮换成「停止生成」，`findComposer` 找不到发送按钮，点击任一加号只写控制台，不弹窗。
 - 输入区和消息列表会随会话切换、回复状态重绘；`MutationObserver` 监听 `document.body` 的 childList，去抖 120ms 后补插，不做轮询。

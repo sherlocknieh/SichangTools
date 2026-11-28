@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.1358
+// @version      2026.11.28.1928
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -705,7 +705,7 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 				goButton = next;
 			}
 			const anchor = composer.row.querySelector("button[data-sichang-add-bubble]") || composer.send;
-			if (goButton.previousElementSibling !== anchor) anchor.parentElement.insertBefore(goButton, anchor.nextSibling);
+			if (goButton.nextElementSibling !== anchor) anchor.parentElement.insertBefore(goButton, anchor);
 			syncGoButton();
 		}
 		function getInputText() {
@@ -3566,17 +3566,18 @@ button[${BUSY_ATTR}]::before {
 			positionMenu();
 		}
 		function ensureComposerButton() {
-			if (button?.isConnected) {
-				setBusy(state.busy, state.activeButton);
-				return;
-			}
 			const composer = findComposer();
 			if (!composer?.send || !composer.row) return;
 			if (!canMutate(composer.row)) return;
 			const existing = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
 			if (existing) {
+				if (existing.nextElementSibling !== composer.send) composer.send.parentElement.insertBefore(existing, composer.send);
 				button = existing;
-				setBusy(state.busy);
+				setBusy(state.busy, state.activeButton);
+				return;
+			}
+			if (button?.isConnected) {
+				setBusy(state.busy, state.activeButton);
 				return;
 			}
 			const next = (composer.row.querySelector("button[aria-label=\"发送附件\"], button[title=\"发送附件\"]") || composer.send).cloneNode(false);
@@ -3585,7 +3586,7 @@ button[${BUSY_ATTR}]::before {
 			next.title = `${ADD_BUBBLE_BUTTON_LABEL}（选择提问或回答）`;
 			next.setAttribute("aria-haspopup", "menu");
 			next.innerHTML = PLUS_ICON;
-			composer.send.parentElement.insertBefore(next, composer.send.nextSibling);
+			composer.send.parentElement.insertBefore(next, composer.send);
 			button = next;
 			setBusy(state.busy);
 		}

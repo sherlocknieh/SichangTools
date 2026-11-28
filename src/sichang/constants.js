@@ -21,7 +21,7 @@ export const OFFICIAL_NEW_CHAT_SELECTOR = 'button[aria-label="新建对话"], bu
 export const CLONE_BUTTON_SELECTOR = 'button[data-sichang-clone]';
 export const CLONE_BUTTON_LABEL = '克隆会话';
 export const CLONE_TITLE_SUFFIX = '（副本）';
-// 官方输入区：按钮组顺序固定为「发送消息 → 加号 → 生成语音」，都读写同一个 textarea。
+// 官方输入区：按钮组顺序固定为「生成语音 → 加号 → 发送消息」，都读写同一个 textarea。
 export const OFFICIAL_SEND_SELECTOR = 'button[aria-label="发送消息"], button[title="发送消息"]';
 export const OFFICIAL_ATTACH_SELECTOR = 'button[aria-label="发送附件"], button[title="发送附件"]';
 export const ADD_BUBBLE_BUTTON_SELECTOR = 'button[data-sichang-add-bubble]';

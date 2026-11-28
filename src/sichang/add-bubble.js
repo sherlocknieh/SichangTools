@@ -171,18 +171,22 @@ export function createAddBubble() {
     }
 
     function ensureComposerButton() {
-        if (button?.isConnected) {
-            setBusy(state.busy, state.activeButton);
-            return;
-        }
         const composer = findComposer();
         if (!composer?.send || !composer.row) return;
         // 水合完成前不要往官方输入行插节点，否则会触发 React 整页重渲染
         if (!canMutate(composer.row)) return;
         const existing = composer.row.querySelector(ADD_BUBBLE_BUTTON_SELECTOR);
+        // 加号紧贴发送按钮左侧；被 React 重绘打乱时也重新归位
         if (existing) {
+            if (existing.nextElementSibling !== composer.send) {
+                composer.send.parentElement.insertBefore(existing, composer.send);
+            }
             button = existing;
-            setBusy(state.busy);
+            setBusy(state.busy, state.activeButton);
+            return;
+        }
+        if (button?.isConnected) {
+            setBusy(state.busy, state.activeButton);
             return;
         }
         // 复用官方附件按钮的 class，保持与输入区同尺寸；没有附件按钮时退回发送按钮样式。
@@ -193,8 +197,8 @@ export function createAddBubble() {
         next.title = `${ADD_BUBBLE_BUTTON_LABEL}（选择提问或回答）`;
         next.setAttribute('aria-haspopup', 'menu');
         next.innerHTML = PLUS_ICON;
-        // 按钮组顺序：发送 → 加号 → 生成，加号紧跟在发送按钮后面
-        composer.send.parentElement.insertBefore(next, composer.send.nextSibling);
+        // 按钮组顺序：语音 → 加号 → 发送，加号紧贴在发送按钮左侧
+        composer.send.parentElement.insertBefore(next, composer.send);
         button = next;
         setBusy(state.busy);
     }
