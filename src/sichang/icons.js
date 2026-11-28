@@ -10,6 +10,6 @@ export const ICONS = {
     chevron: shape('<path d="m9 6 6 6-6 6"/>'),
     download: shape('<path d="M12 4.5v10"/><path d="m7.8 10.6 4.2 4.2 4.2-4.2"/><path d="M5.5 19h13"/>'),
     close: shape('<path d="m7 7 10 10M17 7 7 17"/>'),
-    synth: solid('<path d="M11 3.6l1.8 5.1 5.1 1.8-5.1 1.8L11 17.4l-1.8-5.1L4.1 10.5l5.1-1.8z"/><path d="M18.2 14.6l.8 2.3 2.3.8-2.3.8-.8 2.3-.8-2.3-2.3-.8 2.3-.8z"/>'),
+    synth: shape('<path d="M11 5 6.5 9H4a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h2.5L11 19z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 6a9 9 0 0 1 0 12"/>'),
     waiting: shape('<circle cx="6.6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="17.4" cy="12" r="1.3" fill="currentColor"/>'),
 };
