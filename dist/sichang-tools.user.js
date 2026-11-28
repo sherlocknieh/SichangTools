@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SichangTools
 // @namespace    https://github.com/sherlocknieh/
-// @version      2026.11.28.1311
+// @version      2026.11.28.1318
 // @description  接管思畅 AI 朗读，分段合成、边下边播；支持单条删除、会话克隆、消息 fork、手动添加消息与 WAV 保存
 // @icon         https://sichang.xyz/favicon.ico
 // @match        https://sichang.xyz/*
@@ -730,11 +730,13 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 			}
 			host.inputTyping = false;
 			syncGoButton();
+			host.updateCount?.();
 		}
 		function onUserInput() {
 			if (writing) return;
 			host.inputTyping = true;
 			syncGoButton();
+			host.updateCount?.();
 		}
 		function onKeydown(event) {
 			if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
@@ -745,6 +747,7 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 		function bindInput(next) {
 			if (!next || next === textarea) {
 				syncGoButton();
+				host.updateCount?.();
 				return;
 			}
 			if (textarea) {
@@ -756,6 +759,7 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 			textarea.addEventListener("keydown", onKeydown);
 			host.inputTyping = false;
 			syncGoButton();
+			host.updateCount?.();
 		}
 		try {
 			const savedVoice = localStorage.getItem(VOICE_STORE_KEY);
@@ -1115,15 +1119,21 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 	function createRecordView(host) {
 		const { ui, records } = host;
 		let clearTimer = null;
+		function hasClearTarget() {
+			if (records.length) return true;
+			return Boolean(String(host.getInputText?.() || "").trim());
+		}
 		function resetClearOptions() {
 			clearTimeout(clearTimer);
 			clearTimer = null;
 			ui.clearOptions.hidden = true;
-			ui.clear.hidden = records.length === 0;
+			ui.clear.hidden = !hasClearTarget();
 		}
 		function openClearOptions() {
 			ui.clear.hidden = true;
 			ui.clearOptions.hidden = false;
+			ui.clearVoice.disabled = records.length === 0;
+			ui.clearText.disabled = !String(host.getInputText?.() || "").trim();
 			clearTimeout(clearTimer);
 			clearTimer = setTimeout(resetClearOptions, 3e3);
 		}
@@ -1471,7 +1481,7 @@ button[data-sichang-go]:disabled { opacity: .4 !important; cursor: default !impo
 		};
 		document.addEventListener("pointerdown", onDocumentPointerDown, true);
 		ui.clear.addEventListener("click", () => {
-			if (!records.length) return;
+			if (!hasClearTarget()) return;
 			openClearOptions();
 		});
 		ui.clearVoice.addEventListener("click", () => {
